@@ -316,7 +316,7 @@ can prove, not less.
 python -m pytest tests/ -q
 ```
 
-416 tests, ~105 seconds. Six skip without an embedding matrix; the rest need no
+446 tests, ~110 seconds. Three skip without an embedding matrix; the rest need no
 network.
 
 The graph tests run with the gateway deliberately unreachable, so the fallback

@@ -77,6 +77,57 @@ install on 3.14 — `orjson` has no wheel and its Rust build fails against the
 3.14 ABI. Everything else in the stack runs on 3.14, so attaching to an
 existing gateway works on either.
 
+## What V2 added
+
+The MVP resolved corrections to products that were already live. V2 puts an
+estate in front of that and a product surface beside it.
+
+**Ten external systems, each reached over MCP.** A supplier portal, the
+supplier's own PIM, the artwork library, the ERP, an industry data pool, a
+regulatory feed, a marketplace connector, a translation service, an imaging
+system and a market feed. Each is its own server at `/mcp/{system}`, dialled at
+startup by a real `initialize` and `tools/list`; each declares what it emits and
+how badly it behaves. Connect another by pasting a URL, and the dependency map
+redraws from a topology message without a reload.
+
+Deliveries are asynchronous, batched and irregularly timed. Ingestion is
+sequenced. That split is the whole correctness argument and it is not a
+detail - the consumer cursor is a single watermark, so feeding interleaved
+batches straight to ingest would advance it past an event still in flight and
+drop that event silently, on a run reporting success.
+
+**Product 360.** Search by SKU, identifier or name; read the merged record with
+the system that carried each value and the values that lost; assess it against
+nine checks; and, for a record that passes, open the staging page it would
+become. Six checks are rules. Three read prose no rule encodes - whether a
+mandate's particulars are met, whether a sentence has quietly become untrue,
+whether the record contradicts our own documentation - and on those a model
+finds and *cites* while a rule decides. A candidate citing nothing retrievable
+is dropped.
+
+There is no readiness score. A product with three open findings is not seventy
+per cent ready; it is not ready, and the findings are what somebody acts on. A
+number would invite a threshold and a threshold invites launching at ninety.
+
+**Every finding names the system that supplied the problem.** "The data is
+incomplete" is not actionable; "the imaging system never sent an ingredient
+panel" is.
+
+**A capability directory** at `/.well-known/agent-cards.json`, built from the
+same Agent Cards it lists, keeping capabilities this system *implements* apart
+from ones it merely knows how to *reach*, and stating what each may not do.
+
+**Nothing names a model.** Two alias lists survived in the gateway client as the
+offline fallback and every one had gone stale against `litellm/config.yaml`, so
+an outage produced a picker the gateway would have refused. A test greps for
+their return.
+
+**A correction run takes about 21 seconds** against a live gateway, down from
+three to four minutes. The per-field rewrites and the per-document readings run
+concurrently; the extraction *writes* stay strictly sequential, because a
+watermark advances as each document is persisted and the next is read against
+it.
+
 ## Driving the demo
 
 The seed pack is a retailer onboarding an air purifier and a packaged snack
@@ -146,11 +197,14 @@ density and the brand accent are in the appearance menu; all three persist.
 | Lineage | Typed edge walk: document → attribute → variant → asset → listing → channel |
 | Retrieval | BM25 + dense embeddings fused with weighted RRF, numpy matrix |
 | Event plane | SQLite tape with per-consumer cursors, replay clock |
+| Source estate | Ten external systems, each an MCP server over HTTP, delivering in seeded batches at irregular times (`sc/estate/`) |
+| Readiness | Nine checks over a product record - six rules, three that read and must cite - and a verdict that is arithmetic (`sc/readiness/`) |
 | Exception handling | Bounded evidence loop over a read-only allowlist (`sc/graph/evidence.py`) |
 | Re-planning | Same thread, next revision; prior readings carried forward and re-validated |
 | Concurrency | Publish locks: a partial unique index makes them exclusive |
 | A2A | Peers with Agent Cards and JSON-RPC (`sc/a2a/`) |
-| MCP | Toolsets split by owning system (`sc/mcp/`), one of them able to write |
+| MCP | Toolsets split by owning system (`sc/mcp/`), one of them able to write; connections made at runtime by a real handshake |
+| Discovery | One directory at `/.well-known/agent-cards.json`, built from the cards it lists |
 | UI | React + Vite, Tailwind v4 tokens, Radix primitives; every diagram is hand-rolled SVG — no chart or graph library |
 
 ### Why these choices
@@ -262,7 +316,7 @@ can prove, not less.
 python -m pytest tests/ -q
 ```
 
-267 tests, ~75 seconds. Six skip without an embedding matrix; the rest need no
+416 tests, ~105 seconds. Six skip without an embedding matrix; the rest need no
 network.
 
 The graph tests run with the gateway deliberately unreachable, so the fallback
@@ -317,6 +371,25 @@ toolset that owns them; the console shows each call with the transport it
 actually used, and a toolset that fails to spawn falls back in-process rather
 than losing the run.
 
+Beside those six, the **estate**: ten external systems, each its own server at
+`/mcp/{system}` over Streamable HTTP, dialled at startup by a real handshake.
+They are not toolsets this repository owns - they are systems it talks to, and
+the listing labels which is which.
+
+Connecting is a URL. An address that does not answer is recorded as degraded
+with the reason rather than raising, because a demo that cannot boot when a mock
+supplier is slow is worse than one missing a supplier.
+
+**Discovery is not admission.** A connected system's tools become visible
+immediately and callable never, until an operator admits specific ones - and
+only while that system is answering. The tempting shortcut is to auto-admit
+anything a system declares read-only, but "read-only" is the connecting system's
+claim about itself, and the evidence desk's allowlist exists precisely because a
+tool's self-description is not a control.
+
+A discovered tool never shadows a built-in one. If a connected system declares
+`commit_plan`, the built-in keeps the name and the collision is reported.
+
 ## A2A
 
 Peers with Agent Cards another organisation's agent could discover:
@@ -336,6 +409,21 @@ The approval gate is deliberately not a peer, and neither is publishing. A
 human decision is not a capability to delegate, and a peer that could publish
 is a peer that could publish.
 
+Those cards were correct and not discoverable: a peer that knows an identifier
+can fetch one, and a peer that knows only the host cannot find out what is here.
+So there is one more document:
+
+```
+GET  /.well-known/agent-cards.json
+```
+
+Built from the same cards it lists rather than from a separate inventory, which
+would drift within a release and drift silently. It keeps peers apart from
+connected systems - one list would say this estate can do things it can only ask
+somebody else to do - and every peer entry states what it may not do, because a
+directory that merely omits the approval gate invites the reader to conclude it
+was forgotten.
+
 `USE_A2A=1` makes the graph delegate over JSON-RPC instead of calling the
 handlers in-process. The validator's trace hash is identical either way; if it
 were not, this would be two implementations rather than one capability with two
@@ -348,6 +436,9 @@ corpus/      authored content standards, channel specs, policies, prior incident
 data/        generated seed pack, incl. golden/extractions.jsonl - the answer
              key the eval grades against (reproducible; git-ignored)
 sc/          contracts, db, state, sim, rag, llm, graph, tools, replay
+sc/estate/   the ten external systems: manifest, emitter, defects, arrivals,
+             their MCP servers, and the publication side
+sc/readiness/ the nine checks, the verdict, the staging page
 scripts/     generate_data.py, build_index.py, prepare_demo.py, evaluate.py
 sc/graph/    nodes, branches, prompts, evidence desk, state, assembly
 sc/a2a/      peer agents, their cards, the client that calls them

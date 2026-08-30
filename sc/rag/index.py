@@ -18,6 +18,8 @@ call, so the same alias, key handling and cost accounting apply.
 
 from __future__ import annotations
 
+import logging
+
 import os
 from datetime import datetime
 from pathlib import Path
@@ -52,6 +54,9 @@ def matrix_path() -> Path:
 
 
 # ---------------------------------------------------------------------------
+log = logging.getLogger(__name__)
+
+
 # Build
 # ---------------------------------------------------------------------------
 
@@ -64,6 +69,18 @@ def collect_chunks(include_comms: bool = True) -> list[DocChunk]:
         comms_dir = baseline_mod.data_dir() / "comms"
         if comms_dir.exists():
             chunks.extend(chunker.chunk_comms(comms_dir))
+
+    # The catalog's own held values, rebuilt with the index rather than carried
+    # beside it. A record passage that has fallen behind a correction is a
+    # citation supporting the wrong answer, which is worse than no passage.
+    #
+    # Guarded: the corpus is committed and always readable, the catalog is
+    # generated and might not be. An index missing its record passages is a
+    # narrower index; an index that will not build is no index.
+    try:
+        chunks.extend(chunker.chunk_records(baseline_mod.get()))
+    except Exception:  # noqa: BLE001 - a narrower index beats none
+        log.debug("no catalog to index records from", exc_info=True)
     return chunks
 
 

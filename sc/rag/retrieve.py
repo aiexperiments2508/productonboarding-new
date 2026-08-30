@@ -42,7 +42,11 @@ SEMANTIC_WEIGHT = 1.0
 LEXICAL_WEIGHT = 0.7
 
 
-REFERENCE_TYPES = ["STANDARD", "CHANNEL", "POLICY", "POSTMORTEM"]
+# What a default search reads. Correspondence is excluded and opt-in; the
+# record type is included because a question about a product should find what
+# the catalog holds about it without the caller having to ask twice.
+REFERENCE_TYPES = ["STANDARD", "CHANNEL", "POLICY", "POSTMORTEM",
+                   "REGULATION", "INTERNAL", "MARKET", "RECORD"]
 
 
 def search(
@@ -55,6 +59,7 @@ def search(
     semantic: bool = True,
     lexical: bool = True,
     include_comms: bool = False,
+    include_unscoped: bool = False,
 ) -> list[RetrievedChunk]:
     """Retrieve chunks, filtered then fused.
 
@@ -76,7 +81,8 @@ def search(
     if doc_types is None:
         doc_types = REFERENCE_TYPES + (["COMMS"] if include_comms else [])
 
-    allowed = _filter(index, doc_types, entities, tags, exclude_docs)
+    allowed = _filter(index, doc_types, entities, tags, exclude_docs,
+                      include_unscoped)
     if not allowed:
         return []
 
@@ -134,7 +140,31 @@ def _rrf(rankings: list[tuple[list[int], float]]) -> list[tuple[int, float]]:
     return sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))
 
 
-def _filter(index, doc_types, entities, tags, exclude_docs) -> set[int]:
+def for_product(query: str, entity_id: str, top_k: int = 6,
+                doc_types: list[str] | None = None,
+                related: list[str] | None = None) -> list[RetrievedChunk]:
+    """Search, narrowed to one product.
+
+    A readiness check that retrieved another product's regulation would report
+    a finding against the wrong product, which is worse than reporting none. So
+    the entity filter is not advisory here - it is the point.
+
+    Passages about *no* entity in particular are kept. A regulation covering a
+    whole category names the category and not the product, and dropping it
+    because it fails to mention PRD-01 would remove the only thing that could
+    have blocked PRD-01.
+
+    ``related`` carries the entity's family - its variants, its product, its
+    supplier - because a correction about a variant is answered by a passage
+    about its product at least as often as by one about itself.
+    """
+    scope = [entity_id, *(related or [])]
+    return search(query, top_k=top_k, doc_types=doc_types, entities=scope,
+                  include_unscoped=True)
+
+
+def _filter(index, doc_types, entities, tags, exclude_docs,
+            include_unscoped: bool = False) -> set[int]:
     """Metadata filtering as a set of allowed row indices.
 
     With a few hundred chunks this is a linear scan and costs nothing, which is
@@ -156,8 +186,16 @@ def _filter(index, doc_types, entities, tags, exclude_docs) -> set[int]:
             # An entity mentioned in the body counts as well as one declared in
             # the header - the header lists the document's subject, not every
             # identifier it happens to discuss.
-            if not (listed & wanted_entities) and not any(
-                    e in c.text.upper() for e in wanted_entities):
+            named = bool(listed & wanted_entities) or any(
+                e in c.text.upper() for e in wanted_entities)
+            # A passage about nothing in particular is category-level guidance:
+            # a regulation covering purifiers names the category, not PRD-01.
+            # Dropping it for failing to mention PRD-01 would remove the only
+            # thing that could have blocked PRD-01. Opt-in, because the callers
+            # that filter to an entity to *narrow* a result set do not want the
+            # unscoped half back.
+            general = include_unscoped and not listed
+            if not named and not general:
                 continue
         if wanted_tags:
             listed = {str(t).lower() for t in c.metadata.get("tags", [])}

@@ -788,7 +788,18 @@ class AuditEntry(BaseModel):
 class DocChunk(BaseModel):
     id: str
     doc_id: str
-    doc_type: Literal["STANDARD", "CHANNEL", "POLICY", "POSTMORTEM", "COMMS"]
+    #: STANDARD, CHANNEL, POLICY and POSTMORTEM are the written standards this
+    #: system is answerable to. REGULATION, INTERNAL and MARKET arrived with
+    #: launch readiness, which asks three questions the standards cannot
+    #: answer: what a market authority *requires* of a category as opposed to
+    #: what our own policy says about it, what our own internal documentation
+    #: says, and what makes a product worth buying in this region this month.
+    #: RECORD is the catalog's own held values, indexed so that a question
+    #: about a product cites evidence the same way a question about a rule
+    #: does. COMMS is correspondence - evidence about one situation rather
+    #: than guidance, and excluded from search unless asked for.
+    doc_type: Literal["STANDARD", "CHANNEL", "POLICY", "POSTMORTEM",
+                      "REGULATION", "INTERNAL", "MARKET", "RECORD", "COMMS"]
     title: str
     text: str
     ordinal: int

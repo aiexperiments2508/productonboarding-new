@@ -252,3 +252,108 @@ def test_hybrid_beats_lexical_alone_on_paraphrase():
     hybrid = {r.chunk.doc_id for r in retrieve.search(query, top_k=3)}
     precedent = {"INC-2025-041"}
     assert hybrid & precedent and not (lexical_only & precedent)
+
+
+# ---------------------------------------------------------------------------
+# What launch readiness needs the index to hold
+#
+# The written standards answer "what do we say we do". Deciding whether a
+# product may launch asks three things they cannot: what a market authority
+# *requires* of the category, what our own internal documentation says, and
+# what makes the thing worth buying here and now. Plus one structural gap - the
+# product record itself was not retrievable, so every caller wanting both prose
+# and values had to join them by hand.
+# ---------------------------------------------------------------------------
+
+
+def test_the_new_reference_types_are_indexed_and_searchable():
+    status = index_mod.status()
+    by_type = status["by_type"]
+
+    for doc_type in ("REGULATION", "INTERNAL", "MARKET"):
+        assert by_type.get(doc_type, 0) > 0, f"{doc_type} has no passages"
+
+    # And each is reachable from a default search rather than only by asking
+    # for it: a readiness check should not have to know which shelf the answer
+    # is on.
+    assert retrieve.search("mandatory particulars allergen declaration",
+                           doc_types=["REGULATION"])
+    assert retrieve.search("what complete means for a new line",
+                           doc_types=["INTERNAL"])
+    assert retrieve.search("which season a category sells in",
+                           doc_types=["MARKET"])
+
+
+def test_an_unknown_document_type_is_classified_not_dropped(tmp_path):
+    """A typo in front matter should cost a document its classification and
+    never its presence. An unfindable regulation is a worse failure than a
+    misfiled one, and the misfiling is visible in the index status."""
+    doc = tmp_path / "odd.md"
+    doc.write_text(
+        "---\nid: ODD-001\ntype: NOT-A-REAL-TYPE\ntitle: Odd One\n---\n\n"
+        "# Odd One\n\nA paragraph with enough words in it to survive the "
+        "minimum chunk length that the chunker applies to short sections.\n",
+        encoding="utf-8")
+
+    chunks = chunker.chunk_document(doc)
+    assert chunks, "the document was dropped"
+    assert all(c.doc_type in chunker.KNOWN_TYPES for c in chunks)
+
+
+def test_a_products_own_record_is_retrievable():
+    hits = retrieve.search("VAR-01B", doc_types=["RECORD"])
+
+    assert hits, "the catalog's own values are not in the index"
+    top = hits[0].chunk
+    assert "VAR-01B" in top.text
+    # A value with no provenance is not evidence, and this index is read for
+    # evidence.
+    assert "DOC-" in top.text, "record passages must name the document behind a value"
+
+
+def test_record_passages_cannot_drift_from_the_catalog():
+    from sc.state import baseline as baseline_mod
+
+    base = baseline_mod.get()
+    records = [c for c in index_mod.load().chunks if c.doc_type == "RECORD"]
+
+    assert records, "no record passages were built"
+    for chunk in records:
+        entities = chunk.metadata.get("entities", [])
+        variant = next((e for e in entities if e in base.variants), None)
+        assert variant, f"{chunk.id} names no variant the catalog holds"
+        for (entity, path), value in base.attr_values.items():
+            if entity != variant:
+                continue
+            assert path in chunk.text, f"{chunk.id} omits {path}"
+            assert str(value) in chunk.text, f"{chunk.id} disagrees on {path}"
+
+
+def test_a_scoped_query_does_not_cross_products():
+    """A readiness check that retrieved another product's regulation would
+    report a finding against the wrong product, which is worse than none."""
+    hits = retrieve.for_product("allergen ingredients wattage", "PRD-01",
+                                top_k=12, related=["VAR-01A", "VAR-01B"])
+
+    assert hits
+    for hit in hits:
+        entities = set(hit.chunk.metadata.get("entities", []))
+        product_entities = {e for e in entities if e.startswith("PRD-")}
+        if product_entities:
+            assert "PRD-01" in product_entities, \
+                f"{hit.chunk.id} is about {product_entities}"
+
+
+def test_narrowing_filters_before_ranking():
+    """Filtering after ranking would return whatever survived a global top-k,
+    so a narrow scope would quietly return less than it has."""
+    scoped = retrieve.for_product("held values for this product", "VAR-01B",
+                                  top_k=8)
+    assert len(scoped) > 1, "narrowing returned almost nothing"
+
+    # Category-level guidance names no product and must survive the narrowing -
+    # a regulation covering purifiers is the thing that could block PRD-01, and
+    # it does not mention PRD-01.
+    general = retrieve.for_product("mandatory particulars", "VAR-02A", top_k=8,
+                                   doc_types=["REGULATION"])
+    assert general, "category-level regulation was filtered out by scoping"

@@ -53,6 +53,29 @@ caller that wants one.
   tuned them are untouched. This change gives that machine more to read; it
   does not second-guess it.
 
+### What measuring it found
+
+The golden set was extended to the new types and the weights were measured
+rather than assumed. Two results are worth carrying rather than glossing.
+
+- **The weights cannot be tuned against this set.** Swept across thirty
+  combinations of semantic and lexical weight from 0.6 to 1.0, every one scores
+  identically. Picking a new pair would have been taste reported as tuning, so
+  they are left where they were.
+- **On paraphrase, the fused retriever scores 4 of 8 and BM25 alone scores 4 of
+  8.** The dense half is contributing nothing measurable on these queries with
+  this embedding model. The identifier set is where the two retrievers
+  genuinely differ and BM25 wins those outright, so the fusion is not pointless
+  - but the paraphrase argument, which is the one the README makes for having
+  embeddings at all, is currently unearned.
+
+Neither is caused by this change: the original five paraphrase queries score 3
+of 5 whether or not the new document types are in the pool. What this change did
+was make the numbers visible. They were invisible because the semantic tests
+skip without an embedding matrix, and building one needs a gateway the suite
+deliberately does not have - so the guard that would have caught a regression is
+the guard that skips.
+
 ## Capabilities
 
 ### New Capabilities

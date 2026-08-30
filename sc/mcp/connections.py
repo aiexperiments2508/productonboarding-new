@@ -39,8 +39,10 @@ from __future__ import annotations
 from datetime import datetime
 
 from sc import db
+from sc.contracts import Provenance, ProvenanceKind
 from sc.mcp.registry import BY_ID as BUILTIN_BY_ID
 from sc.mcp.registry import TOOLSETS, describe as describe_builtins
+from sc.tools import planning
 
 CONNECTED = "connected"
 DEGRADED = "degraded"
@@ -192,7 +194,8 @@ def mark_degraded(connection_id: str, detail: str) -> dict | None:
     return get(connection_id)
 
 
-def admit(connection_id: str, tools: list[str]) -> dict | None:
+def admit(connection_id: str, tools: list[str],
+          actor: str = "operator") -> dict | None:
     """Allow a model to call these tools on this system.
 
     Only tools the system actually declared, and never one whose name a
@@ -209,6 +212,21 @@ def admit(connection_id: str, tools: list[str]) -> dict | None:
     with db.transaction() as conn:
         conn.execute("UPDATE connections SET admitted_tools = ? WHERE id = ?",
                      (db.dumps(allowed), connection_id))
+        # Admitting a tool changes what a model can reach, which is a governance
+        # decision with a person behind it - the same class of thing as an
+        # approval or a publish, and it belongs in the same ledger.
+        #
+        # Recorded in the same transaction as the change it describes, so the
+        # ledger cannot hold an admission the connection never got, or miss one
+        # it did.
+        planning.audit(
+            actor, "ADMIT", "connection", connection_id,
+            {"admitted": allowed,
+             "was": record["admitted_tools"],
+             "refused": sorted(set(tools) - set(allowed))},
+            Provenance(kind=ProvenanceKind.DECIDED, agent="operator",
+                       note=f"tools admitted on {connection_id}"),
+            conn=conn)
     return get(connection_id)
 
 

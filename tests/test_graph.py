@@ -977,3 +977,75 @@ def test_extraction_persists_in_tape_order_however_its_readings_raced(monkeypatc
                 if t["node"] == "extract" and t["summary"].startswith("EVT-")]
 
     assert documents(serial) == documents(parallel)
+
+
+# ---------------------------------------------------------------------------
+# The cache, and what it is allowed to claim
+#
+# Every model call is cached in SQLite keyed on (model, temperature, messages),
+# so a rehearsal populates it and the run a room watches reads it back. The
+# point is not speed - the loop finishes in about twenty seconds cold - it is
+# that the run is the same every time, independent of a venue's wifi.
+#
+# What the cache must never do is flatter the numbers. A served call is a hit,
+# not work done, and a usage panel that reported otherwise would undermine the
+# thing the cache exists to protect.
+# ---------------------------------------------------------------------------
+
+
+def test_a_served_call_is_recorded_as_a_hit_not_as_work():
+    """Reported honestly or the audit view is telling a story about spend that
+    did not happen."""
+    from sc.contracts import LlmUsage
+
+    served = LlmUsage(prompt_tokens=10, completion_tokens=2, cost_usd=0.001,
+                      cached=True)
+    live = LlmUsage(prompt_tokens=10, completion_tokens=2, cost_usd=0.001)
+
+    folded = nodes._spend("extract", live, served)["extract"]
+
+    assert folded["calls"] == 2
+    assert folded["cache_hits"] == 1, "a served call must be countable as served"
+
+
+def test_warming_the_cache_leaves_no_pending_decision():
+    """A warmed run is thrown away on its own thread. A presenter opening the
+    review screen must not find a half-worked case somebody else started."""
+    import scripts.prepare_demo as prepare
+
+    result = prepare.warm(thread="T-WARM-TEST")
+
+    # With no gateway this warms nothing, which is the correct and honest
+    # outcome - a venue with no network still gets a prepared demo.
+    assert "warmed" in result and "calls" in result
+    pending = graph_build.snapshot("T-WARM-TEST")
+    assert pending.get("thread_id") == "T-WARM-TEST"
+    # Whatever it did, it did on its own thread and not on the demo's.
+    assert graph_build.snapshot(THREAD).get("values", {}).get("trace") in (None, [])
+
+
+def test_two_validations_of_one_change_set_agree_on_the_trace_hash():
+    """The reproducibility the audit trail rests on, checked at the boundary
+    where it is actually true.
+
+    Two whole *runs* legitimately disagree: a run pins its recorded instant from
+    the wall clock and the validator folds that instant into the hash, so the
+    difference is the clock rather than the concurrency. Pinning the instant
+    removes it and leaves the property under test - that validating one change
+    set twice, with the rewrites fanned out, produces one hash.
+    """
+    from sc.sim.engine import simulate
+    from sc.contracts import ChangeSet
+
+    state = _run()["values"]
+
+    nodes.MAX_REGEN_WORKERS = 6
+    produced = nodes.regenerate(copy.deepcopy(state))
+    delta = (produced["ranked"][0].get("delta") or {}) if produced["ranked"] else {}
+    assert delta.get("actions"), "the pass proposed nothing, so this proves nothing"
+
+    base = baseline_mod.get()
+    change_set = ChangeSet.model_validate(delta)
+    hashes = {simulate(base, change_set).trace_hash for _ in range(5)}
+
+    assert len(hashes) == 1, f"one change set produced {len(hashes)} hashes"

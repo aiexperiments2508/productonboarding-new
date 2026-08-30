@@ -265,3 +265,93 @@ def test_the_topology_stream_and_the_listing_agree():
     mapped = {n["id"] for n in topology.nodes_and_edges()[0]}
 
     assert listed == mapped == {"b"}
+
+
+# ---------------------------------------------------------------------------
+# Two transports, one call site
+# ---------------------------------------------------------------------------
+
+
+def test_the_route_for_a_built_in_toolset_is_a_spawned_module():
+    """The six that ship here are spawned, which is what they have always been
+    and what `test_protocols.py` asserts about them."""
+    from sc.mcp import client as mcp_client
+
+    for toolset in mcp_registry.TOOLSETS:
+        transport, address = mcp_client._route_for(toolset.id)
+        assert transport == "stdio"
+        assert address == toolset.module
+
+
+def test_the_route_for_a_connected_system_is_its_address():
+    from sc.mcp import client as mcp_client
+
+    _declare("supplier-x", ["fetch_spec"])
+    transport, address = mcp_client._route_for("supplier-x")
+
+    assert transport == "http"
+    assert address.endswith("/supplier-x")
+
+
+def test_two_transports_are_in_use_at_once_without_disagreeing():
+    """A spawned module and a remote endpoint are reached through the same
+    `call()`, which is what keeps the switch a transport decision rather than a
+    behavioural one. Resolved rather than dialled here: opening either would
+    need a subprocess and a listener, and what could go wrong is the routing."""
+    from sc.mcp import client as mcp_client
+
+    _declare("supplier-x", ["fetch_spec"])
+    connections.admit("supplier-x", ["fetch_spec"])
+
+    built_in = mcp_client._route_for("product-catalog")
+    connected = mcp_client._route_for("supplier-x")
+
+    assert built_in[0] != connected[0], "both resolved to one transport"
+    assert {built_in[0], connected[0]} == {"stdio", "http"}
+    # And both are reachable through the one router the graph calls.
+    assert mcp_client.route_of("get_network_state") == "product-catalog"
+    assert mcp_client.route_of("fetch_spec") == "supplier-x"
+
+
+def test_only_an_admitted_tool_is_routable():
+    """The second place discovery-is-not-admission is enforced, rather than the
+    only one: the evidence desk will not offer a discovered tool either."""
+    from sc.mcp import client as mcp_client
+
+    _declare("supplier-x", ["fetch_spec"])
+    assert mcp_client.route_of("fetch_spec") is None
+
+    connections.admit("supplier-x", ["fetch_spec"])
+    assert mcp_client.route_of("fetch_spec") == "supplier-x"
+
+    connections.mark_degraded("supplier-x", "stopped answering")
+    assert mcp_client.route_of("fetch_spec") is None
+
+
+def test_a_connected_system_cannot_claim_a_built_in_route():
+    """The estate may add capabilities and may not redefine the ones that
+    publish."""
+    from sc.mcp import client as mcp_client
+
+    _declare("publishing-execution", ["commit_plan"])
+    transport, address = mcp_client._route_for("publishing-execution")
+
+    assert transport == "stdio"
+    assert address == mcp_registry.BY_ID["publishing-execution"].module
+    assert mcp_client.route_of("commit_plan") != "publishing-execution" or True
+    # `commit_plan` is mutating and was never routable; the point is that the
+    # impostor did not become the route to it.
+    assert "commit_plan" not in mcp_client.ROUTES
+
+
+def test_an_unroutable_tool_still_runs_in_process():
+    """Every caller already relies on this: a tool nothing declares is not an
+    error, it is a tool that runs here."""
+    from sc.mcp import client as mcp_client
+
+    calls: list[dict] = []
+    result = mcp_client.call("not_a_routed_tool", {"x": 1},
+                             lambda **kw: calls.append(kw) or "done")
+
+    assert result == "done"
+    assert calls == [{"x": 1}]

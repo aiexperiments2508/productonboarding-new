@@ -87,11 +87,17 @@
       `tests/test_preview.py::test_every_figure_on_the_page_is_in_the_record`
 - [x] 7.3 Show only claims the substantiation table supports; verify via
       `tests/test_preview.py::test_an_unsubstantiated_claim_does_not_reach_the_page`
-- [ ] 7.4 Put the preview behind the reviewer authorisation the approval gate
-      uses. NOT DONE: the route is open. The refusal-for-unready rule is
-      enforced and tested, but "authorised personnel only" is currently a
-      property of the deployment rather than of the code, and saying otherwise
-      would overstate it.
+- [x] 7.4 Put the preview behind the reviewer authorisation the approval gate
+      uses - which is a named actor and nothing more, because neither route
+      authenticates and this system has no identity provider anywhere. A
+      boundary stricter here would protect unpublished copy more carefully than
+      the decision to publish it; verify via
+      `tests/test_preview.py::test_a_preview_without_a_name_is_refused` and
+      `tests/test_preview.py::test_the_preview_asks_for_no_more_than_an_approval_does`
+- [x] 7.5 Record who previewed what, rendered or refused, so "who saw this
+      before it launched" is answerable; verify via
+      `tests/test_preview.py::test_a_preview_is_recorded_against_the_person_who_asked`
+      and `tests/test_preview.py::test_a_refused_preview_is_recorded_too`
 
 ## 8. The differentiator
 

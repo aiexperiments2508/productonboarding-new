@@ -64,6 +64,20 @@ class PeerAgent:
     #: pretending otherwise would only move the blocking somewhere less
     #: visible.
     handler: Callable[[dict], dict]
+    #: What this peer is not permitted to do, declared beside the handler that
+    #: would have to do it.
+    #:
+    #: Stated rather than left to be inferred from absence: a directory that
+    #: merely omits the approval gate invites a reader to conclude it was
+    #: forgotten. Declared *here* rather than authored in the directory because
+    #: a limit written somewhere else is a limit that goes stale - an agent
+    #: whose handler quietly gained the ability to publish would carry on
+    #: advertising that it cannot.
+    #:
+    #: Two are universal and set below for every peer: a human decision is not a
+    #: capability to delegate, and a peer that could publish is a peer that
+    #: could publish.
+    may_not: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +620,25 @@ def _budget(base, channel_id: str, field: str, text: str) -> tuple[int | None, i
 # ---------------------------------------------------------------------------
 
 
+#: True of every peer, and true because the graph never routes either to one.
+#: A peer that could approve would make the reviewer optional; a peer that could
+#: publish would make the approval gate a suggestion.
+UNIVERSAL_LIMITS: tuple[str, ...] = (
+    "approve a resolution",
+    "publish to a channel",
+)
+
+
+def limits_of(agent: "PeerAgent") -> tuple[str, ...]:
+    """What a peer may not do: the universal two, plus its own.
+
+    Read from the peer rather than from a list beside it, so a limit cannot
+    describe an agent that no longer has it.
+    """
+    return UNIVERSAL_LIMITS + tuple(
+        limit for limit in agent.may_not if limit not in UNIVERSAL_LIMITS)
+
+
 AGENTS: tuple[PeerAgent, ...] = (
     PeerAgent(
         id="lineage-analyst",
@@ -626,6 +659,9 @@ AGENTS: tuple[PeerAgent, ...] = (
             "Which channels are exposed if the allergen declaration on PRD-02 changes?",
         ),
         handler=_lineage,
+        # A lineage walk reads the catalog and nothing else. Saying so is
+        # what makes handing it to a stranger uninteresting.
+        may_not=("write a fact", "change a listing"),
     ),
     PeerAgent(
         id="resolution-planner",
@@ -647,6 +683,7 @@ AGENTS: tuple[PeerAgent, ...] = (
             "Does this allergen change apply to the multipack as well as the single bar?",
         ),
         handler=_resolutions,
+        may_not=("write a fact", "choose between the readings it enumerates"),
     ),
     PeerAgent(
         id="validator",
@@ -667,6 +704,9 @@ AGENTS: tuple[PeerAgent, ...] = (
             "What breaks if the ingredient order changes on Marketplace B?",
         ),
         handler=_validate,
+        # It scores a change set. It does not apply one, and the
+        # distinction is the reason its answer can be trusted.
+        may_not=("apply a change set", "write a fact"),
     ),
     PeerAgent(
         id="copywriter",
@@ -690,6 +730,7 @@ AGENTS: tuple[PeerAgent, ...] = (
             "Rebuild the Marketplace B feed row after the ingredient reorder.",
         ),
         handler=_copy,
+        may_not=("change an attribute value", "publish the copy it writes"),
     ),
 )
 

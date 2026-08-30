@@ -64,6 +64,29 @@ def enabled() -> bool:
     return os.environ.get("USE_MCP", "0").strip().lower() in {"1", "true", "yes"}
 
 
+def _route_for(toolset_id: str) -> tuple[str, str]:
+    """How to reach a toolset: its transport, and the address for that transport.
+
+    Built-in toolsets are spawned as modules, which is what they have always
+    been and what their tests assert. A connected system is reached at the
+    address its connection record holds.
+
+    Built-in wins where both exist. A connected system claiming a built-in
+    identifier must not become the way that toolset is reached, for the same
+    reason its tool cannot shadow a built-in tool name: the estate may add
+    capabilities and may not redefine the ones that publish.
+    """
+    if toolset_id in BY_ID:
+        return "stdio", BY_ID[toolset_id].module
+
+    from sc.mcp import connections
+
+    record = connections.get(toolset_id)
+    if record is None:
+        raise KeyError(f"no route to toolset {toolset_id!r}")
+    return record["transport"] or "http", record["url"]
+
+
 class _Bridge:
     """A background event loop holding one session per toolset.
 
@@ -93,21 +116,45 @@ class _Bridge:
             return loop
 
     async def _session(self, toolset_id: str):
+        """One session per toolset, opened on first use and held.
+
+        The transport comes from the connection record rather than from this
+        module, so a toolset that ships here is spawned and one somebody
+        connected five minutes ago is dialled - and both are reached through the
+        same `call()`, which is what keeps the switch a transport decision
+        rather than a behavioural one.
+        """
         if toolset_id in self._sessions:
             return self._sessions[toolset_id]
 
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
+        from mcp import ClientSession
 
         if self._stack is None:
             self._stack = AsyncExitStack()
 
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", BY_ID[toolset_id].module],
-            env=dict(os.environ),
-        )
-        read, write = await self._stack.enter_async_context(stdio_client(params))
+        transport, address = _route_for(toolset_id)
+        if transport == "stdio":
+            from mcp import StdioServerParameters
+            from mcp.client.stdio import stdio_client
+
+            streams = await self._stack.enter_async_context(stdio_client(
+                StdioServerParameters(command=sys.executable,
+                                      args=["-m", address],
+                                      env=dict(os.environ))))
+        elif transport == "sse":
+            from mcp.client.sse import sse_client
+
+            streams = await self._stack.enter_async_context(sse_client(address))
+        else:
+            from mcp.client.streamable_http import streamable_http_client
+
+            streams = await self._stack.enter_async_context(
+                streamable_http_client(address))
+
+        # streamable_http yields a third element (a session-id callback); stdio
+        # and sse yield two. Taking the first two works for all three rather
+        # than branching on a shape that is not ours to depend on.
+        read, write = streams[0], streams[1]
         session = await self._stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
         self._sessions[toolset_id] = session
@@ -133,7 +180,12 @@ class _Bridge:
         return {}
 
     def call(self, tool: str, arguments: dict, timeout: float = 25.0) -> Any:
-        toolset_id = ROUTES[tool]
+        # Resolved by the caller, which knows about admitted tools; looking it
+        # up again here from ROUTES alone would silently refuse every tool that
+        # arrived from a connected system.
+        toolset_id = route_of(tool)
+        if toolset_id is None:
+            raise KeyError(f"no route for tool {tool!r}")
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(
             self._call(toolset_id, tool, arguments), loop)
@@ -149,6 +201,31 @@ class _Bridge:
 _bridge = _Bridge()
 
 
+def route_of(tool: str) -> str | None:
+    """Which toolset serves a tool - built-in first, then admitted.
+
+    A tool nothing declares returns None and runs in-process, which is the
+    behaviour every caller already relies on.
+
+    Only *admitted* tools from connected systems are routable. A discovered tool
+    is visible and not callable, and this is the second place that is enforced
+    rather than the only one: the evidence desk will not offer it either.
+    """
+    if tool in ROUTES:
+        return ROUTES[tool]
+
+    try:
+        from sc.mcp import connections
+
+        for record in connections.all_connections():
+            if (record["state"] == connections.CONNECTED
+                    and tool in record["admitted_tools"]):
+                return record["id"]
+    except Exception:  # noqa: BLE001 - an unreadable estate routes nothing
+        return None
+    return None
+
+
 def call(tool: str, arguments: dict, direct) -> Any:
     """Run a tool over MCP if enabled, in-process otherwise.
 
@@ -156,7 +233,7 @@ def call(tool: str, arguments: dict, direct) -> Any:
     return value is the same either way - that is the property that makes the
     switch a transport decision rather than a behavioural one.
     """
-    toolset_id = ROUTES.get(tool)
+    toolset_id = route_of(tool)
 
     if not enabled() or toolset_id is None or _bridge.has_failed(toolset_id):
         started = time.perf_counter()
@@ -172,15 +249,20 @@ def call(tool: str, arguments: dict, direct) -> Any:
     started = time.perf_counter()
     try:
         result = _bridge.call(tool, arguments)
-        record(tool, "stdio", (time.perf_counter() - started) * 1000, True,
-               f"{owner_of(tool)} over MCP")
+        transport, _ = _route_for(toolset_id)
+        record(tool, transport, (time.perf_counter() - started) * 1000, True,
+               f"{toolset_id} over MCP")
         return result
     except Exception as exc:  # noqa: BLE001 - the demo matters more
         # One failure retires the toolset for the rest of the process. Retrying
         # a server that will not start, once per lookup, turns a misconfigured
         # switch into a run that appears to hang.
         _bridge.note_failure(toolset_id)
-        record(tool, "stdio", (time.perf_counter() - started) * 1000, False,
+        try:
+            transport, _ = _route_for(toolset_id)
+        except KeyError:
+            transport = "stdio"
+        record(tool, transport, (time.perf_counter() - started) * 1000, False,
                f"{exc} - falling back in-process")
         return direct(**arguments)
 

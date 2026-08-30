@@ -48,6 +48,22 @@ faster.
   is raised, no step is skipped. This change makes the same calls at the same
   time as each other rather than one after another.
 
+### What it measured
+
+A correction run to the approval gate, against a live gateway, on a cold cache:
+
+- **21.4 seconds**, down from the three to four minutes the sequential loops
+  produced. Sixteen fresh model calls, no cache hits on any pipeline stage.
+- `extract` made nine of those sixteen concurrently. That stage was the longest
+  serial chain in this particular correction, and it is the one whose *writes*
+  had to stay sequential - so the split between reading and persisting is
+  carrying most of the saving.
+- `regenerate` made none. The deterministic propagation settled every affected
+  field on this run, so the fan-out had nothing to fan out. Worth recording
+  rather than glossing: the twelve-call worst case is real and is not what every
+  correction hits, and a figure quoted from a run that avoided it would be a
+  figure quoted from the easy case.
+
 ## Capabilities
 
 ### New Capabilities

@@ -54,13 +54,20 @@
       declared ten and had none admitted reads as such; verify by connecting a
       system and looking
 
-## 5. Outstanding
+## 5. Accountability, and limits a peer declares for itself
 
-- [ ] 5.1 Record an admission in the audit ledger. NOT DONE. Admitting a tool
-      changes what a model can reach and is currently a state change with no
-      entry beside the approvals and publishes it belongs with. The ledger's
-      schema is shaped around a correction case and an admission is not one,
-      which is the reason and not an excuse.
-- [ ] 5.2 Let a peer declare its own limits rather than having them authored in
-      the directory. NOT DONE: an agent whose handler quietly gained the
-      ability to publish would still advertise that it cannot.
+- [x] 5.1 Record an admission in the audit ledger, in the same transaction as
+      the change it describes, carrying what was asked for and what was
+      refused; verify via
+      `tests/test_directory.py::test_an_admission_is_recorded_in_the_ledger`
+      and `tests/test_directory.py::test_an_admission_and_its_record_land_together`.
+      The earlier note said the ledger's schema was shaped around a correction
+      case and could not hold one. That was wrong rather than awkward: `audit`
+      takes any entity type.
+- [x] 5.2 Let a peer declare its own limits beside the handler that would have
+      to break them, rather than having them authored in the directory; verify
+      via `tests/test_directory.py::test_a_peer_declares_its_own_limits`. Two
+      limits stay universal and are not the peer's to waive - a peer that could
+      approve would make the reviewer optional, and one that could publish would
+      make the approval gate a suggestion; verify via
+      `tests/test_directory.py::test_a_peer_cannot_declare_away_a_universal_limit`

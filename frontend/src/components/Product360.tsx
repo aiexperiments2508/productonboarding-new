@@ -52,6 +52,11 @@ export function Product360() {
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
+  // Who is looking. The same thing the approval gate asks for and no more -
+  // neither is authenticated, and inventing a login here would protect
+  // unpublished copy more carefully than the decision to publish it. What it
+  // buys is a name in the ledger against "who saw this before it launched".
+  const [actor, setActor] = useState("reviewer");
 
   const search = useCallback(async (term: string) => {
     try {
@@ -88,12 +93,18 @@ export function Product360() {
 
   const openPreview = useCallback(async () => {
     if (!selected) return;
+    if (!actor.trim()) {
+      toast.error("A name is required",
+                  "Unpublished content is viewed under a name, the same as an "
+                  + "approval decision is taken under one.");
+      return;
+    }
     try {
-      setPreview(await api.preview(selected, true));
+      setPreview(await api.preview(selected, actor.trim(), true));
     } catch (e) {
       toast.error("Could not build the preview", String(e));
     }
-  }, [selected, toast]);
+  }, [actor, selected, toast]);
 
   const counts = useMemo(() => {
     const tally: Record<string, number> = {};
@@ -189,9 +200,22 @@ export function Product360() {
             }
             actions={
               readiness?.ready ? (
-                <Button size="sm" tone="primary" onClick={openPreview}>
-                  Open staging page
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={actor}
+                    onChange={(e) => setActor(e.target.value)}
+                    aria-label="Who is viewing this unpublished content"
+                    placeholder="your name"
+                    className={cn(
+                      "w-28 rounded-sm border border-line bg-canvas px-2 py-1",
+                      "text-xs text-fg placeholder:text-faint",
+                      "focus:outline-none focus:ring-2 focus:ring-focus",
+                    )}
+                  />
+                  <Button size="sm" tone="primary" onClick={openPreview}>
+                    Open staging page
+                  </Button>
+                </div>
               ) : undefined
             }
           >

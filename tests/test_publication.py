@@ -239,3 +239,92 @@ def test_a_dispatch_route_without_its_identifiers_refuses():
 
     response = TestClient(app).post("/api/publication/dispatch", json={})
     assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Each publisher, as its own MCP endpoint
+#
+# The ingest estate is ten servers because ten systems send data. This is six
+# because six channels own listings, and the partition matters more here rather
+# than less: these are the only servers in the estate that can change what a
+# shopper sees.
+# ---------------------------------------------------------------------------
+
+
+def test_every_publisher_exposes_two_reads_and_one_write():
+    """An operator who wants to show somebody a blast radius should not have to
+    hand over the ability to act on it."""
+    import asyncio
+
+    from sc.estate import publication_server
+
+    base = baseline_mod.get()
+    for system in publication.systems(base):
+        built = publication_server.build(system)
+        names = sorted(t.name for t in asyncio.run(built.list_tools()))
+        assert names == sorted(publication_server.TOOLS)
+        assert "publish_correction" in names
+
+
+def test_a_publisher_will_not_report_another_channels_impact():
+    """A marketplace connector has no business enumerating what the print
+    channel is about to publish."""
+    from sc.estate import publication_server
+
+    base = baseline_mod.get()
+    systems = {s.channel_id: s for s in publication.systems(base)}
+    trace = _trace()
+    reached = {g["channel_id"] for g in publication.blast_to_systems(trace, base)}
+
+    hit = systems[sorted(reached)[0]]
+    missed = next(s for cid, s in systems.items() if cid not in reached)
+
+    assert publication_server._impact(hit, MAX_MODEL)["affected"] is True
+    answer = publication_server._impact(missed, MAX_MODEL)
+    assert answer["affected"] is False
+    assert answer["skus"] == []
+
+
+def test_a_publisher_refuses_a_run_it_could_not_stop():
+    """A tool that would start a print run inside its freeze window should not
+    exist, rather than existing and expecting its caller to check first."""
+    from sc.estate import publication_server
+
+    base = baseline_mod.get()
+    frozen = next(s for s in publication.systems(base) if not s.recallable)
+
+    answer = publication_server._publish(frozen, "INC-X", "SC-X", MAX_MODEL)
+
+    assert answer["sent"] is False
+    assert "freeze" in answer["reason"]
+
+
+def test_reaching_a_publisher_over_a_pipe_does_not_exempt_it():
+    """The safeguards travel with the tool rather than the caller. There is
+    deliberately no code in the server that could publish on its own."""
+    from sc.estate import publication_server
+
+    base = baseline_mod.get()
+    recallable = next(s for s in publication.systems(base) if s.recallable)
+
+    answer = publication_server._publish(recallable, "INC-NONE", "SC-NONE",
+                                         MAX_MODEL)
+
+    assert answer["sent"] is False
+    assert answer["committed"] is False
+    assert answer["reason"], "a refusal reached over MCP must still say why"
+
+
+def test_a_publisher_endpoint_is_distinct_from_an_ingest_one():
+    """An operator handing out endpoints should be able to see which can change
+    a live listing from the path alone."""
+    from sc.estate import server as ingest_server
+
+    base = baseline_mod.get()
+    publishers = {s.endpoint for s in publication.systems(base)}
+    ingest = {ingest_server.endpoint(s.id)
+              for s in __import__("sc.estate.manifest", fromlist=["SYSTEMS"]).SYSTEMS}
+
+    assert not (publishers & ingest)
+    assert all("/publish/" in path for path in publishers)
+    assert not any("/publish/" in path for path in ingest)

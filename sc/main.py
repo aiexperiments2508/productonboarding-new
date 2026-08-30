@@ -122,6 +122,10 @@ async def startup() -> None:
         _estate_stack = AsyncExitStack()
         await _estate_stack.__aenter__()
         started = await _estate_server.start(_estate_stack)
+
+        from sc.estate import publication_server as _publishers
+
+        started += await _publishers.start(_estate_stack)
         log.info("estate: %d system server(s) listening", started)
 
         # Dial them, in the background. Ten handshakes is a second or two, and
@@ -658,6 +662,18 @@ except Exception as _exc:  # noqa: BLE001 - the app must start regardless
     ESTATE_MOUNTED = []
     log.warning("estate systems not mounted: %s", _exc)
 
+# The other end of the pipe: one server per channel that owns live listings.
+# Mounted apart from the ingest estate because these can change what a shopper
+# sees, and an operator handing out endpoints should be able to see which is
+# which from the path alone.
+try:
+    from sc.estate import publication_server
+
+    PUBLISHERS_MOUNTED = publication_server.mount(app)
+except Exception as _exc:  # noqa: BLE001 - the app must start regardless
+    PUBLISHERS_MOUNTED = []
+    log.warning("publication systems not mounted: %s", _exc)
+
 
 @app.get("/.well-known/agent-cards.json")
 def agent_directory() -> dict:
@@ -788,20 +804,47 @@ def product_readiness(entity_id: str, use_model: bool = True) -> dict:
 
 
 @app.get("/api/products/{entity_id}/preview")
-def product_preview(entity_id: str, use_model: bool = True) -> dict:
+def product_preview(entity_id: str, use_model: bool = True,
+                    actor: str = "") -> dict:
     """The staging page, for a record that is ready.
 
     A record that is not ready is refused with its verdict and findings rather
     than rendered with a warning across the top: a page that renders a blocked
     product is a page somebody screenshots.
+
+    **On authorisation, plainly.** This route requires a named actor, and that
+    is exactly - and only - what the approval gate requires. Neither is
+    authenticated: this system has no identity provider, no session and no
+    password anywhere, and inventing one here would protect unpublished copy
+    more carefully than it protects the decision to publish it, which would be
+    the wrong way round.
+
+    What the actor buys is accountability rather than access control. A preview
+    is a view of unpublished commercial content, and "who looked at this before
+    it launched" becomes answerable from the audit ledger instead of being a
+    question nobody can ask.
     """
     import sc.readiness as readiness
     from sc.readiness import preview as preview_mod
 
+    who = (actor or "").strip()
+    if not who:
+        raise HTTPException(
+            status_code=403,
+            detail="a named actor is required to preview unpublished content, "
+                   "the same as for an approval decision")
+
     summary = readiness.assess(entity_id, use_model=use_model)
     if summary is None:
         raise HTTPException(status_code=404, detail="no such product")
-    return preview_mod.build(entity_id, summary, use_model=use_model)
+
+    page = preview_mod.build(entity_id, summary, use_model=use_model)
+    # Recorded whether or not it rendered. "Somebody tried to preview a blocked
+    # product" is at least as interesting as somebody previewing a ready one.
+    planning.audit(
+        who, "PREVIEW", "variant", entity_id,
+        {"rendered": page.get("rendered"), "verdict": page.get("verdict")})
+    return page
 
 
 # ---------------------------------------------------------------------------
@@ -824,10 +867,16 @@ def publication_systems() -> dict:
     from sc.estate import publication
 
     base = baseline_mod.get()
+    mounted = {entry.get("id"): entry for entry in PUBLISHERS_MOUNTED}
     return {"systems": [
         {"id": s.id, "channel_id": s.channel_id, "title": s.title,
          "owner": s.owner, "recallable": s.recallable,
-         "freeze_days": s.freeze_days, "endpoint": s.endpoint,
+         "freeze_days": s.freeze_days,
+         # The address it actually answers on, where it mounted. Falling back
+         # to the derived path rather than omitting it: a system that failed to
+         # mount should still be nameable.
+         "endpoint": mounted.get(s.id, {}).get("url", s.endpoint),
+         "mounted": s.id in mounted and "error" not in mounted[s.id],
          "verbs": list(publication.VERBS)}
         for s in publication.systems(base)]}
 

@@ -42,8 +42,29 @@
 - [x] 4.1 Confirm the fusion weights, RRF damping and tokeniser are unchanged
       and the golden set still passes; verify the existing `tests/test_rag.py`
       assertions
-- [ ] 4.2 Re-tune the fusion weights against a golden set extended to the new
-      types. NOT DONE: the existing set was tuned on four types and still
-      passes, so nothing is broken - but "still passes" is not the same as
-      "still right", and the honest position is that the weights have not been
-      measured against regulation or record passages.
+- [x] 4.2 Extend the golden set to the new types and measure the weights
+      against it; verify via the extended `LEXICAL_GOLDEN` and `SEMANTIC_GOLDEN`
+      in `tests/test_rag.py`. **The weights were not re-tuned, because the set
+      cannot tune them**: swept across thirty combinations of semantic and
+      lexical weight from 0.6 to 1.0, every single one scores identically. The
+      set does not discriminate, so any new pair would have been chosen by
+      taste and reported as tuning.
+- [x] 4.3 Measure whether the new document types displaced the old answers -
+      twenty-eight passages added to a hundred and fourteen is a real risk to a
+      top-3 and the design said so; verify via
+      `tests/test_rag.py::test_the_new_document_types_did_not_displace_the_old_answers`.
+      They did not: the original five paraphrase queries score 3 of 5 whether
+      or not the new types are in the pool.
+- [x] 4.4 Turn the paraphrase set from per-case assertions into a scored floor;
+      verify via `tests/test_rag.py::test_hybrid_golden_set`. Per-case
+      assertions skip without an embedding matrix, which is nearly always, and
+      that is how two of them came to be failing without anybody noticing - the
+      guard that would have caught it is the guard that skips.
+- [x] 4.5 Replace the claim that the dense half rescues a paraphrase query with
+      the one that holds; verify via
+      `tests/test_rag.py::test_the_fused_retriever_is_never_worse_than_lexical_alone`.
+      **Measured: fused scores 4 of 8 and BM25 alone scores 4 of 8.** The dense
+      half is not contributing on these queries with this embedding model. That
+      does not make the fusion pointless - the identifier set is where the two
+      genuinely differ - but the paraphrase argument is currently unearned, and
+      a test asserting otherwise would be asserting a hope.

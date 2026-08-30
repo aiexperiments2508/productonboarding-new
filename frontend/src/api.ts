@@ -805,6 +805,46 @@ export interface Preview {
   differentiator?: Differentiator | null;
 }
 
+/* --- the publication estate -------------------------------------------- */
+
+/** One SKU a correction reaches, and where it is live.
+ *
+ *  A blast radius expressed only in internal identifiers is one only this
+ *  system can read. Everybody who has to act on one works in SKUs. */
+export interface AffectedSku {
+  sku: string;
+  entity_id: string;
+  name: string;
+  product_id: string;
+  listings: string[];
+  channels: string[];
+}
+
+/** One publication system, with the work it has to do. */
+export interface DispatchRow {
+  system: string;
+  channel_id: string;
+  title: string;
+  recallable: boolean;
+  freeze_days: number;
+  listings: string[];
+  skus: string[];
+  verb: string;
+  outcome: "SENT" | "DEFERRED" | "REFUSED" | string;
+  reason: string;
+  endpoint: string;
+}
+
+export interface PublicationImpact {
+  root: string;
+  totals: Record<string, number>;
+  skus: AffectedSku[];
+  systems: Omit<DispatchRow, "verb" | "outcome" | "reason" | "endpoint">[];
+  /** What would happen if this were dispatched now, without dispatching. */
+  dispatch_plan: DispatchRow[];
+}
+
+
 /* --- the capability directory ------------------------------------------- */
 
 /** One capability the estate publishes.
@@ -1076,10 +1116,24 @@ export const api = {
     get<Readiness>(
       `/api/products/${encodeURIComponent(id)}/readiness?use_model=${useModel}`),
 
-  /** The staging page, or a refusal carrying the verdict and the findings. */
-  preview: (id: string, useModel = true) =>
+  /** The staging page, or a refusal carrying the verdict and the findings.
+   *
+   *  `actor` is required, and is exactly what the approval gate requires -
+   *  neither is authenticated. What it buys is accountability: "who looked at
+   *  this before it launched" becomes answerable from the audit ledger. */
+  preview: (id: string, actor: string, useModel = true) =>
     get<Preview>(
-      `/api/products/${encodeURIComponent(id)}/preview?use_model=${useModel}`),
+      `/api/products/${encodeURIComponent(id)}/preview` +
+      `?use_model=${useModel}&actor=${encodeURIComponent(actor)}`),
+
+  /* --- the publication estate ------------------------------------------ */
+
+  /** What a correction to this entity reaches, in SKUs and in the systems
+   *  that have to be told - plus what would happen if it were dispatched
+   *  now, which looking at does not do. */
+  publicationImpact: (entityId: string) =>
+    get<PublicationImpact>(
+      `/api/publication/impact/${encodeURIComponent(entityId)}`),
 
   /* --- the capability directory ----------------------------------------- */
 

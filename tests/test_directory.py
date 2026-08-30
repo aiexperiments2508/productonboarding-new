@@ -209,3 +209,91 @@ def test_the_desk_survives_an_estate_it_cannot_read(monkeypatch):
 
     assert evidence.admitted_tools() == []
     assert len(evidence.catalogue().splitlines()) == len(evidence.TOOLS)
+
+
+def test_an_admission_is_recorded_in_the_ledger():
+    """Admitting a tool changes what a model can reach. That is a governance
+    decision with a person behind it - the same class of thing as an approval
+    or a publish - and it belongs in the same ledger.
+
+    An earlier note claimed the ledger's schema was shaped around a correction
+    case and could not hold one. It was not: `audit` takes any entity type, and
+    the claim was wrong rather than the design being awkward.
+    """
+    _connect("supplier-x", ["fetch_spec", "other_tool"])
+    connections.admit("supplier-x", ["fetch_spec", "commit_plan"], actor="sam")
+
+    row = db.one("SELECT actor, action, entity_type, entity_id, detail"
+                 " FROM audit WHERE action = 'ADMIT' ORDER BY rowid DESC")
+
+    assert row is not None, "an admission left no trace"
+    assert row["actor"] == "sam"
+    assert row["entity_type"] == "connection"
+    assert row["entity_id"] == "supplier-x"
+
+    detail = db.loads(row["detail"])
+    assert detail["admitted"] == ["fetch_spec"]
+    # What was asked for and refused is worth recording: an operator who tried
+    # to admit a built-in name should be visible having tried.
+    assert "commit_plan" in detail["refused"]
+
+
+def test_an_admission_and_its_record_land_together():
+    """Written in the same transaction as the change it describes, so the ledger
+    cannot hold an admission the connection never got, or miss one it did."""
+    _connect("supplier-x", ["fetch_spec"])
+
+    before = db.one("SELECT COUNT(*) AS n FROM audit WHERE action='ADMIT'")["n"]
+    connections.admit("supplier-x", ["fetch_spec"])
+    after = db.one("SELECT COUNT(*) AS n FROM audit WHERE action='ADMIT'")["n"]
+
+    assert after == before + 1
+    assert connections.get("supplier-x")["admitted_tools"] == ["fetch_spec"]
+
+
+def test_a_peer_declares_its_own_limits():
+    """A limit authored beside the directory is a limit that goes stale: an
+    agent whose handler quietly gained the ability to publish would carry on
+    advertising that it cannot."""
+    from sc.a2a.agents import UNIVERSAL_LIMITS, limits_of
+
+    listing = directory_mod.build(BASE, _mounted())
+    peers = {c["id"]: c for c in listing["capabilities"] if c["kind"] == "peer"}
+
+    for agent in AGENTS:
+        assert peers[agent.id]["may_not"] == list(limits_of(agent))
+        # Each peer says something about itself beyond the universal two,
+        # because "may not approve" is true of everything and therefore tells a
+        # reader nothing about which capability they are looking at.
+        assert agent.may_not, f"{agent.id} declares no limit of its own"
+        assert set(limits_of(agent)) > set(UNIVERSAL_LIMITS)
+
+
+def test_the_universal_limits_hold_for_every_peer():
+    """A peer that could approve would make the reviewer optional; one that
+    could publish would make the approval gate a suggestion."""
+    from sc.a2a.agents import UNIVERSAL_LIMITS, limits_of
+
+    for agent in AGENTS:
+        assert set(UNIVERSAL_LIMITS) <= set(limits_of(agent))
+
+
+def test_a_peer_cannot_declare_away_a_universal_limit():
+    """The two that matter are not the peer's to waive."""
+    from sc.a2a.agents import PeerAgent, UNIVERSAL_LIMITS, limits_of
+
+    permissive = PeerAgent(
+        id="over-eager", name="Over Eager", description="",
+        skill_id="s", skill_name="S", skill_description="",
+        examples=(), handler=lambda payload: {},
+        may_not=("write a fact",))
+
+    assert set(UNIVERSAL_LIMITS) <= set(limits_of(permissive))
+    # And a peer repeating one does not produce it twice.
+    repeated = PeerAgent(
+        id="repetitive", name="Repetitive", description="",
+        skill_id="s", skill_name="S", skill_description="",
+        examples=(), handler=lambda payload: {},
+        may_not=("publish to a channel",))
+    limits = limits_of(repeated)
+    assert len(limits) == len(set(limits))

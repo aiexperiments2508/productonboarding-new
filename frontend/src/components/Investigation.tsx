@@ -7,6 +7,7 @@ import type {
   RunSnapshot, RunValues, Variant, Violation,
 } from "../api";
 import { ArtNoEvidence, ArtNoRun } from "../art/illustrations";
+import { PublicationImpact } from "./PublicationImpact";
 import { PageHeader } from "../app/shell/PageHeader";
 import {
   IconAlert, IconClock, IconDoc, IconRobot, IconScenarios, IconTrace,
@@ -1758,6 +1759,14 @@ export function Investigation({ run, catalog, onOpenCitation }: {
             )}
           </div>
         </div>
+
+        {/* Who has to be told, in the words they use. The blast radius below
+            is complete and expressed in identifiers only this system reads; a
+            buyer asked which products are affected cannot answer from VAR-01B.
+            Same truth, second vocabulary. */}
+        <PublicationImpact
+          entityId={(chosenScope?.entities ?? [])[0] ?? productId ?? null}
+        />
 
         {/* --- 2 - scope resolution ---------------------------------------- */}
         <Panel

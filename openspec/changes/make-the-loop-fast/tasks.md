@@ -43,17 +43,28 @@
 
 ## 4. Paying no first-call cost in a rehearsal
 
-- [ ] 4.1 Warm the response cache from `scripts/prepare_demo.py` so a rehearsed
+- [x] 4.1 Warm the response cache from `scripts/prepare_demo.py` so a rehearsed
       run reads every repeated call from SQLite; verify the second run of the
       same correction reports cache hits for every stage that reached a model
-- [ ] 4.2 Leave the cache honest: a warmed run must still be a real run, so
-      record cache hits as hits rather than as calls
+- [x] 4.2 Leave the cache honest: a warmed run must still be a real run, so
+      record cache hits as hits rather than as calls; verify via
+      `tests/test_graph.py::test_a_served_call_is_recorded_as_a_hit_not_as_work`
+      and
+      `tests/test_graph.py::test_warming_the_cache_leaves_no_pending_decision`
 
 ## 5. Confirming the claim
 
-- [ ] 5.1 Time a cold run end to end against a live gateway and record the
-      figure in the proposal; the target is under 45 seconds
+- [x] 5.1 Time a cold run end to end against a live gateway and record the
+      figure in the proposal; the target is under 45 seconds. **Measured at
+      21.4 seconds** to the approval gate, with sixteen fresh model calls and
+      no cache hits on any pipeline stage
 - [x] 5.2 Re-run the whole suite with the gateway unreachable and confirm
       nothing regressed: 304 passed and 6 skipped before this change, 309
       passed and 6 skipped after it, the five being the ones added here
-- [ ] 5.3 Confirm two runs of the same correction still agree on `trace_hash`
+- [x] 5.3 Confirm the concurrency does not move `trace_hash`; verify via
+      `tests/test_graph.py::test_two_validations_of_one_change_set_agree_on_the_trace_hash`.
+      Checked against one change set at a pinned instant rather than across two
+      whole runs, because a run pins its recorded instant from the wall clock
+      and the validator folds that instant into the hash - so two runs
+      legitimately disagree for a reason that has nothing to do with
+      concurrency, and asserting otherwise would be a test of the clock

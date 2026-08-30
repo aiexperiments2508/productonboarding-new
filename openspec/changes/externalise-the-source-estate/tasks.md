@@ -53,15 +53,19 @@
 - [x] 4.1 Give each system an MCP server in `sc/estate/server.py`, mounted
       beside the peers by `run.py`, reachable without importing its module;
       verify via `tests/test_estate.py::test_every_system_exposes_an_mcp_surface`
-- [ ] 4.2 Let `_Bridge` choose its transport from the connection record -
+- [x] 4.2 Let `_Bridge` choose its transport from the connection record -
       spawned module or HTTP endpoint - without changing `call()`; verify via
-      `tests/test_connections.py::test_two_transports_are_in_use_at_once_without_disagreeing`
-      NOT DONE, and deliberately deferred. The handshake already picks its
-      transport from the record, which is what connecting needs. Routing a
-      *call* over HTTP only matters once a connected system's tool can be
-      reached from inside a run, and admitting a tool to the evidence desk is
-      `capability-registry-and-agent-cards`. Building the routing before the
-      thing that would use it would be a transport with no caller.
+      `tests/test_connections.py::test_two_transports_are_in_use_at_once_without_disagreeing`.
+      Routing resolves built-in first, so a connected system claiming a built-in
+      identifier does not become the way that toolset is reached; verify via
+      `tests/test_connections.py::test_a_connected_system_cannot_claim_a_built_in_route`
+- [x] 4.4 Route only *admitted* tools from a connected system, so this is the
+      second place discovery-is-not-admission is enforced rather than the only
+      one; verify via
+      `tests/test_connections.py::test_only_an_admitted_tool_is_routable`
+- [x] 4.5 Leave an unrouted tool running in-process, which every caller already
+      relies on; verify via
+      `tests/test_connections.py::test_an_unroutable_tool_still_runs_in_process`
 - [x] 4.3 Confirm the existing stdio path and its tests are untouched; verify
       the nine assertions in `tests/test_protocols.py` still pass unmodified
 

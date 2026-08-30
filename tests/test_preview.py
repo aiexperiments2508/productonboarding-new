@@ -85,7 +85,7 @@ def test_the_preview_route_refuses_an_unready_product():
 
     client = TestClient(app)
     response = client.get(
-        f"/api/products/{UNREADY_PRODUCT}/preview?use_model=false")
+        f"/api/products/{UNREADY_PRODUCT}/preview?use_model=false&actor=sam")
 
     assert response.status_code == 200, "a refusal is an answer, not an error"
     body = response.json()
@@ -183,3 +183,98 @@ def test_the_differentiator_survives_having_no_model():
     assert differentiator["text"], "the templated form produced nothing"
     assert differentiator["note"] and "without a model" in differentiator["note"]
     assert differentiator["attributes"] and differentiator["citation"]
+
+
+# ---------------------------------------------------------------------------
+# Who looked
+#
+# The route requires a named actor, which is exactly - and only - what the
+# approval gate requires. Neither is authenticated: this system has no identity
+# provider, no session and no password anywhere, and inventing one here would
+# protect unpublished copy more carefully than the decision to publish it.
+#
+# What the name buys is accountability. "Who saw this before it launched" stops
+# being a question nobody can ask.
+# ---------------------------------------------------------------------------
+
+
+def test_a_preview_without_a_name_is_refused():
+    from fastapi.testclient import TestClient
+
+    from sc.main import app
+
+    response = TestClient(app).get(
+        f"/api/products/{READY_PRODUCT}/preview?use_model=false")
+
+    assert response.status_code == 403
+    assert "actor" in response.json()["detail"]
+
+
+def test_a_preview_is_recorded_against_the_person_who_asked():
+    from fastapi.testclient import TestClient
+
+    from sc.main import app
+
+    client = TestClient(app)
+    client.get(f"/api/products/{READY_PRODUCT}/preview"
+               f"?use_model=false&actor=sam")
+
+    row = db.one("SELECT actor, entity_id, detail FROM audit"
+                 " WHERE action = 'PREVIEW' ORDER BY rowid DESC")
+    assert row is not None, "a view of unpublished content left no trace"
+    assert row["actor"] == "sam"
+    assert row["entity_id"] == READY_PRODUCT
+
+
+def test_a_refused_preview_is_recorded_too():
+    """"Somebody tried to preview a blocked product" is at least as interesting
+    as somebody previewing a ready one."""
+    from fastapi.testclient import TestClient
+
+    from sc.main import app
+
+    client = TestClient(app)
+    client.get(f"/api/products/{UNREADY_PRODUCT}/preview"
+               f"?use_model=false&actor=sam")
+
+    row = db.one("SELECT detail FROM audit WHERE action = 'PREVIEW'"
+                 " ORDER BY rowid DESC")
+    assert row is not None
+    assert db.loads(row["detail"])["rendered"] is False
+
+
+def test_the_preview_asks_for_no_more_than_an_approval_does():
+    """A boundary stricter than the approval gate would be protecting the copy
+    more carefully than the decision to publish it, which is the wrong way
+    round - and a boundary weaker than it would be the gap this task closed."""
+    import ast
+    import inspect
+    import textwrap
+
+    from sc import main
+
+    def code_only(func) -> str:
+        """The source with its docstring removed.
+
+        The docstring is where the absence of authentication is *explained*, so
+        grepping the whole source finds the words "password" and "session" in
+        the paragraph saying there are none. A guard that fires on its own
+        explanation is a guard nobody keeps.
+        """
+        tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+        body = tree.body[0].body
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            body = body[1:]
+        return chr(10).join(ast.unparse(node) for node in body)
+
+    preview = code_only(main.product_preview)
+    decide = code_only(main.decide)
+
+    assert "actor" in preview and "actor" in decide
+    # Neither authenticates, and the preview must not quietly start.
+    for body in (preview, decide):
+        for invented in ("password", "token", "session", "jwt", "api_key"):
+            assert invented not in body.lower(), (
+                f"{invented} appeared in a route that does not authenticate")

@@ -34,7 +34,7 @@ ask somebody else to do.
 
 from __future__ import annotations
 
-from sc.a2a.agents import AGENTS
+from sc.a2a.agents import AGENTS, limits_of
 from sc.a2a.server import AGENT_VERSION
 
 #: Where the directory lives. Under `.well-known` because that is where a
@@ -69,11 +69,11 @@ def _peer_entries(base_url: str, mounted: list[dict]) -> list[dict]:
                 "description": agent.skill_description,
                 "examples": list(agent.examples),
             }],
-            # What this capability may not do, stated rather than implied. The
-            # approval gate and publishing are deliberately not peers: a human
-            # decision is not a capability to delegate, and a peer that could
-            # publish is a peer that could publish.
-            "may_not": ["approve a resolution", "publish to a channel"],
+            # What this capability may not do, read from the peer rather than
+            # authored here. A limit written beside the directory is a limit
+            # that goes stale: an agent whose handler quietly gained the
+            # ability to publish would carry on advertising that it cannot.
+            "may_not": list(limits_of(agent)),
         })
     return entries
 

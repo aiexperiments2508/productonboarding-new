@@ -49,14 +49,29 @@
       via
       `tests/test_publication.py::test_a_dispatch_route_without_its_identifiers_refuses`
 
-## 5. Outstanding
+## 5. Each publisher as its own endpoint, and the view over it
+- [x] 5.1 Serve each publication system as its own MCP endpoint at
+      `/mcp/publish/{channel}`, exposing two reads and one write; verify via
+      `tests/test_publication.py::test_every_publisher_exposes_two_reads_and_one_write`,
+      and by connecting one from the estate panel and watching the handshake
+      return its three tools
+- [x] 5.2 Show the impact view in Blast Radius - the affected SKUs, and what
+      would happen to each publication system if this were dispatched now;
+      verify by working a correction and reading the panel above the scope
+      resolution
 
-- [ ] 5.1 Serve each publication system as its own MCP endpoint. NOT DONE. The
-      systems are derived, addressed and dispatched to, and the endpoint each
-      one reports is not yet a live MCP server the way the ingest estate's are.
-      Dispatch goes through the planning boundary in-process, which is where the
-      safeguards live and therefore the right place for it to go - but "plug and
-      play publication" is only half true until an external publisher can be
-      connected the way an external supplier can.
-- [ ] 5.2 Show the impact view in the UI. NOT DONE: the routes answer and
-      nothing renders them yet, so Blast Radius still speaks in identifiers.
+- [x] 5.3 Keep the safeguards with the tool rather than the caller: a publisher
+      reached over a pipe still refuses without a recorded approval, because it
+      cannot publish and has to ask the boundary that can; verify via
+      `tests/test_publication.py::test_reaching_a_publisher_over_a_pipe_does_not_exempt_it`
+- [x] 5.4 Refuse a print run inside its freeze window at the tool rather than
+      expecting the caller to check - a tool that would start something it
+      cannot stop should not exist; verify via
+      `tests/test_publication.py::test_a_publisher_refuses_a_run_it_could_not_stop`
+- [x] 5.5 Scope a publisher's reads to its own channel, so an estate of six is
+      not one database with six front doors; verify via
+      `tests/test_publication.py::test_a_publisher_will_not_report_another_channels_impact`
+- [x] 5.6 Keep publisher endpoints distinguishable from ingest ones, so an
+      operator can see from the path alone which can change a live listing;
+      verify via
+      `tests/test_publication.py::test_a_publisher_endpoint_is_distinct_from_an_ingest_one`

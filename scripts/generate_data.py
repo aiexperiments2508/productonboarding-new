@@ -139,6 +139,43 @@ VARIANTS = [
     ("VAR-06A", "PRD-06", "Voltaic Desk Fan V2",            True),
 ]
 
+# What everybody outside this system calls each variant. Hand-authored rather
+# than generated from the id, because a SKU is a commercial identifier a buyer
+# recognises and "VAR-01B" with a prefix bolted on is not one. Distinct by
+# construction; a test asserts it stays that way.
+SKUS = {
+    "VAR-01A": "AER-300-STD",
+    "VAR-01B": "AER-300-MAX",
+    "VAR-02A": "OVF-TMB-40",
+    "VAR-02B": "OVF-TMB-6PK",
+    "VAR-03A": "BRL-BT200",
+    "VAR-04A": "CAS-KET-17",
+    "VAR-05A": "OVF-GRC-300",
+    "VAR-06A": "VLT-FAN-V2",
+}
+
+# Which image roles a category cannot launch without, mirroring INT-001 rather
+# than inventing a second rule. Appliances are bought on how they look in a
+# room; a food pack needs the panel a shopper with an allergy actually reads.
+REQUIRED_MEDIA = {
+    "home.": ("HERO", "IN_SITU"),
+    "food.": ("PACK_FRONT", "INGREDIENT_PANEL"),
+    "audio.": ("HERO",),
+}
+
+# Media that never arrived. Deliberate, and named here rather than sprinkled by
+# the PRNG: the readiness check needs something to find, and a demo whose only
+# gap is random is a demo that can rehearse clean.
+#
+# VAR-02B has no ingredient panel - a multipack whose imaging job was queued
+# against the single and never redone, which is the commonest way this happens.
+# VAR-06A has no in-situ shot: a second-generation fan reusing the first
+# generation's cut-out.
+MISSING_MEDIA = {
+    ("VAR-02B", "INGREDIENT_PANEL"),
+    ("VAR-06A", "IN_SITU"),
+}
+
 TAXONOMY = {
     "home": "Home",
     "home.air-treatment": "Home > Air Treatment",
@@ -935,6 +972,41 @@ def applicable_paths(variant_id: str) -> list[str]:
 
 def docs_defining(variant_id: str) -> set[str]:
     return {doc for (eid, _), (doc, _) in ATTR_SOURCE.items() if eid == variant_id}
+
+
+def build_media() -> list[dict]:
+    """The imagery held against each variant, and the gaps.
+
+    Roles come from the category rule in INT-001 rather than from taste, so a
+    missing asset is a finding against a written requirement and not against a
+    preference. What is absent is absent on purpose - see MISSING_MEDIA.
+    """
+    assets: list[dict] = []
+    for vid, pid, name, _ in VARIANTS:
+        category = PRODUCT_BY_ID[pid][2]
+        roles: list[str] = []
+        for prefix, required in REQUIRED_MEDIA.items():
+            if category.startswith(prefix):
+                roles = list(required)
+                break
+        # Everything gets a detail shot; nothing requires one. Present so that
+        # "has media" and "has the media it needs" are visibly different
+        # questions.
+        roles.append("DETAIL")
+        for role in roles:
+            if (vid, role) in MISSING_MEDIA:
+                continue
+            assets.append({
+                "id": f"IMG-{vid}-{role}",
+                "entity_id": vid,
+                "role": role,
+                "uri": f"/media/{vid.lower()}-{role.lower()}.jpg",
+                "alt_text": f"{name} - {role.replace('_', ' ').lower()}",
+                "width": 1200, "height": 1200,
+                # The imaging system, named the way the estate names it.
+                "system": "imaging-dam",
+            })
+    return assets
 
 
 def build_nodes() -> list[dict]:
@@ -1774,8 +1846,10 @@ def build_pack(seed: int) -> tuple[dict[str, str], dict]:
         "nodes": nodes,
         "products": [{"id": p, "name": n, "category": c, "supplier": s, "regulated": r}
                      for p, n, c, s, r in PRODUCTS],
-        "variants": [{"id": v, "product_id": p, "name": n, "is_base": b}
+        "variants": [{"id": v, "product_id": p, "name": n, "is_base": b,
+                      "sku": SKUS[v]}
                      for v, p, n, b in VARIANTS],
+        "media": build_media(),
         "channels": [{"id": c, "name": n, "kind": k, "taxonomy": t, "freeze_days": f,
                       "attribute_map": am, "category_map": cm}
                      for c, n, k, t, f, am, cm in CHANNELS],

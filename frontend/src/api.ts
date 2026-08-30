@@ -721,6 +721,90 @@ export interface MCPServer {
   collisions?: string[];
 }
 
+/* --- product 360 -------------------------------------------------------- */
+
+export interface ProductHit {
+  entity_id: string; sku: string; name: string;
+  product_id: string; product_name: string; category: string;
+  supplier: string; regulated: boolean; is_base: boolean;
+  /** Present on list results. The list exists to show which products are
+   *  holding a launch up, so a row without one is a row nobody can act on. */
+  verdict?: string;
+  findings?: number;
+  checks_complete?: boolean;
+}
+
+export interface RecordAttribute {
+  path: string; label: string; value: unknown; unit?: string | null;
+  source?: string | null;
+  /** The external system that carried it. Null is an answer - "we do not know
+   *  which system sent this" - rather than an oversight. */
+  system?: string | null;
+  defects: string[];
+  /** Values that lost a precedence contest. A settled disagreement is settled,
+   *  not absent. */
+  superseded: { value: unknown; system?: string | null; source?: string | null }[];
+}
+
+export interface ProductMedia {
+  id?: string; role: string; uri: string; alt_text: string;
+  system?: string | null;
+}
+
+export interface ProductRecord {
+  entity_id: string; sku: string; name: string; is_base: boolean;
+  product: {
+    id: string; name: string; category: string; supplier: string;
+    regulated: boolean;
+  };
+  attributes: RecordAttribute[];
+  media: ProductMedia[];
+  listings: string[];
+}
+
+export interface ReadinessFinding {
+  check: string; subject: string; detail: string; severity: string;
+  system?: string | null; basis: string; citation: string;
+}
+
+/** Deliberately carries no score. A product with three open findings is not
+ *  seventy per cent ready - it is not ready, and the findings are what anybody
+ *  acts on. */
+export interface Readiness {
+  entity_id: string;
+  verdict: "READY_TO_LAUNCH" | "RETURN_TO_SOURCE" | "BLOCKED" | string;
+  ready: boolean;
+  findings: ReadinessFinding[];
+  blocking: ReadinessFinding[];
+  by_system: Record<string, ReadinessFinding[]>;
+  /** False when the reading checks could not reach a model. The assessment
+   *  found fewer things; it is narrower, not cleaner. */
+  checks_complete: boolean;
+  caveat?: string | null;
+  record?: ProductRecord;
+}
+
+export interface Differentiator {
+  text: string; attributes: string[]; citation: string; source: string;
+  written_by_model: boolean; note: string;
+}
+
+export interface Preview {
+  entity_id: string;
+  rendered: boolean;
+  verdict?: string;
+  findings?: ReadinessFinding[];
+  reason?: string;
+  sku?: string;
+  title?: string;
+  category?: string;
+  specification?: { path: string; label: string; value: unknown;
+                    unit?: string | null }[];
+  media?: ProductMedia[];
+  claims?: string[];
+  differentiator?: Differentiator | null;
+}
+
 /* --- the external estate ------------------------------------------------ */
 
 /** One external system, as the manifest declares it and the arrivals count it. */
@@ -938,6 +1022,28 @@ export const api = {
   /** Flip the MCP transport mid-demo. Takes effect on the next lookup. */
   setMcpTransport: (enabled: boolean) =>
     post<MCPTransport>("/api/mcp/transport", { enabled }),
+
+  /* --- product 360 ------------------------------------------------------ */
+
+  /** Find a product by SKU, internal identifier or name. An empty query lists
+   *  everything: a page that stays blank until you type looks broken. */
+  products: (q = "", limit = 20) =>
+    get<{ query: string; results: ProductHit[] }>(
+      `/api/products?q=${encodeURIComponent(q)}&limit=${limit}`),
+
+  /** One product's merged record - values, media, carriers, disagreements. */
+  productRecord: (id: string) =>
+    get<ProductRecord>(`/api/products/${encodeURIComponent(id)}`),
+
+  /** The nine checks and the verdict. */
+  readiness: (id: string, useModel = true) =>
+    get<Readiness>(
+      `/api/products/${encodeURIComponent(id)}/readiness?use_model=${useModel}`),
+
+  /** The staging page, or a refusal carrying the verdict and the findings. */
+  preview: (id: string, useModel = true) =>
+    get<Preview>(
+      `/api/products/${encodeURIComponent(id)}/preview?use_model=${useModel}`),
 
   /* --- the external estate ---------------------------------------------- */
 

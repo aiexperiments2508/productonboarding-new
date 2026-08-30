@@ -45,7 +45,18 @@ function Icon({ size = 16, children, ...rest }: IconProps & { children: React.Re
 
 /* --- navigation ----------------------------------------------------------- */
 
-/** Factory floor. A radar sweep - the view that watches the whole catalog. */
+/** Product 360. A box seen from three sides at once - the record, the
+ *  assessment and the page it would become. */
+export const IconProduct = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3 20.5 7.5 20.5 16.5 12 21 3.5 16.5 3.5 7.5Z" />
+    <path d="M12 12 20.5 7.5" />
+    <path d="M12 12 3.5 7.5" />
+    <path d="M12 12 12 21" />
+  </Icon>
+);
+
+/** Ingest fabric. A radar sweep - the view that watches the whole catalog. */
 export const IconTower = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 12 12 4" />

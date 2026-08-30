@@ -73,6 +73,10 @@ class Baseline:
     inject: dict
 
     # --- derived lookups, built once ---------------------------------------
+    #: Imagery held against each variant. Empty rather than absent for a variant
+    #: nothing has been delivered for - "no media" is an answer, and a missing
+    #: key is a lookup error at the call site.
+    media_by_entity: dict[str, list] = field(default_factory=dict)
     variants_of: dict[str, list[str]] = field(default_factory=dict)
     product_of_variant: dict[str, str] = field(default_factory=dict)
     listings_of: dict[str, list[str]] = field(default_factory=dict)
@@ -217,6 +221,7 @@ def load(directory: Path | None = None) -> Baseline:
         catalog=catalog,
         products={p.id: p for p in catalog.products},
         variants={v.id: v for v in catalog.variants},
+        media_by_entity=_media_by_entity(catalog),
         channels={c.id: c for c in catalog.channels},
         listings={l.id: l for l in catalog.listings},
         assets=assets,
@@ -227,6 +232,16 @@ def load(directory: Path | None = None) -> Baseline:
         attr_sources=attr_sources,
         inject=raw.get("inject", {}),
     )
+
+
+def _media_by_entity(catalog) -> dict[str, list]:
+    grouped: dict[str, list] = {v.id: [] for v in catalog.variants}
+    for asset in catalog.media:
+        grouped.setdefault(asset.entity_id, []).append(asset)
+    for assets in grouped.values():
+        # Sorted by role so a reader and a test see the same order twice.
+        assets.sort(key=lambda a: (str(a.role), a.id))
+    return grouped
 
 
 @lru_cache(maxsize=1)

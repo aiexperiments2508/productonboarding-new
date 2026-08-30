@@ -156,6 +156,51 @@ class Variant(BaseModel):
     product_id: str
     name: str
     is_base: bool = False
+    #: What everybody outside this system calls the thing.
+    #:
+    #: ``id`` is an internal key and stays one - renaming keys to look friendlier
+    #: makes an audit trail harder to read for a cosmetic gain. But a buyer, a
+    #: supplier and a marketplace all say "SKU" and all mean what is printed on
+    #: a purchase order, and a product surface that cannot be searched by it is
+    #: a product surface for this system rather than for its users.
+    sku: str = ""
+
+
+class MediaRole(StrEnum):
+    """What an image is for.
+
+    A closed set, because the requirement is per role: "the category requires an
+    ingredient panel and none arrived" is only checkable if roles are drawn from
+    a list. Free text would make a missing hero shot indistinguishable from a
+    hero shot filed under a name nobody checked.
+    """
+
+    HERO = "HERO"                    # the cut-out every listing needs
+    IN_SITU = "IN_SITU"              # the product in a room, for home goods
+    PACK_FRONT = "PACK_FRONT"        # the pack as it sits on a shelf
+    INGREDIENT_PANEL = "INGREDIENT_PANEL"  # the panel a shopper with an allergy
+                                           # reads when they do not trust the
+                                           # transcription
+    DETAIL = "DETAIL"                # a close-up; never required, often useful
+
+
+class MediaAsset(BaseModel):
+    """One image held against a product.
+
+    Carries the system that delivered it for the same reason a fact does: media
+    goes missing far more often than attributes do, and the team who fixes it is
+    not the team who fixes a specification.
+    """
+
+    id: str
+    entity_id: str                   # the variant it belongs to
+    role: MediaRole
+    uri: str
+    alt_text: str = ""
+    width: int = 0
+    height: int = 0
+    #: The external system that delivered it, where one is known.
+    system: str | None = None
 
 
 class ChannelKind(StrEnum):
@@ -288,6 +333,10 @@ class Catalog(BaseModel):
     rules: list[ChannelRule]
     listings: list[Listing]
     attributes: list[AttributeDef]
+    #: Imagery held against variants. Static like the rest of this model - what
+    #: changes over time is whether it is *enough*, which the category rule and
+    #: the record decide together.
+    media: list[MediaAsset] = Field(default_factory=list)
     taxonomy: dict[str, object] = Field(default_factory=dict)
     horizon_start: date
     horizon_days: int

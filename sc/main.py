@@ -713,6 +713,79 @@ def mcp_servers() -> dict:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Product 360
+#
+# Every read here delegates to the same functions the rest of the system calls.
+# Two implementations of one read become two accounts of the same product the
+# first time either is edited, and this surface is the one a reviewer trusts
+# last before a launch.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/products")
+def product_search(q: str = "", limit: int = 20) -> dict:
+    """Find a product by SKU, internal identifier or name.
+
+    An empty query lists everything rather than refusing: the product view opens
+    on this, and a page that opens empty until you type is a page that looks
+    broken.
+    """
+    from sc.readiness import search as product_search_mod
+
+    # Verdicts alongside, because the list view exists to show which products
+    # are holding a launch up and a row without one is a row nobody can act on.
+    # The reading checks stay off here: twenty products would otherwise be sixty
+    # model calls to render a page nobody has clicked into.
+    return {"query": q,
+            "results": product_search_mod.with_readiness(q, limit)}
+
+
+@app.get("/api/products/{entity_id}")
+def product_record(entity_id: str) -> dict:
+    """One product's merged record - values, media, carriers and disagreements."""
+    from sc.readiness import record as record_mod
+
+    record = record_mod.build(entity_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="no such product")
+    return record_mod.as_dict(record, baseline_mod.get())
+
+
+@app.get("/api/products/{entity_id}/readiness")
+def product_readiness(entity_id: str, use_model: bool = True) -> dict:
+    """The nine checks, their findings, and the verdict.
+
+    ``use_model=false`` runs the six deterministic checks only, and the response
+    says so. An assessment that could not reach a model has found fewer things,
+    and reporting that as clean is the most dangerous thing this surface could
+    do.
+    """
+    import sc.readiness as readiness
+
+    summary = readiness.assess(entity_id, use_model=use_model)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="no such product")
+    return summary
+
+
+@app.get("/api/products/{entity_id}/preview")
+def product_preview(entity_id: str, use_model: bool = True) -> dict:
+    """The staging page, for a record that is ready.
+
+    A record that is not ready is refused with its verdict and findings rather
+    than rendered with a warning across the top: a page that renders a blocked
+    product is a page somebody screenshots.
+    """
+    import sc.readiness as readiness
+    from sc.readiness import preview as preview_mod
+
+    summary = readiness.assess(entity_id, use_model=use_model)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="no such product")
+    return preview_mod.build(entity_id, summary, use_model=use_model)
+
+
 @app.get("/api/estate")
 def estate() -> dict:
     """The systems that feed the retailer, and what each has delivered.

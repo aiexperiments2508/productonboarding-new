@@ -7,6 +7,7 @@ import type {
 import { Approvals } from "../components/Approvals";
 import { ControlTower } from "../components/ControlTower";
 import { Investigation } from "../components/Investigation";
+import { Product360 } from "../components/Product360";
 import { Scenarios } from "../components/Scenarios";
 import { SystemControl } from "../components/SystemControl";
 import { ErrorBoundary, ToastProvider, TooltipProvider, useToast } from "../ui";
@@ -359,6 +360,7 @@ function Shell() {
               onStartRun={startRun} onReplay={doReplay} busy={busy}
             />
           )}
+          {section === "product360" && <Product360 />}
           {section === "investigation" && (
             <Investigation
               run={run} catalog={catalog} onOpenCitation={setPeek}

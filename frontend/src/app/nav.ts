@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import {
-  IconApprovals, IconInvestigate, IconScenarios, IconSystem, IconTower,
+  IconApprovals, IconInvestigate, IconProduct, IconScenarios, IconSystem,
+  IconTower,
 } from "../icons";
 import type { IconProps } from "../icons";
 
@@ -22,7 +23,8 @@ export interface Section {
 }
 
 export type SectionId =
-  | "tower" | "investigation" | "scenarios" | "approvals" | "system";
+  | "tower" | "product360" | "investigation" | "scenarios" | "approvals"
+  | "system";
 
 export const SECTIONS: Section[] = [
   {
@@ -31,6 +33,13 @@ export const SECTIONS: Section[] = [
     description:
       "The external systems feeding the catalog, what each one is delivering right now, and which corrections are in force.",
     Icon: IconTower,
+  },
+  {
+    id: "product360",
+    label: "Product 360",
+    description:
+      "Find a product by SKU or name, see what every system has said about it, and whether its information is fit to launch.",
+    Icon: IconProduct,
   },
   {
     id: "investigation",

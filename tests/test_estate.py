@@ -280,3 +280,64 @@ def test_every_stamped_defect_is_detected():
     undetected = [d for d in ALL if not detection.detector_for(d)]
     assert not undetected, \
         f"the estate stamps {undetected} and nothing reports them"
+
+
+# ---------------------------------------------------------------------------
+# Each system is reachable over a protocol
+# ---------------------------------------------------------------------------
+
+
+def test_every_system_exposes_an_mcp_surface():
+    """Ten servers, not one server with a system argument.
+
+    Built per system so that a client asking `tools/list` gets an answer scoped
+    to who it is talking to. Checked by building each one and listing its
+    tools - the HTTP round-trip needs a running application and is exercised by
+    starting it; what this asserts is that every declared system has a surface
+    at all, which is the thing that would silently stop being true if somebody
+    added a system to the manifest and nowhere else.
+    """
+    import asyncio
+
+    from sc.estate import server as estate_server
+
+    for system in manifest.SYSTEMS:
+        built = estate_server.build(system)
+        names = sorted(t.name for t in asyncio.run(built.list_tools()))
+        assert names == sorted(estate_server.TOOLS), \
+            f"{system.id} exposes {names}"
+
+
+def test_a_system_will_not_hand_over_another_systems_payload():
+    """An estate where every system can read every other one's traffic is a
+    single database with ten front doors."""
+    from sc.estate import delivery, server as estate_server
+
+    released = tape.jump_to(tape.inject_seq())
+    delivery.deliver(released)
+
+    landed = arrivals.recent(200)
+    assert landed, "nothing was delivered, so this proves nothing"
+    row = landed[0]
+    owner = manifest.BY_ID[row["system_id"]]
+    other = next(s for s in manifest.SYSTEMS if s.id != owner.id)
+
+    mine = estate_server._payload(owner, row["event_id"])
+    theirs = estate_server._payload(other, row["event_id"])
+
+    assert mine.get("event_id") == row["event_id"]
+    assert "error" in theirs and other.id in theirs["error"]
+
+
+def test_a_systems_endpoint_ends_in_a_slash():
+    """Starlette's Mount strips the prefix before the sub-app sees the request,
+    so `/mcp/{id}` arrives as an empty path and the only route is `/`. Without
+    the slash the endpoint answers 405, which reads as a broken server rather
+    than a wrong address - and the address is what a connection record holds."""
+    from sc.estate import server as estate_server
+
+    for system in manifest.SYSTEMS:
+        assert estate_server.endpoint(system.id).endswith("/")
+    for entry in [e for e in [{"url": estate_server.endpoint(s.id)}
+                              for s in manifest.SYSTEMS]]:
+        assert not entry["url"].endswith("//")

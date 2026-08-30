@@ -118,13 +118,33 @@ def _handle(event: Event, conn) -> list[CorrectionSignal]:
     return handler(event, conn) if handler is not None else []
 
 
+def _carrier(event: Event) -> tuple[str | None, tuple[str, ...]]:
+    """Which system delivered this event, and what was wrong with the delivery.
+
+    Read once per event rather than once per row: a feed carrying eight
+    attributes arrived once, and asking the arrivals table eight times would
+    make the answer no better and the ingest eight times chattier.
+
+    Absent when nothing has recorded an arrival - a tape loaded directly by a
+    test, or a database seeded before the estate existed. The fact is still
+    written; it simply does not name a carrier, which is honest.
+    """
+    try:
+        from sc.estate import arrivals
+
+        return arrivals.system_for(event.id), tuple(arrivals.defects_for(event.id))
+    except Exception:  # noqa: BLE001 - a missing carrier is not a missing fact
+        return None, ()
+
+
 def _attribute_rows(event: Event, conn) -> list[CorrectionSignal]:
     """A supplier feed: one attribute row, or a batch of them."""
     rows = _raw_rows(event.payload)
+    carrier = _carrier(event)
     signals: list[CorrectionSignal] = []
     for index, row in enumerate(rows, start=1):
         signal_id = f"SIG-{event.id}" if len(rows) == 1 else f"SIG-{event.id}-{index}"
-        signal = _attribute_row(event, row, signal_id, conn)
+        signal = _attribute_row(event, row, signal_id, conn, carrier)
         if signal is not None:
             signals.append(signal)
     return signals
@@ -250,8 +270,9 @@ def _raw_rows(payload: dict) -> list[dict]:
     return [envelope] if payload.get("path") else []
 
 
-def _attribute_row(event: Event, raw: dict, signal_id: str,
-                   conn) -> CorrectionSignal | None:
+def _attribute_row(event: Event, raw: dict, signal_id: str, conn,
+                   carrier: tuple[str | None, tuple[str, ...]] = (None, ()),
+                   ) -> CorrectionSignal | None:
     base = baseline_mod.get()
     row = _row(base, raw)
     if row is None:
@@ -266,10 +287,16 @@ def _attribute_row(event: Event, raw: dict, signal_id: str,
         # disagreement is raised and the higher-ranked value stays in force.
         return _conflict(base, event, signal_id, row, held)
 
+    system, defects = carrier
     store.record(row.entity_type, row.entity_id, row.path, row.value,
                  valid_from=event.ts, recorded_at=event.ts, conn=conn,
                  provenance=Provenance(kind=ProvenanceKind.RECORDED,
-                                       source_id=row.ref, note=event.id))
+                                       source_id=row.ref, note=event.id,
+                                       # A value known to have arrived
+                                       # malformed must not be
+                                       # indistinguishable from one that
+                                       # arrived clean.
+                                       system=system, defects=defects))
 
     definition = base.attr_defs.get(row.path)
     if _is_gap(definition, row.value):

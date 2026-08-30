@@ -174,11 +174,27 @@ def get_network_state(as_of: str | None = None,
         if status != "ACTIVE" or revised:
             docs.append(doc_id)
 
+    # The systems that fed all this, derived from the connection records and
+    # what each has actually carried - never stored, for the same reason the
+    # rest of the map is not: a tier whose membership changes while the
+    # application is running cannot be a fact written at generation time.
+    #
+    # Failing softly on purpose. The estate explains where the catalog came
+    # from; the catalog does not depend on it, and a map missing its left-hand
+    # tier is better than a map that would not draw.
+    try:
+        from sc.estate import topology as estate_topology
+
+        system_nodes, system_edges = estate_topology.nodes_and_edges()
+    except Exception:  # noqa: BLE001 - the map must draw regardless
+        system_nodes, system_edges = [], []
+
     return {
         "as_of": valid.isoformat(),
         "as_of_recorded": recorded.isoformat() if recorded else None,
-        "nodes": [n.model_dump(mode="json") for n in base.catalog.nodes],
-        "edges": edges,
+        "nodes": ([n.model_dump(mode="json") for n in base.catalog.nodes]
+                  + system_nodes),
+        "edges": edges + system_edges,
         "products": [p.model_dump(mode="json") for p in base.catalog.products],
         "variants": [v.model_dump(mode="json") for v in base.catalog.variants],
         "channels": [c.model_dump(mode="json") for c in base.catalog.channels],

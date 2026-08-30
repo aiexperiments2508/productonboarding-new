@@ -82,6 +82,8 @@ class Broadcaster:
 
 bus = Broadcaster()
 _clock_task: asyncio.Task | None = None
+#: Holds the estate systems' session managers open for the life of the app.
+_estate_stack = None
 
 
 def _on_events(events) -> None:
@@ -102,17 +104,50 @@ def _on_events(events) -> None:
 
 @app.on_event("startup")
 async def startup() -> None:
-    global _clock_task
+    global _clock_task, _estate_stack
+    from contextlib import AsyncExitStack
+
     from sc import bootstrap
 
     bootstrap.ensure_ready()
     _clock_task = asyncio.create_task(tape.run_clock(_on_events))
+
+    # Each estate system is a mounted Starlette sub-app, and mounting does not
+    # run a sub-app's lifespan. A streamable-HTTP server whose session manager
+    # was never started accepts the connection and then fails the first
+    # request, which reads as a broken supplier rather than an unstarted one.
+    try:
+        from sc.estate import server as _estate_server
+
+        _estate_stack = AsyncExitStack()
+        await _estate_stack.__aenter__()
+        started = await _estate_server.start(_estate_stack)
+        log.info("estate: %d system server(s) listening", started)
+
+        # Dial them, in the background. Ten handshakes is a second or two, and
+        # the application must not spend that before it will answer anything -
+        # a demo that cannot boot because a mock supplier was slow is a worse
+        # outcome than a demo whose estate fills in a moment later.
+        async def _dial() -> None:
+            import os as _os
+
+            base = f"http://127.0.0.1:{_os.environ.get('API_PORT', '8000')}"
+            await asyncio.to_thread(_estate_server.connect_all, base)
+
+        asyncio.create_task(_dial())
+    except Exception as exc:  # noqa: BLE001 - the app must start regardless
+        log.warning("estate session managers not started: %s", exc)
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
     if _clock_task is not None:
         _clock_task.cancel()
+    if _estate_stack is not None:
+        try:
+            await _estate_stack.aclose()
+        except Exception:  # noqa: BLE001 - shutdown is not a place to fail
+            log.debug("estate shutdown was untidy", exc_info=True)
         with contextlib.suppress(asyncio.CancelledError):
             await _clock_task
 
@@ -606,6 +641,24 @@ except Exception as _exc:  # noqa: BLE001 - the app must start regardless
     log.warning("A2A peers not mounted: %s", _exc)
 
 
+# ---------------------------------------------------------------------------
+# The estate, each system its own MCP server at /mcp/{system_id}
+#
+# Mounted here for the same reason the peers are: the calls still cross the
+# protocol and each system is separately addressable, and running ten processes
+# to prove a point about boundaries would cost a demo ten things that can fail.
+# Moving one system to its own host is a change to a URL.
+# ---------------------------------------------------------------------------
+
+try:
+    from sc.estate import server as estate_server
+
+    ESTATE_MOUNTED = estate_server.mount(app)
+except Exception as _exc:  # noqa: BLE001 - the app must start regardless
+    ESTATE_MOUNTED = []
+    log.warning("estate systems not mounted: %s", _exc)
+
+
 @app.get("/api/a2a/agents")
 def a2a_agents() -> dict:
     """The peer roster, their cards, and how delegation is currently running."""
@@ -683,6 +736,36 @@ def estate() -> dict:
     }
 
 
+def _publish_topology(change: str, system_id: str, state: str) -> None:
+    """Tell every open reader the estate moved.
+
+    A view of the connection records rather than a second account of them: the
+    message names what happened and the reader re-reads the map, so a reader
+    that missed a message and re-reads the listing arrives at the same picture.
+    Carrying the whole estate in the message would be the second account.
+    """
+    from sc.mcp import connections as mcp_connections
+
+    bus.publish("topology", {
+        "change": change,
+        "system_id": system_id,
+        "state": state,
+        "connected": sum(1 for c in mcp_connections.all_connections()
+                         if c["state"] == "connected"),
+    })
+
+
+@app.get("/api/estate/servers")
+def estate_servers() -> dict:
+    """Where each system answers, and what it exposes.
+
+    The addresses are real and separately reachable, which is what makes
+    "connect another system" the same operation whether the system ships here
+    or somebody else runs it.
+    """
+    return {"servers": ESTATE_MOUNTED}
+
+
 @app.get("/api/estate/arrivals")
 def estate_arrivals_feed(limit: int = 120) -> dict:
     """What has landed, newest first, with the batch and the system."""
@@ -706,12 +789,14 @@ def estate_connect(body: dict) -> dict:
     url = (body or {}).get("url", "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="a url is required")
-    return mcp_connections.connect_url(
+    record = mcp_connections.connect_url(
         url,
         connection_id=(body or {}).get("id") or None,
         title=(body or {}).get("title", ""),
         owner=(body or {}).get("owner", ""),
         transport=(body or {}).get("transport", "http"))
+    _publish_topology("connected", record["id"], record["state"])
+    return record
 
 
 @app.delete("/api/estate/connections/{connection_id}")
@@ -722,7 +807,10 @@ def estate_disconnect(connection_id: str) -> dict:
     """
     from sc.mcp import connections as mcp_connections
 
-    return {"removed": mcp_connections.disconnect(connection_id),
+    removed = mcp_connections.disconnect(connection_id)
+    if removed:
+        _publish_topology("disconnected", connection_id, "")
+    return {"removed": removed,
             "connections": mcp_connections.all_connections()}
 
 

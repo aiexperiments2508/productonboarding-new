@@ -299,3 +299,90 @@ def test_a_failed_batch_leaves_the_cursor_and_the_store_untouched(monkeypatch):
 
     assert ingest.cursor() == before
     assert _held("VAR-01A", "specs.coverage_m2") is None
+
+
+# ---------------------------------------------------------------------------
+# Which system carried it
+#
+# A supplier is *who asserted* a value; a system is *what carried it*. The MVP
+# collapsed the two, which made "these two systems disagree about the same
+# supplier's product" inexpressible - and that disagreement is the whole reason
+# an estate of ten is more interesting than a feed of one.
+# ---------------------------------------------------------------------------
+
+
+def _deliver(event, system_id: str, defects: tuple[str, ...] = ()) -> None:
+    """Record an arrival for an event, as the named system, before ingesting."""
+    from sc.estate import arrivals, emitter
+
+    arrivals.record(
+        emitter.Batch(system_id=system_id, ordinal=event.seq,
+                      sequences=(event.seq,), after=0.0,
+                      defects={event.seq: defects}),
+        {event.seq: event.id})
+
+
+def test_a_recorded_fact_names_the_system_that_carried_it():
+    first = _event(1, FEED, {"kind": "ATTRIBUTE", "entity_id": "VAR-01A",
+                             "path": "specs.coverage_m2", "value": 44,
+                             "doc_id": "DOC-01", "doc_version": "v1",
+                             "supplier": "SUP-01"})
+    _deliver(first, "supplier-portal")
+    ingest.ingest([first])
+    carried_by_portal = _held("VAR-01A", "specs.coverage_m2")
+
+    second = _event(2, FEED, {"kind": "ATTRIBUTE", "entity_id": "VAR-01A",
+                              "path": "specs.noise_db", "value": 33,
+                              "doc_id": "DOC-01", "doc_version": "v1",
+                              "supplier": "SUP-01"})
+    _deliver(second, "gdsn-pool")
+    ingest.ingest([second])
+    carried_by_pool = _held("VAR-01A", "specs.noise_db")
+
+    assert carried_by_portal.provenance.system == "supplier-portal"
+    assert carried_by_pool.provenance.system == "gdsn-pool"
+    # Same supplier, same document, two systems. Distinguishable on that field
+    # alone, which is what makes a contradiction attributable.
+    assert carried_by_portal.provenance.source_id == \
+        carried_by_pool.provenance.source_id
+    assert (carried_by_portal.provenance.system
+            != carried_by_pool.provenance.system)
+
+
+def test_a_defect_stamped_on_arrival_survives_into_the_record():
+    """A value known to have arrived malformed must not be indistinguishable
+    from one that arrived clean."""
+    from sc.estate.defects import Defect
+
+    dirty = _event(1, FEED, {"kind": "ATTRIBUTE", "entity_id": "VAR-01A",
+                             "path": "specs.coverage_m2", "value": 44,
+                             "doc_id": "DOC-01", "doc_version": "v1",
+                             "supplier": "SUP-01"})
+    _deliver(dirty, "gdsn-pool", (str(Defect.FOREIGN_VOCABULARY),))
+    ingest.ingest([dirty])
+
+    clean = _event(2, FEED, {"kind": "ATTRIBUTE", "entity_id": "VAR-01A",
+                             "path": "specs.noise_db", "value": 33,
+                             "doc_id": "DOC-01", "doc_version": "v1",
+                             "supplier": "SUP-01"})
+    _deliver(clean, "label-artwork")
+    ingest.ingest([clean])
+
+    assert _held("VAR-01A", "specs.coverage_m2").provenance.defects == \
+        (str(Defect.FOREIGN_VOCABULARY),)
+    assert _held("VAR-01A", "specs.noise_db").provenance.defects == ()
+
+
+def test_a_fact_with_no_recorded_arrival_still_lands():
+    """A tape loaded directly, or a store seeded before the estate existed. The
+    fact is written and simply does not name a carrier, which is honest."""
+    orphan = _event(1, FEED, {"kind": "ATTRIBUTE", "entity_id": "VAR-01A",
+                              "path": "specs.coverage_m2", "value": 44,
+                              "doc_id": "DOC-01", "doc_version": "v1",
+                              "supplier": "SUP-01"})
+    ingest.ingest([orphan])
+    fact = _held("VAR-01A", "specs.coverage_m2")
+
+    assert fact.value == 44
+    assert fact.provenance.system is None
+    assert fact.provenance.defects == ()

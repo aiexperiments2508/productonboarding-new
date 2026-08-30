@@ -39,7 +39,7 @@
 - [x] 3.3 Assert the record is identical whichever order the batches landed in;
       verify via
       `tests/test_estate.py::test_arrival_order_does_not_change_the_record`
-- [ ] 3.4 Carry the system and any stamped defects through into the recorded
+- [x] 3.4 Carry the system and any stamped defects through into the recorded
       fact; verify via
       `tests/test_ingest.py::test_a_recorded_fact_names_the_system_that_carried_it`
       and
@@ -50,13 +50,19 @@
 
 ## 4. Serving the estate over MCP
 
-- [ ] 4.1 Give each system an MCP server in `sc/estate/server.py`, mounted
+- [x] 4.1 Give each system an MCP server in `sc/estate/server.py`, mounted
       beside the peers by `run.py`, reachable without importing its module;
       verify via `tests/test_estate.py::test_every_system_exposes_an_mcp_surface`
 - [ ] 4.2 Let `_Bridge` choose its transport from the connection record -
       spawned module or HTTP endpoint - without changing `call()`; verify via
       `tests/test_connections.py::test_two_transports_are_in_use_at_once_without_disagreeing`
-- [ ] 4.3 Confirm the existing stdio path and its tests are untouched; verify
+      NOT DONE, and deliberately deferred. The handshake already picks its
+      transport from the record, which is what connecting needs. Routing a
+      *call* over HTTP only matters once a connected system's tool can be
+      reached from inside a run, and admitting a tool to the evidence desk is
+      `capability-registry-and-agent-cards`. Building the routing before the
+      thing that would use it would be a transport with no caller.
+- [x] 4.3 Confirm the existing stdio path and its tests are untouched; verify
       the nine assertions in `tests/test_protocols.py` still pass unmodified
 
 ## 5. Connections at runtime
@@ -80,18 +86,18 @@
 
 ## 6. The map follows the estate
 
-- [ ] 6.1 Put connected systems on the derived map, including one that has
+- [x] 6.1 Put connected systems on the derived map, including one that has
       delivered nothing; verify via
       `tests/test_connections.py::test_connected_systems_are_on_the_map_including_silent_ones`
-- [ ] 6.2 Stop emitting node coordinates from the generator and compute position
+- [x] 6.2 Stop emitting node coordinates from the generator and compute position
       from tier and live membership; verify via
       `tests/test_connections.py::test_no_node_position_is_stored`
-- [ ] 6.3 Degrade a disconnected system without retracting its facts; verify via
+- [x] 6.3 Degrade a disconnected system without retracting its facts; verify via
       `tests/test_connections.py::test_disconnecting_degrades_without_retracting`
-- [ ] 6.4 Emit topology changes on a stream that agrees with the listing; verify
+- [x] 6.4 Emit topology changes on a stream that agrees with the listing; verify
       via `tests/test_connections.py::test_topology_changes_are_emitted_once_each`
       and `tests/test_connections.py::test_the_topology_stream_and_the_listing_agree`
-- [ ] 6.5 Give `NetworkMap.tsx` a systems tier that redraws on a topology
+- [x] 6.5 Give `NetworkMap.tsx` a systems tier that redraws on a topology
       message; verify by connecting and disconnecting a system from the UI and
       watching the map follow
 

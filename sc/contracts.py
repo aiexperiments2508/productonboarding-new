@@ -51,6 +51,19 @@ class Provenance(BaseModel):
     model: str | None = None  # gateway model alias, when LLM-derived
     run_id: str | None = None
     note: str | None = None
+    #: The external system that carried this into the estate.
+    #:
+    #: Distinct from the source document, and the distinction earns its keep:
+    #: a supplier is *who asserted* a value and a system is *what carried it*.
+    #: One supplier's data arriving through both its portal and an industry
+    #: data pool is two systems and one supplier, and "these two disagree" is
+    #: only expressible if the record keeps them apart.
+    system: str | None = None
+    #: Conformance defects stamped on the arrival that delivered this.
+    #:
+    #: A tuple rather than a list because this model is frozen and therefore
+    #: hashable, and a list field would quietly take that away.
+    defects: tuple[str, ...] = ()
 
 
 class SourceRef(BaseModel):
@@ -73,6 +86,10 @@ class SourceRef(BaseModel):
 
 
 class CatalogNodeKind(StrEnum):
+    #: An external system that feeds the catalog. Unlike the tiers below it,
+    #: membership here is only known at runtime - a system connects and
+    #: disconnects while the application is running.
+    SYSTEM = "SYSTEM"
     SUPPLIER = "SUPPLIER"
     PRODUCT = "PRODUCT"
     VARIANT = "VARIANT"
@@ -80,19 +97,24 @@ class CatalogNodeKind(StrEnum):
 
 
 class CatalogNode(BaseModel):
-    """One box on the factory map.
+    """One box on the map.
 
-    Fixed layout coordinates. The catalog is a known four-tier DAG - supplier,
+    Carries no position. The catalog is a known DAG - system, supplier,
     product, variant, channel - so the UI draws it as hand-rolled SVG rather
-    than running a layout engine.
+    than running a layout engine, and it computes each box's place from the
+    tier and that tier's live membership.
+
+    Coordinates used to be written here by the generator. They stopped being
+    tenable the moment a tier could gain and lose members while the application
+    was running: a position written at generation time cannot describe a system
+    that connected a minute ago, and a stored position is a second account of a
+    structure the catalog already settles.
     """
 
     id: str
     kind: CatalogNodeKind
     name: str
     group: str  # category family for products, channel class for channels
-    x: float
-    y: float
     regulated: bool = False      # food, safety or otherwise claim-controlled
     single_source: bool = False  # exactly one supplier document defines it
 

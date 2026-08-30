@@ -938,7 +938,14 @@ def docs_defining(variant_id: str) -> set[str]:
 
 
 def build_nodes() -> list[dict]:
-    """Four tiers with fixed coordinates - the UI draws this as hand-rolled SVG.
+    """The boxes on the map, without positions.
+
+    Coordinates used to be written here. They stopped being tenable once a tier
+    could gain and lose members while the application was running - a position
+    written at generation time cannot describe a system that connected a minute
+    ago. The UI computes each box's place from its tier and that tier's live
+    membership, which also removes a way for the picture to disagree with the
+    catalog it claims to draw.
 
     ``single_source`` falls out of the data rather than being asserted: an
     entity defined by exactly one supplier document has nothing to corroborate
@@ -946,15 +953,10 @@ def build_nodes() -> list[dict]:
     """
     nodes: list[dict] = []
 
-    def place(index: int, total: int) -> float:
-        # Margins at both ends so the outermost boxes are not on the edge.
-        return round((index + 1) / (total + 1), 4)
-
     for i, (sid, name, family) in enumerate(SUPPLIERS):
         owned = [doc[0] for doc in SOURCE_DOCS if doc[1] == sid]
         nodes.append({
             "id": sid, "kind": "SUPPLIER", "name": name, "group": family,
-            "x": 0.0, "y": place(i, len(SUPPLIERS)),
             "regulated": False, "single_source": len(owned) == 1,
         })
 
@@ -966,7 +968,6 @@ def build_nodes() -> list[dict]:
         nodes.append({
             "id": pid, "kind": "PRODUCT", "name": name,
             "group": category.split(".")[0],
-            "x": 0.33, "y": place(i, len(PRODUCTS)),
             "regulated": regulated, "single_source": len(docs) == 1,
         })
 
@@ -975,14 +976,12 @@ def build_nodes() -> list[dict]:
         nodes.append({
             "id": vid, "kind": "VARIANT", "name": name,
             "group": product[2].split(".")[0],
-            "x": 0.62, "y": place(i, len(VARIANTS)),
             "regulated": product[4], "single_source": len(docs_defining(vid)) == 1,
         })
 
     for i, (cid, name, kind, _, _, _, _) in enumerate(CHANNELS):
         nodes.append({
             "id": cid, "kind": "CHANNEL", "name": name, "group": kind,
-            "x": 1.0, "y": place(i, len(CHANNELS)),
             "regulated": False, "single_source": False,
         })
 

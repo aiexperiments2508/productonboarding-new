@@ -191,3 +191,77 @@ def test_an_unreachable_system_degrades_rather_than_failing():
     assert marked["discovered_tools"] == ["fetch_thing"], \
         "degrading must not erase what the system said it could do"
     assert connections.mark_degraded("never-connected", "x") is None
+
+
+# ---------------------------------------------------------------------------
+# The map follows the estate
+# ---------------------------------------------------------------------------
+
+
+def test_connected_systems_are_on_the_map_including_silent_ones():
+    """An estate that only shows what has already spoken cannot show a silent
+    supplier - and a silent supplier three days before a launch is exactly what
+    somebody needs to see."""
+    from sc.estate import topology
+
+    _declare("chatty", ["fetch_thing"])
+    _declare("silent", ["fetch_thing"])
+
+    nodes, _ = topology.nodes_and_edges()
+    ids = {n["id"] for n in nodes}
+
+    assert {"chatty", "silent"} <= ids
+    assert all(n["kind"] == "SYSTEM" for n in nodes)
+    for node in nodes:
+        assert node["name"] and node["group"], "a node needs a name and an owner"
+
+
+def test_no_node_position_is_stored():
+    """A tier whose membership changes while the application is running cannot
+    be laid out from coordinates written at generation time, and a stored
+    position is a second account of a structure the catalog already settles."""
+    from sc.estate import topology
+
+    _declare("supplier-x", ["fetch_thing"])
+    nodes, _ = topology.nodes_and_edges()
+
+    for node in nodes:
+        assert "x" not in node and "y" not in node
+
+    # And the catalog the generator wrote carries none either.
+    from sc.contracts import CatalogNode
+
+    assert "x" not in CatalogNode.model_fields
+    assert "y" not in CatalogNode.model_fields
+
+
+def test_disconnecting_degrades_without_retracting():
+    """A bitemporal store does not retract history because a socket closed."""
+    from sc.estate import topology
+
+    _declare("supplier-x", ["fetch_thing"])
+    connections.mark_degraded("supplier-x", "stopped answering")
+
+    nodes, _ = topology.nodes_and_edges()
+    node = next(n for n in nodes if n["id"] == "supplier-x")
+
+    assert node["state"] == connections.DEGRADED
+    # Still on the map. Removed would say the system never existed; degraded
+    # says it is not answering, which is the true and more useful thing.
+    assert node["id"] in {n["id"] for n in nodes}
+
+
+def test_the_topology_stream_and_the_listing_agree():
+    """The stream is a view of the connection records rather than a second
+    account of them, so a reader that missed a message and re-reads the listing
+    arrives at the same picture."""
+    from sc.estate import topology
+
+    _declare("a", ["t"])
+    _declare("b", ["t"])
+    connections.disconnect("a")
+
+    listed = {c["id"] for c in connections.all_connections()}
+    mapped = {n["id"] for n in topology.nodes_and_edges()[0]}
+
+    assert listed == mapped == {"b"}

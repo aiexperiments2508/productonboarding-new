@@ -49,19 +49,30 @@ import { cn } from "../ui";
 
 const W = 1000;
 const H = 460;
-const PAD = { top: 42, bottom: 26, left: 92, right: 92 };
+// Left padding carries the widest caption in the leftmost column. That used to
+// be a six-character supplier code; it is now a system name, so the column
+// needs room a short id never did.
+const PAD = { top: 42, bottom: 26, left: 120, right: 92 };
 
 const NODE_R = 11;
 const GLYPH = 15;
 
-const TIERS: { kind: CatalogNodeKind; label: string; fallbackX: number }[] = [
-  { kind: "SUPPLIER", label: "Sources", fallbackX: 0 },
-  { kind: "PRODUCT", label: "Products", fallbackX: 0.33 },
-  { kind: "VARIANT", label: "Variants", fallbackX: 0.62 },
-  { kind: "CHANNEL", label: "Channels", fallbackX: 1 },
+/* The tiers, left to right. Order here *is* the layout: x comes from a tier's
+   index and y from a node's place within that tier's live membership.
+   Positions used to be written by the generator and read off each node. That
+   stopped being tenable when the leftmost tier became one whose membership is
+   only known at runtime - a coordinate written at generation time cannot
+   describe a system that connected a minute ago. */
+const TIERS: { kind: CatalogNodeKind; label: string }[] = [
+  { kind: "SYSTEM", label: "Systems" },
+  { kind: "SUPPLIER", label: "Sources" },
+  { kind: "PRODUCT", label: "Products" },
+  { kind: "VARIANT", label: "Variants" },
+  { kind: "CHANNEL", label: "Channels" },
 ];
 
 const KIND_NOUN: Record<CatalogNodeKind, string> = {
+  SYSTEM: "System",
   SUPPLIER: "Source",
   PRODUCT: "Product",
   VARIANT: "Variant",
@@ -105,11 +116,13 @@ interface Placed {
   single: boolean;
   /** One line of context for the hover card. */
   detail: string;
+  /** Systems only: the connection has stopped answering. */
+  degraded?: boolean;
 }
 
 interface Edge {
   key: string;
-  relation: "supplies" | "contains" | "lists_on";
+  relation: "feeds" | "supplies" | "contains" | "lists_on";
   a: Placed;
   b: Placed;
   listing?: Listing;
@@ -154,8 +167,29 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
     const count = (n: number, one: string, many = `${one}s`) =>
       `${n} ${n === 1 ? one : many}`;
 
+    // How many sources each system has actually carried data for. Derived from
+    // the edges the server sent rather than counted again here, so the hover
+    // card and the lines cannot disagree.
+    const suppliersPerSystem = new Map<string, number>();
+    for (const e of catalog.edges ?? []) {
+      if (e.relation === "feeds") {
+        suppliersPerSystem.set(e.from, (suppliersPerSystem.get(e.from) ?? 0) + 1);
+      }
+    }
+
+    const systemById = new Map(
+      catalog.nodes.filter((n) => n.kind === "SYSTEM").map((n) => [n.id, n]));
+
     const detailOf = (id: string, kind: CatalogNodeKind): string => {
       switch (kind) {
+        case "SYSTEM": {
+          const sys = systemById.get(id);
+          if (!sys) return "";
+          const reach = count(suppliersPerSystem.get(id) ?? 0, "source");
+          return sys.state === "connected"
+            ? `${sys.transport ?? "http"} · ${count(sys.tools ?? 0, "tool")} · ${reach}`
+            : `${sys.state ?? "unknown"} · ${reach}`;
+        }
         case "SUPPLIER":
           return count(productsPerSupplier.get(id) ?? 0, "product");
         case "PRODUCT": {
@@ -178,29 +212,61 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
       }
     };
 
-    // The generator spreads each tier evenly *inside* 0-1, so the widest tier
-    // stops short of both edges and every tier inherits the same dead band.
-    // Rescaling onto the observed extent removes it without moving anything
-    // relative to anything else - the tiers stay aligned, the spacing stays
-    // even, and no layout is being computed.
-    const ys = catalog.nodes.map((n) => n.y);
-    const lowY = ys.length ? Math.min(...ys) : 0;
-    const span = (ys.length ? Math.max(...ys) : 1) - lowY || 1;
+    /* Position, derived.
+     *
+     * x is the tier's index; y spreads a tier's members evenly inside its
+     * column with a margin at both ends, so the outermost boxes are not on the
+     * edge. This is what the generator used to compute and write down; doing it
+     * here is what lets a tier gain and lose members while the map is open.
+     *
+     * A tier nobody is in takes no space and draws no header. That matters for
+     * the systems column specifically: before anything connects, the map should
+     * look like the map it always was rather than like one with a gap. */
+    const membership = new Map<CatalogNodeKind, string[]>();
+    for (const n of catalog.nodes) {
+      const list = membership.get(n.kind) ?? [];
+      list.push(n.id);
+      membership.set(n.kind, list);
+    }
+    const occupied = TIERS.filter((t) => (membership.get(t.kind) ?? []).length);
+    const columnOf = new Map(occupied.map((t, i) => [t.kind, i]));
+    const lastColumn = Math.max(occupied.length - 1, 1);
 
-    const placed: Placed[] = catalog.nodes.map((n) => ({
-      id: n.id,
-      kind: n.kind,
-      name: n.name,
-      x: PAD.left + n.x * innerW,
-      y: PAD.top + ((n.y - lowY) / span) * innerH,
-      regulated: n.regulated,
-      single: n.single_source,
-      detail: detailOf(n.id, n.kind),
-    }));
+    const placed: Placed[] = catalog.nodes.map((n) => {
+      const peers = membership.get(n.kind) ?? [n.id];
+      const seat = peers.indexOf(n.id);
+      return {
+        id: n.id,
+        kind: n.kind,
+        name: n.name,
+        x: PAD.left + ((columnOf.get(n.kind) ?? 0) / lastColumn) * innerW,
+        y: PAD.top + ((seat + 1) / (peers.length + 1)) * innerH,
+        regulated: n.regulated,
+        single: n.single_source,
+        detail: detailOf(n.id, n.kind),
+        // Systems only. A connection that stopped answering greys its node and
+        // keeps every edge it drew: what it delivered was true when it
+        // delivered it, and a bitemporal store does not retract history
+        // because a socket closed.
+        degraded: n.kind === "SYSTEM" && n.state !== "connected",
+      };
+    });
 
     const byId = new Map(placed.map((p) => [p.id, p]));
 
     const edges: Edge[] = [];
+    // system -> supplier. Taken from the server rather than rebuilt: which
+    // system fed which source is a fact about what has actually arrived, and
+    // the client has no way to know it.
+    for (const e of catalog.edges ?? []) {
+      if (e.relation !== "feeds") continue;
+      const a = byId.get(e.from);
+      const b = byId.get(e.to);
+      if (a && b) {
+        edges.push({ key: `fed:${e.from}:${e.to}`, relation: "feeds", a, b,
+                     freeze: 0 });
+      }
+    }
     // supplier -> product
     for (const p of catalog.products) {
       const a = byId.get(p.supplier);
@@ -232,13 +298,13 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
 
     // Tier headers sit over the column they name, derived from the nodes so a
     // regenerated catalog cannot leave the captions behind.
+    // An empty tier draws no caption. Before anything connects, the systems
+    // column should be absent rather than an empty heading over a gap.
     const tiers = TIERS.map((t) => {
       const xs = placed.filter((p) => p.kind === t.kind).map((p) => p.x);
-      const x = xs.length
-        ? xs.reduce((s, v) => s + v, 0) / xs.length
-        : PAD.left + t.fallbackX * innerW;
+      const x = xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0;
       return { ...t, x, n: xs.length };
-    });
+    }).filter((t) => t.n > 0);
 
     return { placed, edges, tiers };
   }, [catalog]);
@@ -311,7 +377,9 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
               )}
             >
               <title>
-                {e.relation === "supplies"
+                {e.relation === "feeds"
+                  ? `${e.a.name} has delivered data for ${e.b.name}`
+                  : e.relation === "supplies"
                   ? `${e.a.name} supplies ${e.b.name}`
                   : `${e.b.name} is a variant of ${e.a.name}`}
               </title>
@@ -506,8 +574,18 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
                     : "fill-muted"
                 )}
               >
-                <tspan className="font-mono font-medium">{n.id}</tspan>
-                <tspan dx="4.5" opacity="0.72">{trim(n.name)}</tspan>
+                {/* A system's identifier is its own name in kebab-case, so
+                    printing both spells the same words twice and overruns the
+                    column. Catalog ids are short codes a reviewer searches by,
+                    and those keep the pair. */}
+                {n.kind === "SYSTEM" ? (
+                  <tspan className="font-medium">{trim(n.name)}</tspan>
+                ) : (
+                  <>
+                    <tspan className="font-mono font-medium">{n.id}</tspan>
+                    <tspan dx="4.5" opacity="0.72">{trim(n.name)}</tspan>
+                  </>
+                )}
               </text>
 
               {/* Hit target. Larger than the body so a node this small stays

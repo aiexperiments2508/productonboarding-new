@@ -133,6 +133,12 @@ function Shell() {
         // Facts change as documents land, so which corrections are in force -
         // and which listings they hold back - moves with the tape.
         api.network().then(setCatalog).catch(() => undefined);
+      } else if (m.kind === "topology") {
+        // A system joined or left. The map derives its systems tier from the
+        // connection records, so the picture is stale until it is re-read -
+        // and re-reading is the whole update, because the message deliberately
+        // carries what happened rather than a copy of the estate.
+        api.network().then(setCatalog).catch(() => undefined);
       } else if (m.kind === "hello") {
         setReplay(m.replay as ReplayState);
       }

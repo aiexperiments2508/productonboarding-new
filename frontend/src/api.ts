@@ -54,11 +54,22 @@ export interface SourceRef {
 
 /* --- catalog ------------------------------------------------------------ */
 
-export type CatalogNodeKind = "SUPPLIER" | "PRODUCT" | "VARIANT" | "CHANNEL";
+export type CatalogNodeKind =
+  | "SYSTEM" | "SUPPLIER" | "PRODUCT" | "VARIANT" | "CHANNEL";
 
+/** One box on the map.
+ *
+ *  Carries no position. A tier whose membership changes while the application
+ *  is running cannot be laid out from coordinates written at generation time,
+ *  so the map computes each box's place from its tier and that tier's live
+ *  membership. */
 export interface CatalogNode {
   id: string; kind: CatalogNodeKind; name: string; group: string;
-  x: number; y: number;
+  /** Systems only: whether the connection is still answering. */
+  state?: string;
+  transport?: string;
+  tools?: number;
+  conforms?: boolean | null;
   regulated: boolean; single_source: boolean;
 }
 
@@ -142,10 +153,25 @@ export interface SourceDoc {
  * `as_of` moves along valid time, `as_of_recorded` along recorded time; the
  * pair is what lets the map show what was believed when the copy was written
  * as well as what is true now. */
+/** One derived edge from the server's map.
+ *
+ *  Most of the map's edges are rebuilt client-side from products, variants and
+ *  listings, because the client already holds all three. The systems tier is
+ *  the exception: which system fed which source is a fact about what has
+ *  arrived, which only the server knows. */
+export interface CatalogEdge {
+  from: string;
+  to: string;
+  relation: string;
+  listing?: string;
+  status?: string;
+}
+
 export interface CatalogState {
   as_of: string;
   as_of_recorded: string | null;
   nodes: CatalogNode[];
+  edges?: CatalogEdge[];
   products: Product[];
   variants: Variant[];
   channels: Channel[];

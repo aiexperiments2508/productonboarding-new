@@ -1,0 +1,773 @@
+% ---------------------------------------------------------------------------
+% Demo guide for the Autonomous Product Intelligence Factory (V2).
+%
+% Written to be followed by somebody who has never seen the application, and
+% who has to present it to a CIO. Every command and every button name in here
+% was checked against the running application rather than written from memory.
+%
+% Compile with any LaTeX engine:  pdflatex demo-guide.tex   (run it twice, so
+% the table of contents fills in). Or paste the whole file into overleaf.com,
+% which needs nothing installed.
+% ---------------------------------------------------------------------------
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+\tcbuselibrary{skins,breakable}
+
+% --- colours ---------------------------------------------------------------
+\definecolor{ink}{HTML}{1B1F2A}
+\definecolor{accent}{HTML}{2D4B8E}
+\definecolor{quiet}{HTML}{6B7280}
+\definecolor{shell}{HTML}{F3F4F6}
+\definecolor{warnbg}{HTML}{FEF6E7}
+\definecolor{warnline}{HTML}{C9821A}
+\definecolor{saybg}{HTML}{EEF2FB}
+\definecolor{okline}{HTML}{2F7D5C}
+
+\color{ink}
+
+% --- headings --------------------------------------------------------------
+\titleformat{\section}{\Large\bfseries\color{accent}}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.6em}{0.6em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small\color{quiet}Product Intelligence Factory --- Demo Guide}
+\rhead{\small\color{quiet}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% --- reusable boxes --------------------------------------------------------
+
+% Something to type into a terminal.
+\newtcolorbox{cmd}{
+  breakable, colback=shell, colframe=shell, boxrule=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, arc=2pt,
+  fontupper=\ttfamily\small
+}
+
+% Words to say out loud.
+\newtcolorbox{say}[1][]{
+  breakable, colback=saybg, colframe=accent, boxrule=0pt,
+  leftrule=3pt, left=8pt, right=8pt, top=6pt, bottom=6pt, arc=0pt,
+  title=#1, coltitle=accent, fonttitle=\bfseries\small,
+  attach title to upper=\par
+}
+
+% Something that will go wrong if ignored.
+\newtcolorbox{careful}[1][Careful]{
+  breakable, colback=warnbg, colframe=warnline, boxrule=0pt,
+  leftrule=3pt, left=8pt, right=8pt, top=6pt, bottom=6pt, arc=0pt,
+  title=#1, coltitle=warnline, fonttitle=\bfseries\small,
+  attach title to upper=\par
+}
+
+% A fact worth knowing but not needed to run the demo.
+\newtcolorbox{aside}[1][Background]{
+  breakable, colback=white, colframe=quiet, boxrule=0.4pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt, arc=2pt,
+  title=#1, coltitle=quiet, fonttitle=\bfseries\small,
+  attach title to upper=\par
+}
+
+\newcommand{\ui}[1]{\textbf{#1}}          % a thing on screen
+\newcommand{\key}[1]{\textsf{\small #1}}  % a keyboard key
+
+% ===========================================================================
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\Huge\bfseries\color{accent} Product Intelligence Factory\par}
+\vspace{0.6cm}
+{\LARGE Demo Guide\par}
+\vspace{2cm}
+{\large How to run the demonstration, end to end,\\
+without having seen the application before.\par}
+\vspace{3cm}
+\begin{minipage}{0.8\textwidth}
+\centering\itshape\color{quiet}
+Every command and every button name in this guide was checked against the
+running application. If something on screen does not match what is written
+here, trust the screen and tell the author --- do not improvise in front of
+the audience.
+\end{minipage}
+\vfill
+{\color{quiet}\small Version 2 --- the estate release\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ===========================================================================
+\section{Read this first}
+
+\subsection{What you are demonstrating, in one paragraph}
+
+A large retailer sells thousands of products. The information about each one ---
+its size, its wattage, its ingredients, its photographs --- arrives from many
+different computer systems, and those systems disagree, send things late, and
+sometimes send things that are simply wrong. This application watches all of
+them, works out when something has gone wrong, works out everywhere that error
+has spread to, fixes it, and stops anything reaching a customer until a human
+being has approved the fix.
+
+\subsection{Your job in the room}
+
+You are driving. You are not expected to answer deep technical questions, and
+you should not try to. Your job is to:
+
+\begin{enumerate}[leftmargin=*]
+  \item Get the application running \emph{before} anybody walks in.
+  \item Click through the five acts in Section~\ref{sec:script}, in order.
+  \item Say the short lines in the blue boxes.
+  \item Write down any question you cannot answer, and say you will find out.
+\end{enumerate}
+
+\begin{say}[The single most useful sentence in this guide]
+``That is a good question --- let me write it down and get you a proper
+answer.''\\[4pt]
+Saying this costs you nothing. Guessing costs you the room.
+\end{say}
+
+\subsection{How long it takes}
+
+\begin{longtable}{@{}p{5.2cm}p{3cm}p{7cm}@{}}
+\toprule
+\textbf{Stage} & \textbf{Time} & \textbf{When to do it} \\
+\midrule
+\endhead
+First-time setup & 20--30 minutes & The day before. Not on the day. \\
+Pre-flight check & 5 minutes & 30 minutes before the meeting. \\
+The demo itself & 12--15 minutes & With questions, allow 25. \\
+\bottomrule
+\end{longtable}
+
+\begin{careful}[Do the setup the day before]
+The first-time setup downloads things from the internet. Meeting-room wifi is
+exactly where that goes wrong. Once it is done once, the demo runs without a
+network.
+\end{careful}
+
+% ===========================================================================
+\section{First-time setup (do this the day before)}
+
+You need a terminal window. On Windows, press \key{Start}, type
+\texttt{powershell}, and press \key{Enter}.
+
+\subsection{Step 1 --- Go to the project folder}
+
+\begin{cmd}
+cd C:\textbackslash Users\textbackslash Sauris\textbackslash Downloads\textbackslash productonboarding-new
+\end{cmd}
+
+Every command in this guide is typed in this folder. If you open a new
+terminal later, run this line again first.
+
+\subsection{Step 2 --- Check you are on the right version}
+
+\begin{cmd}
+git branch --show-current
+\end{cmd}
+
+It must print \texttt{V2}. If it prints anything else:
+
+\begin{cmd}
+git checkout V2
+\end{cmd}
+
+\subsection{Step 3 --- Install what the application needs}
+
+\begin{cmd}
+pip install -r requirements.txt
+\end{cmd}
+
+This takes a few minutes and prints a great deal of text. That is normal. You
+are looking for it to finish without the word \texttt{ERROR} at the end.
+
+\subsection{Step 4 --- Create the settings file}
+
+\begin{cmd}
+copy .env.example .env
+\end{cmd}
+
+Then open \texttt{.env} in Notepad. You are looking for two lines near the top:
+
+\begin{cmd}
+LITELLM\_BASE\_URL=...\\
+LITELLM\_API\_KEY=...
+\end{cmd}
+
+These tell the application where to find its AI service. \textbf{Ask whoever
+gave you this project what to put here.} If you cannot get them, the demo still
+works --- see Section~\ref{sec:nogateway}.
+
+\subsection{Step 5 --- Build the demonstration data}
+
+\begin{cmd}
+python scripts/generate\_data.py
+\end{cmd}
+
+This invents eight weeks of realistic supplier activity --- product records,
+supplier emails, specification documents, marketplace rejections. It prints a
+summary ending with a line about the ``pack digest''.
+
+\begin{aside}
+The same command always produces exactly the same data. That matters: the demo
+you rehearse is the demo the CIO sees, down to the individual email.
+\end{aside}
+
+\subsection{Step 6 --- Start it once, to prove it works}
+
+\begin{cmd}
+python run.py
+\end{cmd}
+
+Wait about fifteen seconds, then open a web browser and go to:
+
+\begin{cmd}
+http://127.0.0.1:8000
+\end{cmd}
+
+You should see a dark or light page with \ui{Ingest Fabric} at the top and a
+diagram of boxes joined by lines. If you do, setup is finished.
+
+To stop it, click on the terminal window and press \key{Ctrl}+\key{C}.
+
+% ===========================================================================
+\section{Pre-flight (30 minutes before the meeting)}
+\label{sec:preflight}
+
+\subsection{Step 1 --- Start with a clean slate}
+
+\begin{cmd}
+cd C:\textbackslash Users\textbackslash Sauris\textbackslash Downloads\textbackslash productonboarding-new\\
+python run.py --reset
+\end{cmd}
+
+The \texttt{--reset} wipes any previous run so the demo starts from day one.
+
+\begin{careful}[If you see ``file is being used by another process'']
+An old copy is still running. Close every terminal window you have open, wait
+five seconds, and run the command again. This is the single most common
+problem, and it is harmless.
+\end{careful}
+
+\subsection{Step 2 --- Open the browser}
+
+Go to \texttt{http://127.0.0.1:8000}.
+
+\subsection{Step 3 --- Check the four things}
+
+\begin{longtable}{@{}p{4.6cm}p{10.4cm}@{}}
+\toprule
+\textbf{Look at} & \textbf{You want to see} \\
+\midrule
+\endhead
+Top right corner & A green dot labelled \ui{gateway}. Green means the AI
+service is reachable. Grey or red means it is not --- go to
+Section~\ref{sec:nogateway} and adjust what you say. \\[4pt]
+The main diagram & Five columns of boxes: \ui{SYSTEMS}, \ui{SOURCES},
+\ui{PRODUCTS}, \ui{VARIANTS}, \ui{CHANNELS}. \\[4pt]
+The right-hand panel & The words \ui{The catalog is clean}. If it does not say
+this, you did not use \texttt{--reset}. Stop and start again. \\[4pt]
+The bar along the bottom & A date reading \ui{2026-09-01} and a counter
+reading \ui{0/274}. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Step 4 --- Make it readable from the back of the room}
+
+Click the \ui{Appearance} button in the top right corner (it looks like a
+small sun or moon). Choose \ui{Dark}. Dark projects better and photographs
+better.
+
+In the browser, press \key{Ctrl}+\key{+} two or three times to make everything
+larger. The layout adapts; nothing will break.
+
+\subsection{Step 5 --- Do a full dry run}
+
+Run through Section~\ref{sec:script} once, alone, start to finish. Then press
+\ui{Rewind the tape} at the bottom of the screen to put everything back.
+
+\begin{careful}[Why the dry run matters more than it sounds]
+The first time the application asks the AI service a question, it pays for that
+answer. It then remembers it. A rehearsed demo is therefore both faster and
+identical to the one you rehearsed. Skipping the dry run is the difference
+between a twenty-second wait and a five-second one.
+\end{careful}
+
+% ===========================================================================
+\section{The demo script}
+\label{sec:script}
+
+Five acts. Follow them in order. Everything you need to click is named in
+\ui{bold}.
+
+% ---------------------------------------------------------------------------
+\subsection{Act 1 --- The problem (2 minutes)}
+
+You are on the \ui{Ingest Fabric} screen. Do not click anything yet.
+
+\begin{say}[Say this]
+``This is every system that sends us product information. Ten of them. A
+supplier portal where somebody types things in by hand. The supplier's own
+database. The artwork library. Our finance system. An industry data pool. And
+so on.
+
+``Right now the catalogue is clean --- nothing is wrong. Watch what happens
+over the next eight weeks of supplier activity.''
+\end{say}
+
+\textbf{Do this:} scroll down a little to the panel headed \ui{THE ESTATE}.
+Point at two of the cards.
+
+\begin{say}[Say this]
+``Each one tells us how well it behaves. The artwork library says
+\emph{conforms} --- it is the legal source, so it had better. The data pool
+says \emph{3 defect kinds} --- it sends things in its own vocabulary, with the
+wrong data types, and it contradicts better sources. That is not us being rude
+about a supplier. That is what a data pool integration is actually like.''
+\end{say}
+
+% ---------------------------------------------------------------------------
+\subsection{Act 2 --- Eight weeks in twenty seconds (2 minutes)}
+
+\textbf{Do this:} at the very bottom of the screen, click the button labelled
+\ui{Jump to the correction} (hover over the small buttons; the tooltip tells
+you which is which).
+
+Wait about five seconds. The screen fills up.
+
+\begin{say}[Say this]
+``That is eight weeks of supplier traffic. Two hundred and seventy-four
+events, delivered by ten systems in batches, at irregular times, overlapping
+each other --- which is what a real morning looks like.
+
+``The systems are now reporting how much they sent, and how much of it was
+defective.''
+\end{say}
+
+\textbf{Do this:} point at the \ui{THE ESTATE} panel. It now shows counts. Then
+point at the feed of small lines below it.
+
+\begin{say}[Say this]
+``Every delivery is logged with which system sent it and what was wrong with
+it --- a missing mandatory field, a stale document version, a value that
+contradicts a better source. Seven named kinds of defect, and every one of them
+is something the system can detect. We did not build a data generator that
+produces mess nobody checks.''
+\end{say}
+
+\begin{aside}
+If a CIO asks whether the timings are real: the \emph{delivery} genuinely is
+asynchronous and overlapping. What is fixed is \emph{what} each system sends,
+so the demo can be rehearsed. It is worth saying so plainly --- it is a design
+decision, not a shortcut.
+\end{aside}
+
+% ---------------------------------------------------------------------------
+\subsection{Act 3 --- Finding and fixing the error (4 minutes)}
+
+This is the centrepiece. Do not rush it.
+
+\textbf{Do this:} click the blue button in the top right, \ui{Run the
+correction loop}.
+
+A large banner appears at the top of the screen and starts narrating.
+
+\begin{say}[Say this, while it runs]
+``It is working. And notice what it is showing us --- not a progress bar.
+Those are its own findings, appearing as it makes them. \emph{Reading the
+document. This one is immaterial. This one is a specification correction, one
+value read.} You can watch it think.''
+\end{say}
+
+Wait for it to finish. It takes about twenty seconds. The screen then changes
+to \ui{Blast Radius} on its own.
+
+\textbf{Do this:} let them read the top of the screen, then scroll down slowly.
+
+\begin{say}[Say this]
+``It found the correction, worked out which product it applies to, and then
+worked out everywhere the old value had already been used --- every bullet
+point, every listing, every channel.
+
+``That is not a guess. Every piece of marketing copy in this system records
+which values it was built from, so this is a lookup, not an opinion.''
+\end{say}
+
+\textbf{Do this:} scroll to the panel headed \ui{WHO HAS TO BE TOLD}.
+
+\begin{say}[Say this]
+``And here it is in the words a buyer actually uses. Not internal codes ---
+SKUs, and the systems that have to be told about them. If we dispatched this
+now, these channels would take it and this one would not, because the printed
+catalogue is inside its freeze window and a printed page cannot be recalled.
+
+``It tells you that \emph{before} you decide, not afterwards.''
+\end{say}
+
+% ---------------------------------------------------------------------------
+\subsection{Act 4 --- The human gate (3 minutes)}
+
+\textbf{Do this:} click \ui{Review \& Audit} in the left-hand menu. There is a
+small number badge on it.
+
+\begin{say}[Say this]
+``Nothing has been published. It has stopped and is waiting for a person.''
+\end{say}
+
+\textbf{Do this:} point at the pink warning box near the top.
+
+\begin{say}[Say this]
+``It is telling us why it will not proceed on its own: this is a regulated
+food product, its declarations are legally binding, and there is no automatic
+path for this change.''
+\end{say}
+
+\textbf{Do this:} scroll down slowly through the green list headed \ui{WHAT
+GETS WRITTEN IF YOU APPROVE}.
+
+\begin{say}[Say this]
+``Every single thing it would change, listed before you decide, each one
+citing the supplier document it came from.''
+\end{say}
+
+\textbf{Do this:} point at the diagram on the right-hand side.
+
+\begin{say}[Say this]
+``And that is the actual decision path it took --- read out of the running
+system, not a picture somebody drew. The highlighted box is where it stopped.''
+\end{say}
+
+\textbf{Do this:} scroll to the bottom. Type a name into the \ui{Reviewer} box
+(use the CIO's name --- it is a nice touch). Click \ui{Approve and republish}.
+
+\begin{say}[Say this]
+``Approved under a name, recorded in an audit trail that cannot be edited.
+Now it publishes --- and only now.''
+\end{say}
+
+% ---------------------------------------------------------------------------
+\subsection{Act 5 --- Is a product ready to sell? (4 minutes)}
+
+\textbf{Do this:} click \ui{Product 360} in the left-hand menu.
+
+\begin{say}[Say this]
+``Everything so far was about fixing something already published. This is the
+question that comes first: is this product good enough to launch at all?''
+\end{say}
+
+\textbf{Do this:} point at the top right, where it says how many are ready and
+how many are going back.
+
+\textbf{Do this:} in the list on the left, click \ui{Trail Mix Bar Multipack
+6x40g}. It has an orange number badge.
+
+\begin{say}[Say this]
+``This one is not ready. And look at what it says --- not `data quality score
+72\%'. It says the category requires an ingredient panel photograph, none was
+supplied, and the imaging system is the one that has to fix it.
+
+``A number would invite somebody to launch at ninety per cent. A named finding
+tells you who to email.''
+\end{say}
+
+\textbf{Do this:} scroll down to \ui{THE RECORD}.
+
+\begin{say}[Say this]
+``And for every value, which system gave it to us. When two systems disagree,
+we can say which one was wrong.''
+\end{say}
+
+\textbf{Do this:} click \ui{AeroPure 300} at the top of the list --- a green
+one. Then type a name into the small box next to the button, and click
+\ui{Open staging page}.
+
+\begin{say}[Say this]
+``This one passed, so we can see the page it would become.
+
+``And this box at the top is the interesting part. It is written by AI, and it
+is fenced: it can only use a value this product actually has, and a market
+document we actually wrote. It shows you both, underneath. If it cannot
+support a claim from both, it does not make the claim.''
+\end{say}
+
+\begin{careful}[The staging page asks for a name]
+This is deliberate --- it is unpublished commercial content, and the system
+records who looked at it. If you click the button without typing a name,
+nothing happens and you will look stuck. Type a name first.
+\end{careful}
+
+% ---------------------------------------------------------------------------
+\subsection{Optional Act 6 --- Plug and play (2 minutes)}
+
+Only if you have time and the room is engaged.
+
+\textbf{Do this:} go back to \ui{Ingest Fabric}. Scroll to \ui{THE ESTATE}.
+Click \ui{Disconnect} on any system.
+
+\begin{say}[Say this]
+``Watch the diagram.''
+\end{say}
+
+The system disappears from the \ui{SYSTEMS} column immediately.
+
+\begin{say}[Say this]
+``Systems can be added and removed while it is running, and the map follows.
+Adding one is pasting an address --- there is a box for it just there. Nothing
+about the ten systems is written into the application.''
+\end{say}
+
+\textbf{Do this:} click \ui{System Control} in the menu and point at the
+\ui{Capabilities} panel.
+
+\begin{say}[Say this]
+``And everything this system can do publishes itself at a standard address, so
+another organisation's software can discover it. Including what each part is
+\emph{not} allowed to do --- none of these can approve anything, and none of
+them can publish.''
+\end{say}
+
+% ===========================================================================
+\section{What each screen is for}
+
+Use this if somebody asks you to go back to something.
+
+\begin{longtable}{@{}p{3.4cm}p{11.6cm}@{}}
+\toprule
+\textbf{Screen} & \textbf{What it shows} \\
+\midrule
+\endhead
+\ui{Ingest Fabric} & The ten external systems, what each is delivering, and the
+map of everything. The clock at the bottom controls time. \\[4pt]
+\ui{Product 360} & Search for a product; see everything every system has said
+about it; see whether it is fit to launch; preview the page it would become. \\[4pt]
+\ui{Blast Radius} & For one correction: what it means, which product it applies
+to, and everywhere the old value had already been used. \\[4pt]
+\ui{Readings} & When a supplier's wording is ambiguous, the competing
+interpretations, each scored against the rules. \\[4pt]
+\ui{Review \& Audit} & The decision waiting for a human, everything it would
+change, and the permanent record of what was published. \\[4pt]
+\ui{System Control} & The clock, the AI service, the search index, and the
+directory of everything the system can do. \\
+\bottomrule
+\end{longtable}
+
+\subsection{The bar along the bottom}
+
+It is on every screen. Left to right: play, step forward one event, jump to the
+correction, rewind. \ui{Rewind the tape} is your undo --- it puts the demo back
+to the beginning.
+
+\subsection{The search box at the top}
+
+Press \key{Ctrl}+\key{K} anywhere to open it. It can jump to any screen and
+search the company's written policies. Useful if you get lost.
+
+% ===========================================================================
+\section{If something goes wrong}
+
+\subsection{The page will not load}
+
+Check the terminal window is still running. If it has stopped, run
+\texttt{python run.py} again. Give it fifteen seconds before refreshing.
+
+\subsection{``The process cannot access the file''}
+
+An old copy is still running. Close every terminal window, wait five seconds,
+start again. Harmless.
+
+\subsection{The gateway dot is not green}
+\label{sec:nogateway}
+
+The AI service is unreachable. \textbf{The demo still works} --- everything
+still runs, using the system's built-in fallbacks. Three things change:
+
+\begin{itemize}[leftmargin=*]
+  \item The readiness screen shows an orange note saying it ran without AI.
+  \item The staging page's highlighted box is plainer.
+  \item Everything is faster.
+\end{itemize}
+
+\begin{say}[Say this, and it is a strength not an excuse]
+``The AI service is not reachable from this room, so what you are watching is
+the system running \emph{without} it. Every step has a deterministic fallback,
+and it tells you when it used one. It never quietly presents a guess as an
+answer.''
+\end{say}
+
+\subsection{A screen is empty or stuck}
+
+Refresh the browser (\key{F5}). Nothing is lost --- the state lives in the
+application, not the page.
+
+\subsection{You clicked something and cannot get back}
+
+Click \ui{Rewind the tape} at the bottom, then \ui{Jump to the correction} to
+return to Act 3.
+
+% ===========================================================================
+\section{Questions a CIO is likely to ask}
+
+Short answers. If pressed further than this, write the question down.
+
+\subsection{``Is the AI making the decisions?''}
+
+\begin{say}
+``No, and deliberately not. The AI reads documents and writes prose. Every
+decision --- what applies to which product, what is affected, whether something
+can be published --- is ordinary software with a fixed answer. The same input
+always gives the same output.''
+\end{say}
+
+\subsection{``What if the AI is wrong?''}
+
+\begin{say}
+``Two things. Every AI finding has to cite a document you can open, and if it
+cannot cite one it is discarded. And nothing publishes without a person
+approving it.''
+\end{say}
+
+\subsection{``How does it connect to our systems?''}
+
+\begin{say}
+``Through an open standard called MCP. Each of the ten systems is a separate
+endpoint, and connecting a new one is pasting an address --- no code change.
+The same on the publishing side.''
+\end{say}
+
+\subsection{``Could a connected system do damage?''}
+
+\begin{say}
+``Connecting a system lets us \emph{see} what it offers. It does not let the AI
+call any of it. Somebody has to allow each tool individually, and that decision
+is recorded in the audit trail.''
+\end{say}
+
+\subsection{``Is this locked to one AI vendor?''}
+
+\begin{say}
+``No. There is no AI model named anywhere in the application --- it uses
+whatever the configured service offers, decided when it starts. There is
+actually a test that fails the build if somebody hard-codes a model name.''
+\end{say}
+
+\subsection{``How fast is it?''}
+
+\begin{say}
+``About twenty seconds for a full correction, from reading the supplier
+document to stopping at the approval gate.''
+\end{say}
+
+\subsection{``Is it tested?''}
+
+\begin{say}
+``446 automated tests. They run with the AI service deliberately switched off,
+so what is tested is the behaviour when things are not working.''
+\end{say}
+
+% ===========================================================================
+\section{What not to claim}
+
+Read this section twice. A CIO will forgive a limitation. They will not forgive
+finding one you glossed over.
+
+\begin{longtable}{@{}p{6.4cm}p{8.6cm}@{}}
+\toprule
+\textbf{Do not say} & \textbf{Say instead} \\
+\midrule
+\endhead
+``It's fully automated.'' & ``It automates everything up to the decision, and
+stops there on purpose.'' \\[4pt]
+``It connects to any system.'' & ``It connects to anything that speaks MCP.
+Systems that don't would need an adapter.'' \\[4pt]
+``The AI checks everything.'' & ``Six of the nine checks are rules. Three use
+AI, and those have to cite a document.'' \\[4pt]
+``It's production ready.'' & ``It's a working prototype with a real test suite.
+There's no login yet --- decisions are recorded against a typed name.'' \\[4pt]
+``The images are real.'' & ``Product photographs are represented in the record,
+not stored. It checks whether one was supplied, not what is in it.'' \\
+\bottomrule
+\end{longtable}
+
+\subsection{One honest technical caveat, if a technical person is present}
+
+If somebody asks specifically about the search technology, this is worth
+knowing and worth saying:
+
+\begin{say}
+``The search combines keyword and AI-based matching. The keyword half is
+measurably doing the work --- it separates product codes that differ by one
+character, which is exactly where this matters. The AI half is not currently
+adding measurable value on our test questions, and we know that because we
+measured it rather than assumed it. It's written down as an open item.''
+\end{say}
+
+Saying this unprompted, in front of a CIO, will do more for your credibility
+than any feature in the demo.
+
+% ===========================================================================
+\section{One-page cheat sheet}
+
+Tear this page off and keep it next to you.
+
+\vspace{0.6em}
+\begin{tcolorbox}[colback=shell,colframe=quiet,boxrule=0.4pt,arc=2pt]
+\textbf{Before they arrive}\\[2pt]
+\texttt{cd C:\textbackslash Users\textbackslash Sauris\textbackslash Downloads\textbackslash productonboarding-new}\\
+\texttt{python run.py --reset}\\
+Browser: \texttt{http://127.0.0.1:8000}\\
+Check: green \ui{gateway} dot, \ui{The catalog is clean}, counter \ui{0/274}
+\end{tcolorbox}
+
+\vspace{0.4em}
+\begin{tcolorbox}[colback=white,colframe=accent,boxrule=1pt,arc=2pt]
+\textbf{The five acts}\\[4pt]
+\textbf{1.} \ui{Ingest Fabric} --- ``ten systems, catalogue is clean'' \\[3pt]
+\textbf{2.} \ui{Jump to the correction} (bottom bar) --- ``eight weeks of
+traffic'' \\[3pt]
+\textbf{3.} \ui{Run the correction loop} (blue, top right) --- wait 20s ---
+``watch it think'', then scroll to \ui{WHO HAS TO BE TOLD} \\[3pt]
+\textbf{4.} \ui{Review \& Audit} --- ``it stopped for a human'' --- scroll,
+type a name, \ui{Approve and republish} \\[3pt]
+\textbf{5.} \ui{Product 360} --- click the orange one, ``named finding, not a
+score'' --- click a green one, type a name, \ui{Open staging page}
+\end{tcolorbox}
+
+\vspace{0.4em}
+\begin{tcolorbox}[colback=warnbg,colframe=warnline,boxrule=0.4pt,arc=2pt]
+\textbf{If it breaks}\\[2pt]
+Page dead $\rightarrow$ check the terminal, \texttt{python run.py} again\\
+``file in use'' $\rightarrow$ close all terminals, retry\\
+Gateway not green $\rightarrow$ carry on, say it is running without AI\\
+Lost $\rightarrow$ \ui{Rewind the tape}, then \ui{Jump to the correction}\\
+Stuck on staging page $\rightarrow$ you forgot to type a name
+\end{tcolorbox}
+
+\vspace{0.4em}
+\begin{tcolorbox}[colback=saybg,colframe=accent,boxrule=0pt,leftrule=3pt,arc=0pt]
+\textbf{The three lines that matter most}\\[4pt]
+``The AI reads. The software decides. A person approves.''\\[3pt]
+``Every AI finding cites a document you can open.''\\[3pt]
+``That's a good question --- let me write it down and get you a proper
+answer.''
+\end{tcolorbox}
+
+\end{document}

@@ -226,3 +226,83 @@ def test_no_change_writes_nothing():
     before = Path(os.environ["ENV_FILE"]).read_text(encoding="utf-8")
     models.select()
     assert Path(os.environ["ENV_FILE"]).read_text(encoding="utf-8") == before
+
+
+# ---------------------------------------------------------------------------
+# No model is named in application code
+#
+# Two lists of aliases lived in the gateway client as the offline fallback, and
+# both had gone stale against litellm/config.yaml - so an outage produced a
+# picker whose every entry the gateway would have refused. A wrong answer
+# offered confidently is worse than none, and the only reliable way to keep a
+# list current is not to have one.
+# ---------------------------------------------------------------------------
+
+
+def test_no_model_is_named_in_application_code():
+    """The check that keeps the previous fix from being undone quietly.
+
+    A model identifier reintroduced as a "sensible default" is exactly how the
+    stale lists got there the first time, and it reads as helpful in review.
+    """
+    from pathlib import Path
+    import re
+
+    root = Path(__file__).resolve().parents[1] / "sc"
+    # A provider alias: a family name, a separator, and then either a version
+    # number or a named tier. The separator and the tail both matter - without
+    # them this fires on the dict key "command" and on the word
+    # "titan", and a guard that cries wolf gets deleted by the
+    # next person to see it red.
+    quote = chr(91) + chr(39) + chr(34) + chr(93)  # the class ['"]
+    families = r'(?:gpt|claude|gemini|llama|mistral|command|titan)'
+    tail = (r'(?:[\w.]*\d[\w.]*'
+            r'|(?:pro|flash|mini|opus|sonnet|haiku|turbo)[\w.-]*)')
+    pattern = re.compile(quote + families + r'[-.]' + tail + quote,
+                         re.IGNORECASE)
+
+    offenders: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        for number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1):
+            stripped = line.strip()
+            # Comments may discuss aliases - the tier classifier's own docstring
+            # explains why "gemini" contains "mini", and that explanation is
+            # worth keeping.
+            if stripped.startswith("#"):
+                continue
+            if pattern.search(line):
+                offenders.append(f"{path.name}:{number}: {stripped[:70]}")
+
+    assert not offenders, "model identifiers in application code: " + "; ".join(
+        offenders)
+
+
+def test_no_model_available_is_said_rather_than_invented(monkeypatch, tmp_path):
+    """A caller handed a name will use it, and the 404 then surfaces from inside
+    a run instead of at the point where the cause is obvious."""
+    from sc.llm import gateway
+
+    monkeypatch.chdir(tmp_path)          # no litellm/config.yaml here
+    monkeypatch.delenv("LITELLM_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("LITELLM_FAST_MODEL", raising=False)
+    models.list_models(refresh=True)
+
+    with pytest.raises(gateway.GatewayError) as raised:
+        models.resolve_tier("fast")
+
+    assert "no model available" in str(raised.value).lower()
+
+
+def test_available_models_answers_from_the_registry_not_a_list():
+    """`available_models` used to hold its own aliases. It now asks the registry,
+    which parses the shipped configuration - one source, which cannot drift from
+    itself."""
+    from sc.llm import gateway
+
+    served = {m.id for m in gateway.available_models()}
+    listed = {m["id"] for m in models.list_models(refresh=True)["models"]}
+
+    assert served == listed

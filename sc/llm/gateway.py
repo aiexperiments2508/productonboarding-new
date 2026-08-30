@@ -30,11 +30,6 @@ from sc.contracts import LlmUsage, ModelInfo
 DEFAULT_TIMEOUT = 120.0
 MAX_ATTEMPTS = 3
 
-# Aliases in litellm/config.yaml, tiered so the graph can pin a cheap model to
-# high-volume classification and a strong one to the RCA narrative.
-FAST_MODELS = ["gemini-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
-REASONING_MODELS = ["gemini-2.5-pro", "gemini-3-flash-preview",
-                    "gemini-3.1-pro-preview"]
 
 
 class GatewayError(RuntimeError):
@@ -104,8 +99,22 @@ def default_model() -> str:
 
 
 def embed_model() -> str:
-    return (db.get_config("embed_model")
-            or os.environ.get("LITELLM_EMBED_MODEL", "gemini-embedding-001"))
+    """The embedding model, from configuration or from what the gateway serves.
+
+    The last alias named in application code lived here. It was right for one
+    deployment and wrong for any other, and being right by luck is not a
+    property worth keeping: point this at a gateway with a different catalogue
+    and every index build failed with a 404 that named a model nobody had
+    chosen.
+    """
+    configured = (db.get_config("embed_model")
+                  or os.environ.get("LITELLM_EMBED_MODEL"))
+    if configured:
+        return configured
+    # Imported lazily: models.py depends on this module.
+    from sc.llm import models
+
+    return models.resolve_tier("embedding")
 
 
 def cache_enabled() -> bool:
@@ -368,24 +377,21 @@ def _record(key, model, temperature, messages, response, usage, latency_ms,
 def available_models() -> list[ModelInfo]:
     """Ask the gateway what it actually serves.
 
-    Falls back to the configured aliases so the model picker still renders when
-    the gateway is down - the UI degrades rather than breaking.
+    Nothing here names a model. Two lists of aliases used to live in this file
+    as the offline fallback, and every one of them had gone stale against
+    ``litellm/config.yaml`` - so a gateway outage produced a picker full of
+    aliases the gateway would have 404'd on. A wrong answer offered
+    confidently is worse than an empty one.
+
+    When the gateway cannot be reached the registry answers from the shipped
+    configuration, which it parses rather than duplicates, and says the answer
+    came from a fallback. When there is no configuration either, the honest
+    answer is that no model is available.
     """
-    try:
-        response = httpx.get(f"{base_url()}/v1/models", headers=_auth_headers(),
-                             timeout=10.0)
-        response.raise_for_status()
-        ids = [m["id"] for m in response.json().get("data", []) if m.get("id")]
-    except Exception:
-        ids = FAST_MODELS + REASONING_MODELS + [embed_model()]
+    from sc.llm import models as model_registry
 
-    return [ModelInfo(id=i, tier=_tier(i)) for i in sorted(set(ids))]
-
-
-def _tier(model_id: str) -> str:
-    if "embedding" in model_id:
-        return "embedding"
-    return "reasoning" if model_id in REASONING_MODELS else "fast"
+    listing = model_registry.list_models(refresh=True)
+    return [ModelInfo(id=m["id"], tier=m["tier"]) for m in listing["models"]]
 
 
 def health() -> dict:

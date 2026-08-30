@@ -659,6 +659,24 @@ except Exception as _exc:  # noqa: BLE001 - the app must start regardless
     log.warning("estate systems not mounted: %s", _exc)
 
 
+@app.get("/.well-known/agent-cards.json")
+def agent_directory() -> dict:
+    """Every capability this estate publishes, in one document.
+
+    The per-agent cards were already served at the address the A2A
+    specification puts them, and that is correct and not discoverable: a peer
+    that already knows an identifier can fetch a card, and a peer that knows
+    only the host cannot find out what is here.
+
+    Built from the same cards rather than beside them, so a directory cannot
+    quietly drift from the capabilities it claims to index.
+    """
+    from sc.a2a import client as a2a_client
+    from sc.a2a import directory as a2a_directory
+
+    return a2a_directory.build(a2a_client.base_url(), A2A_MOUNTED)
+
+
 @app.get("/api/a2a/agents")
 def a2a_agents() -> dict:
     """The peer roster, their cards, and how delegation is currently running."""

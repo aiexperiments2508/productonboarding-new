@@ -106,7 +106,10 @@ def _fallback() -> list[ModelInfo]:
 
     path = Path("litellm/config.yaml")
     if not path.exists():
-        return [ModelInfo(id="gemini-flash", tier="fast")]
+        # No gateway and no configuration. The honest answer is that no model is
+        # available - a made-up alias would render a picker whose every entry
+        # 404s, and a wrong answer offered confidently is worse than none.
+        return []
     names = re.findall(r"^\s*-\s*model_name:\s*(\S+)\s*$",
                        path.read_text(encoding="utf-8"), re.MULTILINE)
     return [ModelInfo(id=n, tier=classify(n)) for n in sorted(set(names))]
@@ -176,7 +179,18 @@ def resolve_tier(tier: str, fallback: str | None = None) -> str:
         candidates = [m["id"] for m in listing["models"]
                       if classify(m["id"]) != "embedding"]
     if not candidates:
-        return fallback or os.environ.get("LITELLM_DEFAULT_MODEL", "gemini-flash")
+        # Nothing is served and nothing is configured. Raise rather than return
+        # an invented alias: a caller that gets a name will use it, and the 404
+        # will surface from inside a run where it is expensive to diagnose
+        # instead of here where the cause is obvious.
+        pinned_default = fallback or os.environ.get("LITELLM_DEFAULT_MODEL")
+        if pinned_default:
+            return pinned_default
+        raise gateway.GatewayError(
+            f"no model available for the {tier!r} tier: the gateway at "
+            f"{gateway.base_url()} serves none and litellm/config.yaml "
+            f"declares none. Start a gateway, or pin one with "
+            f"LITELLM_{tier.upper()}_MODEL.")
 
     return sorted(candidates, key=_capability_rank, reverse=True)[0]
 

@@ -12,6 +12,7 @@ import {
 import { ProvenanceLegend } from "./Approvals";
 import { EvidenceAllowlist } from "./EvidenceLog";
 import { A2APanel } from "./A2APanel";
+import { CapabilityBoard } from "./CapabilityBoard";
 import { FactLineage } from "./FactLineage";
 import { MCPConsole } from "./MCPConsole";
 
@@ -437,6 +438,10 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
               </div>
             )}
           </Panel>
+
+          {/* The directory first: it is the answer to "what can this do",
+              and the two panels below it are the detail of how. */}
+          <CapabilityBoard />
 
           <A2APanel />
 

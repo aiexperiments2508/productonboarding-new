@@ -805,6 +805,42 @@ export interface Preview {
   differentiator?: Differentiator | null;
 }
 
+/* --- the capability directory ------------------------------------------- */
+
+/** One capability the estate publishes.
+ *
+ *  `kind` is load-bearing: "peer" is something this system implements and
+ *  another organisation's agent may call; "system" is something it merely knows
+ *  how to reach. Flattening the two would say this estate can do things it can
+ *  only ask somebody else to do. */
+export interface Capability {
+  kind: "peer" | "system";
+  id: string;
+  name: string;
+  description: string;
+  protocol: string;
+  endpoint: string;
+  version?: string;
+  card_url?: string;
+  skills?: { id: string; name: string; description: string;
+             examples: string[] }[];
+  /** Peers only. Stated rather than left to be inferred from absence. */
+  may_not?: string[];
+  /** Systems only. */
+  owner?: string;
+  state?: string;
+  tools?: string[];
+  admitted?: string[];
+}
+
+export interface CapabilityDirectory {
+  provider: { organization: string; url: string };
+  version: string;
+  capabilities: Capability[];
+  counts: { peers: number; systems: number; reachable: number };
+}
+
+
 /* --- the external estate ------------------------------------------------ */
 
 /** One external system, as the manifest declares it and the arrivals count it. */
@@ -1044,6 +1080,13 @@ export const api = {
   preview: (id: string, useModel = true) =>
     get<Preview>(
       `/api/products/${encodeURIComponent(id)}/preview?use_model=${useModel}`),
+
+  /* --- the capability directory ----------------------------------------- */
+
+  /** Everything this estate can do, in one document. Served from a well-known
+   *  address so a caller who knows only the host can find it. */
+  capabilities: () =>
+    get<CapabilityDirectory>("/.well-known/agent-cards.json"),
 
   /* --- the external estate ---------------------------------------------- */
 

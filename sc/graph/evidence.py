@@ -343,6 +343,12 @@ def _prior_incidents(question: str) -> dict:
     return {"citations": retrieve.cite(hits)}
 
 
+#: Spelled out rather than inlined. This module is edited often enough that
+#: an escaped newline inside a join has been mangled by a shell more than
+#: once, and a constant cannot be.
+NEWLINE = chr(10)
+
+
 TOOLS: dict[str, EvidenceTool] = {
     t.name: t for t in (
         EvidenceTool("lineage", "a field, e.g. VAR-01B.specs.power_w",
@@ -442,11 +448,49 @@ def _product_of(base, entity_id: str) -> str:
     return base.product_of_variant.get(entity_id, "")
 
 
+def admitted_tools() -> list[dict]:
+    """Tools an operator has admitted from connected systems.
+
+    Discovery is not admission, and this function is where that distinction
+    stops being a slogan. Connecting a system records what it says it can do
+    and changes nothing about what a model may reach; a person then admits
+    specific tools, and only then do they appear here.
+
+    A tool joins the desk only while its connection is answering. A degraded
+    system's tool is withdrawn rather than left on the list, because a
+    catalogue offering something unreachable spends a model's bounded rounds
+    discovering that.
+
+    Never raises. A desk that an unreachable supplier could bring down would
+    make an external system load-bearing for a correction run, which is the
+    thing every other part of this design refuses.
+    """
+    try:
+        from sc.mcp import connections
+
+        admitted = []
+        for record in connections.all_connections():
+            if record["state"] != connections.CONNECTED:
+                continue
+            for tool in record["admitted_tools"]:
+                admitted.append({"name": tool, "system": record["id"],
+                                 "title": record["title"]})
+        return admitted
+    except Exception:  # noqa: BLE001 - the desk is not the estate's dependant
+        return []
+
+
+
 def catalogue() -> str:
     """The tool list, as the investigator prompt sees it."""
-    return "\n".join(
-        f"- {t.name}({t.takes}) -> {t.describes}" for t in TOOLS.values()
-    )
+    lines = [f"- {t.name}({t.takes}) -> {t.describes}" for t in TOOLS.values()]
+    # Admitted tools are listed apart and named with their system. A model
+    # choosing between "policy" and something a supplier's server offers
+    # should be able to see which is which - a flat list would make an
+    # external system's answer indistinguishable from the catalog's own.
+    lines += [f"- {t['name']}(...) -> from {t['title']}, admitted at runtime"
+              for t in admitted_tools()]
+    return NEWLINE.join(lines)
 
 
 def run_requests(requests: list[dict]) -> list[dict]:

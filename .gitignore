@@ -1,0 +1,102 @@
+# ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+# .env carries the gateway key. .env.example is the template and IS committed.
+.env
+.env.local
+.env.*.local
+litellm/.env
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.Python
+*.egg-info/
+.eggs/
+build/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Node
+# ---------------------------------------------------------------------------
+node_modules/
+*.tsbuildinfo
+.vite/
+npm-debug.log*
+yarn-error.log*
+
+# ---------------------------------------------------------------------------
+# Generated data
+# ---------------------------------------------------------------------------
+# The seed pack is reproducible from scripts/generate_data.py, so it is built
+# rather than carried. Everything below is an output of running the system.
+data/*.json
+data/*.jsonl
+data/*.npy
+data/comms/
+data/docs/
+# The extraction answer key is written by the same generator, out of the same
+# payloads, so it is rebuilt rather than carried - that is the whole reason it
+# cannot rot. The eval's own output goes beside it; the numbers worth keeping
+# are the ones recorded in the README.
+data/golden/
+data/eval/
+
+# Databases: the application store, the LangGraph checkpoints beside it, and
+# the SQLite sidecar files that appear in WAL mode.
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Per-module test artefacts. conftest cleans these up on a clean exit; a run
+# killed halfway leaves them behind, and they are worthless either way.
+data/test_*.env
+
+# The authored corpus lives in corpus/ and IS committed - standards, channel
+# specs, policies and prior incidents are content, not generated data. Only the
+# operational seed pack is ignored.
+
+# ---------------------------------------------------------------------------
+# Runtime output
+# ---------------------------------------------------------------------------
+logs/
+*.log
+
+# LangGraph Studio's dev server scratch. Regenerated on every `startup.bat
+# studio`, and it carries absolute paths from whoever ran it last.
+.langgraph_api/
+
+# ---------------------------------------------------------------------------
+# The built frontend is committed ON PURPOSE
+# ---------------------------------------------------------------------------
+# The lab must be able to run this without npm, so frontend/dist ships in the
+# repository. Nothing above ignores it - this negation exists because `dist/`
+# is in most Python and Node templates and someone will eventually paste one
+# in. The `/**` matters: git will not re-include a file whose parent directory
+# was excluded, so negating only the directory would not be enough.
+!frontend/dist/
+!frontend/dist/**
+
+# ---------------------------------------------------------------------------
+# Editors and operating systems
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

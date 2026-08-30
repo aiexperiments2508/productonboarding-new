@@ -1,0 +1,58 @@
+schema: spec-driven
+
+context: |
+  Autonomous Product Intelligence Factory (TCS Use Case 05). A retail PIM
+  system: a supplier sends a corrected specification after content has already
+  been prepared for several channels, and the system must propagate the
+  correction to every affected field and channel, revalidate, and gate
+  republishing behind a human reviewer.
+
+  Tech stack: Python 3.12+, LangGraph, FastAPI, SQLite (no server), numpy for
+  the retrieval matrix, LiteLLM as the single model gateway. React 18 + Vite +
+  Tailwind v4 frontend, no chart library. 304 tests, pytest.
+
+  The governing architectural rule: **mostly deterministic, bounded AI.** A
+  model reads corrected values out of unstructured supplier prose, argues
+  base-versus-variant scope, flags semantically stale copy, rewrites affected
+  copy, and writes the reviewer's narrative. It never originates a number, a
+  verdict, or a publish decision. Everything that decides what publishes -
+  identity, lineage, taxonomy, channel rules, effective dating, propagation,
+  approval gates, audit - is ordinary software.
+
+  Load-bearing invariants:
+  - Every model step has a deterministic fallback and catches GatewayError. The
+    whole test suite runs with the gateway pinned to a closed port, so the
+    fallbacks are what CI exercises. There is no LLM mocking anywhere.
+  - The fact store is bitemporal: valid time and recorded time are separate
+    axes, corrections insert superseding rows and never update in place.
+  - Validation is deterministic and reproducible: same change set against the
+    same catalog yields the same KPIs and the same trace_hash.
+  - Safety fails closed. An inferred value on a safety-class attribute below
+    the confidence threshold blocks publication rather than degrading it.
+  - Graph state is plain JSON - the checkpointer uses msgpack, so no enums, no
+    datetimes, no pydantic objects in state.
+
+  Naming caution when writing specs: the codebase deliberately kept several
+  names from the supply-chain project it was refactored from - SimResult and
+  simulate() for what is a validation pass and not a simulation, Incident for
+  what the UI calls a correction case, sc/tools/network.py for a catalog read.
+  Write requirements against observable behaviour, never against these names,
+  or the spec inherits the mismatch.
+
+rules:
+  spec:
+    - Write a requirement only where the behaviour is real and checkable today.
+      A spec that overstates is worse than none, because the first reader to
+      test one finds it.
+    - Where a test already asserts the behaviour, name that test in the
+      scenario. Requirements that cannot be pointed at a test are suspect.
+    - Never write "the system SHALL invoke a model at exactly N points" - the
+      count has been wrong in this repo's own docs before. Prefer requirements
+      about what a model may not originate.
+  proposal:
+    - Say what was actually true before the change, including the bug or gap
+      that motivated it. These proposals are reconstructed from work already
+      done; write what happened, not an idealised version.
+  tasks:
+    - Check a task only if it is genuinely complete. An unchecked task on a
+      live change is more useful than a tidy one that lies.

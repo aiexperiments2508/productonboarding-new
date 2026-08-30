@@ -1,0 +1,166 @@
+/* Motion layer.
+ *
+ * Keyframes for the `animate-*` utilities declared in the bridge, plus the SVG
+ * motion the network map and agent graph rely on.
+ *
+ * The reduced-motion guard is at the bottom and is deliberately global rather
+ * than per-component. Every animation added later is covered by default, which
+ * is the only version of this that survives contact with a growing codebase -
+ * a per-component opt-in is a list somebody eventually forgets to add to.
+ */
+
+/* --- entrances ------------------------------------------------------------ */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes scale-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.97); }
+}
+
+/* --- loading -------------------------------------------------------------- */
+
+/* Skeletons sweep a highlight across a sunken block. `background-position` is
+   animated rather than a translated pseudo-element so a skeleton can be any
+   shape without needing overflow clipping. */
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- attention ------------------------------------------------------------ */
+
+/* Used on live/degraded state. Opacity only - a scale pulse on a map node
+   moves it relative to its label, which reads as a rendering fault. */
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Expanding ring for an event landing on a node. */
+@keyframes ping-ring {
+  0% { transform: scale(0.6); opacity: 0.85; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+/* --- SVG flow ------------------------------------------------------------- */
+
+/* A live listing carries a dashed overlay whose offset animates, so content
+   appears to move from the variant to the channel it publishes on. Direction
+   follows the path direction, so an edge always flows source to destination
+   without needing a reversed copy. */
+@keyframes flow {
+  to { stroke-dashoffset: -24; }
+}
+
+/* Path draw-on, for the agent graph as nodes execute and the brand mark on
+   first mount. Consumers set --draw-length from getTotalLength(). */
+@keyframes draw-on {
+  from { stroke-dashoffset: var(--draw-length, 100); }
+  to { stroke-dashoffset: 0; }
+}
+
+/* Blast-radius sweep. A stroked circle expanding out from the traced node. */
+@keyframes sweep-out {
+  0% { r: 0; opacity: 0.55; stroke-width: 3; }
+  100% { r: var(--sweep-r, 240); opacity: 0; stroke-width: 0.5; }
+}
+
+/* --- named helper classes ------------------------------------------------- */
+/* These exist because they are SVG-attribute animations that utilities cannot
+   reach, or because they need a custom property a utility cannot pass. */
+
+.sc-flow {
+  stroke-dasharray: 5 7;
+  animation: flow 1.1s linear infinite;
+}
+
+.sc-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ping-ring 1.6s var(--sc-ease-standard) infinite;
+}
+
+.sc-breathe {
+  animation: breathe 2.6s var(--sc-ease-standard) infinite;
+}
+
+.sc-draw {
+  stroke-dasharray: var(--draw-length, 100);
+  animation: draw-on var(--dur-deliberate) var(--sc-ease-standard) both;
+}
+
+.sc-sweep {
+  animation: sweep-out 900ms var(--sc-ease-standard) both;
+}
+
+/* Skeleton fill. Three stops so the highlight has a soft leading and trailing
+   edge rather than a hard band. */
+.sc-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--surface-sunken) 0%,
+    var(--surface-hover) 20%,
+    var(--surface-sunken) 40%,
+    var(--surface-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Staggered entrance. Set --i on each child; the delay is capped so a long
+   list does not take three seconds to finish arriving. */
+.sc-stagger > * {
+  animation: rise-in var(--dur-base) var(--sc-ease-standard) both;
+  animation-delay: calc(min(var(--i, 0) * 28ms, 320ms));
+}
+
+/* --- reduced motion ------------------------------------------------------- */
+/*
+ * Not `animation: none`. Several surfaces use an animation to arrive at their
+ * final state - a drawn-on path sits at stroke-dashoffset: length until the
+ * animation runs, so removing the animation outright leaves an invisible edge.
+ * Collapsing the duration instead runs every animation to completion in a
+ * single frame, which lands on the final state without the movement.
+ *
+ * Infinite decorative loops are separately pinned to one iteration.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* The flow overlay exists only to convey movement. With movement removed it
+     is a static dashed line pretending to be data, so drop it. */
+  .sc-flow,
+  .sc-ping {
+    display: none;
+  }
+}

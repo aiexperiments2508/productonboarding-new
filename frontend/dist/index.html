@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Propagate a supplier correction to every affected field and channel."
+    />
+    <title>Product Intelligence Factory</title>
+    <script>
+      // Applied before first paint. React mounting a moment later would be a
+      // moment too late: a dark-theme user would get a white flash on every
+      // load, and a compact-density user would watch the layout reflow.
+      // Deliberately inline and dependency-free so it runs ahead of any module.
+      (function () {
+        try {
+          var d = document.documentElement;
+          var theme = localStorage.getItem("sc.theme") || "system";
+          if (theme !== "system") d.setAttribute("data-theme", theme);
+          d.setAttribute(
+            "data-density",
+            localStorage.getItem("sc.density") || "comfortable"
+          );
+          var hue = localStorage.getItem("sc.brandHue");
+          if (hue) d.style.setProperty("--brand-hue", hue);
+        } catch (e) {
+          /* private mode, or storage disabled - the defaults are correct */
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index--AgUQuy3.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-VwTSRhJ5.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

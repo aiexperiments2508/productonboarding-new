@@ -1,0 +1,63 @@
+# Single LLM and embedding egress for the whole platform.
+#
+# Every model the graph can select is an alias here. Per-node model pinning in
+# the agent refers to tiers ("the fast model", "the reasoning model"), never to
+# a provider model id, so adding a provider is a change to this file plus a key
+# in .env - no application code.
+#
+# This file is used only when run.py starts its own gateway. Set
+# LITELLM_BASE_URL in .env and the app attaches to a proxy someone else is
+# running instead, in which case that proxy's config decides what is served and
+# this file is consulted only for the offline fallback list in sc/llm/models.py.
+# Keep the aliases below in step with what the gateway actually serves - a
+# fallback that has drifted is worse than no fallback, because it fails at the
+# point of use rather than at startup.
+#
+#   litellm --config litellm/config.yaml --port 4010
+
+model_list:
+  # --- fast tier: extraction, triage, claim scanning, enrichment -----------
+  - model_name: gemini-3.5-flash-lite
+    litellm_params:
+      model: gemini/gemini-3.5-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-3.5-flash
+    litellm_params:
+      model: gemini/gemini-3.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  # --- reasoning tier: scope resolution, copy regeneration, the write-up ---
+  # A gateway serving only flash-class models has no reasoning tier at all;
+  # resolve_tier() degrades to the strongest fast model rather than failing,
+  # which is why nothing here is load-bearing on a "pro" alias existing.
+  - model_name: gemini-3.7-flash
+    litellm_params:
+      model: gemini/gemini-3.7-flash
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-omni-flash
+    litellm_params:
+      model: gemini/gemini-omni-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  # --- embeddings: the corpus vector pipeline -----------------------------
+  # text-embedding-004 was retired; these are what the API currently serves.
+  # Verify against /v1/models before changing - a retired alias fails at index
+  # build time, which is a slow way to find out.
+  - model_name: gemini-embedding-001
+    litellm_params:
+      model: gemini/gemini-embedding-001
+      api_key: os.environ/GEMINI_API_KEY
+  - model_name: gemini-embedding-2
+    litellm_params:
+      model: gemini/gemini-embedding-2
+      api_key: os.environ/GEMINI_API_KEY
+
+litellm_settings:
+  set_verbose: false
+  # Providers reject unknown params; dropping them keeps one client code path
+  # working across every alias above.
+  drop_params: true

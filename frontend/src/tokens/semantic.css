@@ -1,0 +1,283 @@
+/* Layer 2 - semantic aliases.
+ *
+ * The layer components are allowed to use. Everything here answers "what is
+ * this for", never "what colour is it", so a theme change is a change to this
+ * file alone.
+ *
+ * Defined three times, deliberately:
+ *
+ *   :root                                   light, the complete set
+ *   @media (prefers-color-scheme: dark)
+ *     :root:not([data-theme="light"])       system-dark, unless light is pinned
+ *   :root[data-theme="dark"]                explicit dark, wins over the OS
+ *
+ * Two blocks would give you a working toggle with a broken "System": the OS
+ * preference has to be able to win when the user has not chosen, and lose the
+ * moment they do. Both directions have to be spelled out.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* --- surfaces ---------------------------------------------------------- */
+  --surface-base: var(--n-50);
+  --surface-raised: var(--n-0);
+  --surface-sunken: var(--n-100);
+  --surface-overlay: var(--n-0);
+  --surface-hover: var(--n-100);
+  --surface-active: var(--n-150);
+  --surface-inverse: var(--n-900);
+
+  /* Backdrop behind dialogs. Tinted, not neutral black - a flat black scrim
+     over a warm-neutral app reads as a rendering bug. */
+  --surface-scrim: oklch(0.234 0.016 var(--brand-hue) / 0.44);
+
+  /* --- foreground -------------------------------------------------------- */
+  --fg-primary: var(--n-900);
+  --fg-secondary: var(--n-600);
+  --fg-tertiary: var(--n-500);
+  --fg-inverse: var(--n-0);
+  --fg-on-accent: var(--n-0);
+
+  /* --- borders ----------------------------------------------------------- */
+  --border-subtle: var(--n-150);
+  --border-default: var(--n-200);
+  --border-strong: var(--n-300);
+  --border-focus: var(--a-500);
+
+  /* --- accent ------------------------------------------------------------ */
+  --accent-solid: var(--a-600);
+  --accent-solid-hover: var(--a-700);
+  --accent-text: var(--a-700);
+  --accent-soft: var(--a-50);
+  --accent-soft-hover: var(--a-100);
+  --accent-border: var(--a-200);
+
+  /* --- status ------------------------------------------------------------ */
+  --ok-solid: var(--ok-600);
+  --ok-text: var(--ok-600);
+  --ok-soft: var(--ok-100);
+  --ok-border: oklch(0.848 0.078 var(--h-ok));
+
+  --warn-solid: var(--warn-600);
+  --warn-text: var(--warn-600);
+  --warn-soft: var(--warn-100);
+  --warn-border: oklch(0.858 0.088 var(--h-warn));
+
+  --danger-solid: var(--danger-600);
+  --danger-text: var(--danger-600);
+  --danger-soft: var(--danger-100);
+  --danger-border: oklch(0.850 0.070 var(--h-danger));
+
+  --info-solid: var(--info-600);
+  --info-text: var(--info-600);
+  --info-soft: var(--info-100);
+  --info-border: oklch(0.852 0.060 var(--h-info));
+
+  --neutral-soft: var(--n-100);
+  --neutral-text: var(--n-600);
+  --neutral-border: var(--n-200);
+
+  /* --- provenance -------------------------------------------------------- */
+  /* The five classes of knowledge, and the whole audit claim rests on a
+     reviewer telling an observation from an inference at a glance. Held at one
+     lightness so none of them reads as more important than another - the
+     distinction is categorical, not ordinal. */
+  --prov-recorded: var(--ok-600);
+  --prov-inferred: var(--purple-500);
+  --prov-decided: var(--a-600);
+  --prov-simulated: var(--warn-600);
+  --prov-committed: var(--danger-600);
+
+  /* --- data visualisation ------------------------------------------------ */
+  --viz-grid: var(--n-150);
+  --viz-axis: var(--n-300);
+  --viz-mark: var(--n-400);
+  --viz-mark-optimal: var(--ok-600);
+  --viz-mark-infeasible: var(--danger-500);
+  --viz-mark-chosen: var(--a-600);
+  --viz-flow: var(--a-500);
+  --viz-edge: var(--n-300);
+
+  /* --- elevation --------------------------------------------------------- */
+  /* Two-part shadows: a tight contact shadow plus a wide ambient one. A single
+     blur reads as a sticker; the pair reads as a surface off the page. */
+  --elevation-0: none;
+  --elevation-1:
+    0 1px 2px oklch(0.234 0.016 var(--brand-hue) / 0.06),
+    0 1px 3px oklch(0.234 0.016 var(--brand-hue) / 0.04);
+  --elevation-2:
+    0 1px 2px oklch(0.234 0.016 var(--brand-hue) / 0.06),
+    0 4px 12px oklch(0.234 0.016 var(--brand-hue) / 0.06);
+  --elevation-3:
+    0 2px 4px oklch(0.234 0.016 var(--brand-hue) / 0.08),
+    0 12px 32px oklch(0.234 0.016 var(--brand-hue) / 0.10);
+
+  /* Focus ring. Two rings - an inner one in the surface colour so the ring
+     reads on any background, and the accent outside it. */
+  --ring-focus:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 4px var(--border-focus);
+
+  /* --- glow (used by the SVG surfaces) ----------------------------------- */
+  --glow-accent: oklch(0.596 0.13 var(--brand-hue) / 0.35);
+  --glow-danger: oklch(0.578 0.174 var(--h-danger) / 0.32);
+}
+
+/* --- system dark, only when light is not pinned --------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --surface-base: var(--n-1000);
+    --surface-raised: var(--n-950);
+    --surface-sunken: oklch(0.098 0.010 var(--brand-hue));
+    --surface-overlay: var(--n-925);
+    --surface-hover: var(--n-900);
+    --surface-active: var(--n-850);
+    --surface-inverse: var(--n-100);
+    --surface-scrim: oklch(0.09 0.01 var(--brand-hue) / 0.66);
+
+    --fg-primary: var(--n-100);
+    --fg-secondary: var(--n-400);
+    --fg-tertiary: var(--n-500);
+    --fg-inverse: var(--n-1000);
+    --fg-on-accent: var(--n-1000);
+
+    --border-subtle: var(--n-925);
+    --border-default: var(--n-900);
+    --border-strong: var(--n-850);
+    --border-focus: var(--a-400);
+
+    --accent-solid: var(--a-400);
+    --accent-solid-hover: var(--a-300);
+    --accent-text: var(--a-400);
+    --accent-soft: var(--a-950);
+    --accent-soft-hover: var(--a-900);
+    --accent-border: var(--a-800);
+
+    --ok-solid: var(--ok-400);
+    --ok-text: var(--ok-400);
+    --ok-soft: var(--ok-950);
+    --ok-border: oklch(0.372 0.070 var(--h-ok));
+
+    --warn-solid: var(--warn-400);
+    --warn-text: var(--warn-400);
+    --warn-soft: var(--warn-950);
+    --warn-border: oklch(0.386 0.072 var(--h-warn));
+
+    --danger-solid: var(--danger-400);
+    --danger-text: var(--danger-400);
+    --danger-soft: var(--danger-950);
+    --danger-border: oklch(0.384 0.088 var(--h-danger));
+
+    --info-solid: var(--info-400);
+    --info-text: var(--info-400);
+    --info-soft: var(--info-950);
+    --info-border: oklch(0.378 0.070 var(--h-info));
+
+    --neutral-soft: var(--n-900);
+    --neutral-text: var(--n-400);
+    --neutral-border: var(--n-850);
+
+    --prov-recorded: var(--ok-400);
+    --prov-inferred: var(--purple-400);
+    --prov-decided: var(--a-400);
+    --prov-simulated: var(--warn-400);
+    --prov-committed: var(--danger-400);
+
+    --viz-grid: var(--n-900);
+    --viz-axis: var(--n-800);
+    --viz-mark: var(--n-600);
+    --viz-mark-optimal: var(--ok-400);
+    --viz-mark-infeasible: var(--danger-400);
+    --viz-mark-chosen: var(--a-400);
+    --viz-flow: var(--a-400);
+    --viz-edge: var(--n-850);
+
+    --elevation-1: 0 1px 2px oklch(0 0 0 / 0.5), 0 1px 3px oklch(0 0 0 / 0.36);
+    --elevation-2: 0 1px 2px oklch(0 0 0 / 0.5), 0 4px 14px oklch(0 0 0 / 0.42);
+    --elevation-3: 0 2px 6px oklch(0 0 0 / 0.56), 0 14px 38px oklch(0 0 0 / 0.5);
+
+    --glow-accent: oklch(0.696 0.128 var(--brand-hue) / 0.42);
+    --glow-danger: oklch(0.706 0.152 var(--h-danger) / 0.38);
+  }
+}
+
+/* --- explicit dark, wins over the OS -------------------------------------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-base: var(--n-1000);
+  --surface-raised: var(--n-950);
+  --surface-sunken: oklch(0.098 0.010 var(--brand-hue));
+  --surface-overlay: var(--n-925);
+  --surface-hover: var(--n-900);
+  --surface-active: var(--n-850);
+  --surface-inverse: var(--n-100);
+  --surface-scrim: oklch(0.09 0.01 var(--brand-hue) / 0.66);
+
+  --fg-primary: var(--n-100);
+  --fg-secondary: var(--n-400);
+  --fg-tertiary: var(--n-500);
+  --fg-inverse: var(--n-1000);
+  --fg-on-accent: var(--n-1000);
+
+  --border-subtle: var(--n-925);
+  --border-default: var(--n-900);
+  --border-strong: var(--n-850);
+  --border-focus: var(--a-400);
+
+  --accent-solid: var(--a-400);
+  --accent-solid-hover: var(--a-300);
+  --accent-text: var(--a-400);
+  --accent-soft: var(--a-950);
+  --accent-soft-hover: var(--a-900);
+  --accent-border: var(--a-800);
+
+  --ok-solid: var(--ok-400);
+  --ok-text: var(--ok-400);
+  --ok-soft: var(--ok-950);
+  --ok-border: oklch(0.372 0.070 var(--h-ok));
+
+  --warn-solid: var(--warn-400);
+  --warn-text: var(--warn-400);
+  --warn-soft: var(--warn-950);
+  --warn-border: oklch(0.386 0.072 var(--h-warn));
+
+  --danger-solid: var(--danger-400);
+  --danger-text: var(--danger-400);
+  --danger-soft: var(--danger-950);
+  --danger-border: oklch(0.384 0.088 var(--h-danger));
+
+  --info-solid: var(--info-400);
+  --info-text: var(--info-400);
+  --info-soft: var(--info-950);
+  --info-border: oklch(0.378 0.070 var(--h-info));
+
+  --neutral-soft: var(--n-900);
+  --neutral-text: var(--n-400);
+  --neutral-border: var(--n-850);
+
+  --prov-recorded: var(--ok-400);
+  --prov-inferred: var(--purple-400);
+  --prov-decided: var(--a-400);
+  --prov-simulated: var(--warn-400);
+  --prov-committed: var(--danger-400);
+
+  --viz-grid: var(--n-900);
+  --viz-axis: var(--n-800);
+  --viz-mark: var(--n-600);
+  --viz-mark-optimal: var(--ok-400);
+  --viz-mark-infeasible: var(--danger-400);
+  --viz-mark-chosen: var(--a-400);
+  --viz-flow: var(--a-400);
+  --viz-edge: var(--n-850);
+
+  --elevation-1: 0 1px 2px oklch(0 0 0 / 0.5), 0 1px 3px oklch(0 0 0 / 0.36);
+  --elevation-2: 0 1px 2px oklch(0 0 0 / 0.5), 0 4px 14px oklch(0 0 0 / 0.42);
+  --elevation-3: 0 2px 6px oklch(0 0 0 / 0.56), 0 14px 38px oklch(0 0 0 / 0.5);
+
+  --glow-accent: oklch(0.696 0.128 var(--brand-hue) / 0.42);
+  --glow-danger: oklch(0.706 0.152 var(--h-danger) / 0.38);
+}

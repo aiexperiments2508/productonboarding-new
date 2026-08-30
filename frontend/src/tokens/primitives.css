@@ -1,0 +1,132 @@
+/* Layer 1 - primitives.
+ *
+ * Raw ramps. Nothing outside semantic.css should reference these directly; a
+ * component reaching in here is a component that cannot be re-themed.
+ *
+ * OKLCH throughout, for two reasons that both matter here:
+ *
+ *   - Lightness is perceptual, so a 500 in one hue reads as the same weight as
+ *     a 500 in another. The five provenance colours have to stay mutually
+ *     distinguishable without any one of them shouting, and in sRGB hex that is
+ *     hand-tuning; in OKLCH it falls out of holding L and C fixed.
+ *   - The hue is a variable. `oklch(L C var(--brand-hue))` means the entire
+ *     accent ramp - solid, soft, hover, border, focus ring, chart marks -
+ *     re-skins from one number, and stays contrast-correct while it does.
+ */
+
+:root {
+  /* --- brand axis ------------------------------------------------------- */
+  /* The only knob for re-skinning. 250 is the deep blue this ships with. */
+  --brand-hue: 250;
+  --brand-chroma: 0.13;
+
+  /* --- neutral ramp ----------------------------------------------------- */
+  /* Very slightly hue-shifted toward the brand so greys sit with the accent
+     instead of looking dead beside it. */
+  --n-0:    oklch(1     0     var(--brand-hue));
+  --n-25:   oklch(0.988 0.002 var(--brand-hue));
+  --n-50:   oklch(0.976 0.004 var(--brand-hue));
+  --n-100:  oklch(0.955 0.006 var(--brand-hue));
+  --n-150:  oklch(0.930 0.008 var(--brand-hue));
+  --n-200:  oklch(0.902 0.010 var(--brand-hue));
+  --n-300:  oklch(0.836 0.013 var(--brand-hue));
+  --n-400:  oklch(0.740 0.016 var(--brand-hue));
+  --n-500:  oklch(0.640 0.018 var(--brand-hue));
+  --n-600:  oklch(0.538 0.019 var(--brand-hue));
+  --n-700:  oklch(0.436 0.019 var(--brand-hue));
+  --n-800:  oklch(0.336 0.018 var(--brand-hue));
+  --n-850:  oklch(0.283 0.017 var(--brand-hue));
+  --n-900:  oklch(0.234 0.016 var(--brand-hue));
+  --n-925:  oklch(0.204 0.015 var(--brand-hue));
+  --n-950:  oklch(0.176 0.014 var(--brand-hue));
+  --n-975:  oklch(0.148 0.012 var(--brand-hue));
+  --n-1000: oklch(0.118 0.010 var(--brand-hue));
+
+  /* --- accent ramp, driven by --brand-hue -------------------------------- */
+  --a-50:  oklch(0.972 0.018 var(--brand-hue));
+  --a-100: oklch(0.938 0.038 var(--brand-hue));
+  --a-200: oklch(0.884 0.066 var(--brand-hue));
+  --a-300: oklch(0.806 0.098 var(--brand-hue));
+  --a-400: oklch(0.696 0.128 var(--brand-hue));
+  --a-500: oklch(0.596 var(--brand-chroma) var(--brand-hue));
+  --a-600: oklch(0.516 0.142 var(--brand-hue));
+  --a-700: oklch(0.436 0.122 var(--brand-hue));
+  --a-800: oklch(0.344 0.094 var(--brand-hue));
+  --a-900: oklch(0.272 0.070 var(--brand-hue));
+  --a-950: oklch(0.216 0.052 var(--brand-hue));
+
+  /* --- status hues ------------------------------------------------------- */
+  /* Fixed hues: these carry meaning and must NOT follow the brand. A green
+     that turns blue when someone re-skins is a green that stopped meaning
+     "safe". Held at matched L/C so no status out-shouts another. */
+  --h-ok: 155;
+  --h-warn: 75;
+  --h-danger: 27;
+  --h-info: 235;
+  --h-purple: 300;
+
+  --ok-100:  oklch(0.940 0.048 var(--h-ok));
+  --ok-500:  oklch(0.588 0.118 var(--h-ok));
+  --ok-600:  oklch(0.508 0.108 var(--h-ok));
+  --ok-400:  oklch(0.712 0.128 var(--h-ok));
+  --ok-950:  oklch(0.238 0.048 var(--h-ok));
+
+  --warn-100: oklch(0.944 0.062 var(--h-warn));
+  --warn-500: oklch(0.628 0.118 var(--h-warn));
+  --warn-600: oklch(0.548 0.108 var(--h-warn));
+  --warn-400: oklch(0.768 0.132 var(--h-warn));
+  --warn-950: oklch(0.252 0.048 var(--h-warn));
+
+  --danger-100: oklch(0.940 0.036 var(--h-danger));
+  --danger-500: oklch(0.578 0.174 var(--h-danger));
+  --danger-600: oklch(0.508 0.166 var(--h-danger));
+  --danger-400: oklch(0.706 0.152 var(--h-danger));
+  --danger-950: oklch(0.246 0.062 var(--h-danger));
+
+  --info-100: oklch(0.940 0.032 var(--h-info));
+  --info-500: oklch(0.586 0.126 var(--h-info));
+  --info-600: oklch(0.506 0.124 var(--h-info));
+  --info-400: oklch(0.716 0.116 var(--h-info));
+  --info-950: oklch(0.242 0.052 var(--h-info));
+
+  --purple-100: oklch(0.942 0.036 var(--h-purple));
+  --purple-500: oklch(0.582 0.152 var(--h-purple));
+  --purple-400: oklch(0.712 0.136 var(--h-purple));
+  --purple-950: oklch(0.246 0.058 var(--h-purple));
+
+  /* --- type ramp --------------------------------------------------------- */
+  --sc-font-sans: "Inter var", "Inter", system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", sans-serif;
+  --sc-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
+    "Roboto Mono", Menlo, Consolas, monospace;
+
+  /* --- radii ------------------------------------------------------------- */
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-full: 9999px;
+
+  /* --- motion ------------------------------------------------------------ */
+  --dur-instant: 60ms;
+  --dur-fast: 130ms;
+  --dur-base: 220ms;
+  --dur-slow: 380ms;
+  --dur-deliberate: 640ms;
+
+  /* Standard for most things; emphasized overshoots slightly for anything
+     that should feel like it landed rather than stopped. */
+  --sc-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --sc-ease-emphasized: cubic-bezier(0.2, 0, 0, 1.18);
+  --sc-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* --- z-index ----------------------------------------------------------- */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-shell: 20;
+  --z-overlay: 40;
+  --z-dialog: 50;
+  --z-tooltip: 60;
+  --z-toast: 70;
+}

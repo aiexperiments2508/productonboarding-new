@@ -1,0 +1,143 @@
+/* Base layer - element defaults and the handful of things utilities cannot
+ * express: the focus ring, scrollbars, selection, and native form control
+ * theming.
+ *
+ * Everything here reads from the semantic layer. There is no literal colour in
+ * this file, on purpose - a hex here is a hex that will not follow the theme.
+ */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    /* Density and theme both live on <html>, set by ThemeProvider before
+       first paint via an inline script in index.html. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--surface-base);
+    color: var(--fg-primary);
+    font-family: var(--sc-font-sans);
+    font-size: var(--sc-text-base);
+    line-height: var(--sc-leading-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv05" 1, "ss01" 1;
+    overscroll-behavior: none;
+  }
+
+  /* Themes cross-fade rather than snapping. Only the properties that actually
+     change are transitioned, and only on the two elements that paint the whole
+     background - transitioning every element would repaint the app. */
+  body,
+  #root {
+    transition:
+      background-color var(--dur-base) var(--sc-ease-standard),
+      color var(--dur-base) var(--sc-ease-standard);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+  }
+
+  button {
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  /* A single visible focus ring for the whole app. `:focus-visible` rather than
+     `:focus` so a mouse click on a panel does not light up a ring the user did
+     not ask for, while every keyboard path still shows one. */
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--ring-focus);
+    border-radius: var(--r-sm);
+  }
+
+  /* SVG interactive elements cannot take a box-shadow ring, so they get a
+     stroke-based one instead. */
+  svg :focus-visible {
+    box-shadow: none;
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--accent-soft-hover);
+    color: var(--fg-primary);
+  }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--border-subtle);
+    margin: var(--space-3) 0;
+  }
+
+  a {
+    color: var(--accent-text);
+    text-decoration-color: var(--accent-border);
+    text-underline-offset: 2px;
+  }
+
+  /* --- scrollbars -------------------------------------------------------- */
+  /* Thin and theme-aware. The default chrome scrollbar on a dark surface is a
+     bright grey slab that reads as a UI element rather than a scroll position. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: var(--r-full);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--fg-tertiary);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* --- numerals ---------------------------------------------------------- */
+  /* Anywhere a figure can change in place - KPIs, table cells, the sim clock -
+     proportional numerals make the value jitter horizontally as it updates.
+     Tabular is the default here and prose opts out, not the reverse. */
+  table,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

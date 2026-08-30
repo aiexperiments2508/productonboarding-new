@@ -1,0 +1,7 @@
+# Only needed to run a LiteLLM gateway on this machine.
+#
+# Requires Python 3.11-3.13. On 3.14 the transitive orjson dependency has no
+# wheel and its Rust build fails against the ABI - install 3.12, or point
+# LITELLM_BASE_URL at a gateway running elsewhere and skip this file.
+
+litellm[proxy]>=1.60,<2

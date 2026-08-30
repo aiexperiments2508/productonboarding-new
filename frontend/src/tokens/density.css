@@ -1,0 +1,83 @@
+/* Layer 3 - density.
+ *
+ * One multiplier drives every dimension that should shrink when a reviewer
+ * wants more rows on screen. Spacing, control heights, row heights and the
+ * base type size all calc() off `--density`, so "compact" is one attribute on
+ * <html> rather than a parallel set of classes on every component.
+ *
+ * Deliberately NOT scaled: border widths, radii, icon stroke width, and the
+ * focus ring. Those are the things that stop reading as themselves when they
+ * get smaller - a 0.85px border is a grey smudge, and a compact focus ring is
+ * a compact accessibility problem.
+ *
+ * Type does not scale linearly either. Dropping 13.5px by 15% gives 11.5px,
+ * which is past the point where a table of numbers stays scannable. The type
+ * step is deliberately gentler than the spacing step.
+ */
+
+:root {
+  --density: 1;
+  --density-type: 1;
+
+  /* --- spacing scale ----------------------------------------------------- */
+  --space-0: 0px;
+  --space-px: 1px;
+  --space-1: calc(0.25rem * var(--density));
+  --space-2: calc(0.5rem * var(--density));
+  --space-3: calc(0.75rem * var(--density));
+  --space-4: calc(1rem * var(--density));
+  --space-5: calc(1.25rem * var(--density));
+  --space-6: calc(1.5rem * var(--density));
+  --space-8: calc(2rem * var(--density));
+  --space-10: calc(2.5rem * var(--density));
+  --space-12: calc(3rem * var(--density));
+  --space-16: calc(4rem * var(--density));
+
+  /* --- control sizing ---------------------------------------------------- */
+  --control-h-xs: calc(22px * var(--density));
+  --control-h-sm: calc(28px * var(--density));
+  --control-h-md: calc(34px * var(--density));
+  --control-h-lg: calc(40px * var(--density));
+
+  --row-h: calc(38px * var(--density));
+  --panel-pad: calc(14px * var(--density));
+  --panel-head-h: calc(40px * var(--density));
+
+  /* --- shell chrome ------------------------------------------------------ */
+  /* The shell holds its size across densities: nav that resizes under you
+     when you change an unrelated setting is disorienting. Only the content
+     region breathes. */
+  --shell-rail-w: 56px;
+  --shell-nav-w: 216px;
+  --shell-bar-h: 52px;
+  --shell-strip-h: 34px;
+
+  /* --- type scale -------------------------------------------------------- */
+  --sc-text-2xs: calc(10px * var(--density-type));
+  --sc-text-xs: calc(11px * var(--density-type));
+  --sc-text-sm: calc(12px * var(--density-type));
+  --sc-text-base: calc(13.5px * var(--density-type));
+  --sc-text-md: calc(15px * var(--density-type));
+  --sc-text-lg: calc(18px * var(--density-type));
+  --sc-text-xl: calc(22px * var(--density-type));
+  --sc-text-2xl: calc(28px * var(--density-type));
+
+  --sc-leading-tight: 1.25;
+  --sc-leading-normal: 1.5;
+  --sc-leading-relaxed: 1.65;
+
+  /* Numerals in tables and KPIs sit slightly tighter than prose. */
+  --sc-tracking-tight: -0.01em;
+  --sc-tracking-normal: 0;
+  --sc-tracking-wide: 0.04em;
+  --sc-tracking-caps: 0.06em;
+}
+
+:root[data-density="compact"] {
+  --density: 0.78;
+  --density-type: 0.94;
+
+  --row-h: calc(30px * 1);
+  --shell-bar-h: 46px;
+  --shell-strip-h: 30px;
+}

@@ -1,0 +1,45 @@
+# Application dependencies.
+#
+# Deliberately does NOT include the LiteLLM proxy. The proxy is only needed if
+# this machine starts its own gateway; pointing at one that already runs needs
+# nothing more than an HTTP client. Keeping it out means the app installs on
+# Python 3.14, where the proxy's orjson dependency has no wheel and its Rust
+# build fails against the ABI.
+#
+# To run your own gateway:  pip install -r requirements-gateway.txt
+
+# --- Agent framework -------------------------------------------------------
+# These two move together. langgraph 1.x uses langgraph-checkpoint 4.x, and the
+# SQLite saver must be 3.x to match - pairing a 1.x graph with a 2.x saver
+# fails at runtime with "JsonPlusSerializer has no attribute 'dumps'", which
+# only shows up the first time a checkpoint is written.
+langgraph>=1.0,<2
+langgraph-checkpoint-sqlite>=3.1,<4
+langchain-core>=0.3.30,<2
+
+# --- Model access ----------------------------------------------------------
+# The library, not the proxy - used for typing and direct calls. The gateway
+# is reached over HTTP.
+httpx>=0.27,<0.29
+
+# --- Agent-to-agent --------------------------------------------------------
+# The A2A peers publish protobuf-typed Agent Cards and answer JSON-RPC. Pinned
+# to 1.x: the 0.x line uses pydantic models and a different method naming, so a
+# major bump is a rewrite of sc/a2a/server.py rather than a version bump.
+a2a-sdk>=1.1,<2
+
+# --- MCP -------------------------------------------------------------------
+mcp>=1.2,<2
+
+# --- API / runtime ---------------------------------------------------------
+# No python-dotenv: .env is read by sc/bootstrap.py, which runs before the
+# dependencies are guaranteed importable and only has to handle KEY=value.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+pydantic>=2.9,<3
+
+# --- Numerics --------------------------------------------------------------
+numpy>=2.0,<3
+
+# --- Dev -------------------------------------------------------------------
+pytest>=8.0,<9

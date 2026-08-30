@@ -1,0 +1,168 @@
+/* Layer 4 - the Tailwind bridge.
+ *
+ * Maps the semantic layer into Tailwind's theme namespaces so `bg-raised`,
+ * `text-muted`, `border-subtle`, `shadow-e2` and friends exist as utilities.
+ *
+ * `@theme inline` is doing the load-bearing work here. Plain `@theme` would
+ * copy the *value* of each token into Tailwind's own variable at build time,
+ * baking the light palette into every utility; `inline` emits the reference
+ * instead, so `bg-raised` compiles to `background-color: var(--surface-raised)`
+ * and follows the live theme, density and brand hue with no rebuild and no
+ * `dark:` prefix anywhere in the app.
+ *
+ * `--spacing` is the one exception and stays in a plain `@theme`: Tailwind
+ * derives the entire spacing scale as `calc(var(--spacing) * n)`, so emitting
+ * it at :root is what makes p-4, gap-2, h-10 and everything else pick up the
+ * density multiplier automatically.
+ */
+
+/* Spacing base. One declaration, and every spacing utility becomes
+   density-aware. */
+@theme {
+  --spacing: calc(0.25rem * var(--density, 1));
+}
+
+@theme inline {
+  /* --- surfaces ---------------------------------------------------------- */
+  /* NOT `--color-base`: that key collides with the `--text-base` font-size
+     step, and Tailwind resolves `text-base` to the colour, silently turning
+     every body-text utility in the app into a colour declaration. */
+  --color-canvas: var(--surface-base);
+  --color-raised: var(--surface-raised);
+  --color-sunken: var(--surface-sunken);
+  --color-overlay: var(--surface-overlay);
+  --color-hover: var(--surface-hover);
+  --color-active: var(--surface-active);
+  --color-inverse: var(--surface-inverse);
+  --color-scrim: var(--surface-scrim);
+
+  /* --- foreground -------------------------------------------------------- */
+  --color-fg: var(--fg-primary);
+  --color-muted: var(--fg-secondary);
+  --color-faint: var(--fg-tertiary);
+  --color-on-inverse: var(--fg-inverse);
+  --color-on-accent: var(--fg-on-accent);
+
+  /* --- borders ----------------------------------------------------------- */
+  --color-subtle: var(--border-subtle);
+  --color-line: var(--border-default);
+  --color-strong: var(--border-strong);
+  --color-focus: var(--border-focus);
+
+  /* --- accent ------------------------------------------------------------ */
+  --color-accent: var(--accent-solid);
+  --color-accent-hover: var(--accent-solid-hover);
+  --color-accent-text: var(--accent-text);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-hover: var(--accent-soft-hover);
+  --color-accent-border: var(--accent-border);
+
+  /* --- status ------------------------------------------------------------ */
+  --color-ok: var(--ok-solid);
+  --color-ok-text: var(--ok-text);
+  --color-ok-soft: var(--ok-soft);
+  --color-ok-border: var(--ok-border);
+
+  --color-warn: var(--warn-solid);
+  --color-warn-text: var(--warn-text);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-border: var(--warn-border);
+
+  --color-danger: var(--danger-solid);
+  --color-danger-text: var(--danger-text);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-border: var(--danger-border);
+
+  --color-info: var(--info-solid);
+  --color-info-text: var(--info-text);
+  --color-info-soft: var(--info-soft);
+  --color-info-border: var(--info-border);
+
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-text: var(--neutral-text);
+  --color-neutral-border: var(--neutral-border);
+
+  /* --- provenance -------------------------------------------------------- */
+  --color-prov-recorded: var(--prov-recorded);
+  --color-prov-inferred: var(--prov-inferred);
+  --color-prov-decided: var(--prov-decided);
+  --color-prov-simulated: var(--prov-simulated);
+  --color-prov-committed: var(--prov-committed);
+
+  /* --- data visualisation ------------------------------------------------ */
+  --color-viz-grid: var(--viz-grid);
+  --color-viz-axis: var(--viz-axis);
+  --color-viz-mark: var(--viz-mark);
+  --color-viz-optimal: var(--viz-mark-optimal);
+  --color-viz-infeasible: var(--viz-mark-infeasible);
+  --color-viz-chosen: var(--viz-mark-chosen);
+  --color-viz-flow: var(--viz-flow);
+  --color-viz-edge: var(--viz-edge);
+
+  /* --- type -------------------------------------------------------------- */
+  --font-sans: var(--sc-font-sans);
+  --font-mono: var(--sc-font-mono);
+
+  --text-2xs: var(--sc-text-2xs);
+  --text-xs: var(--sc-text-xs);
+  --text-sm: var(--sc-text-sm);
+  --text-base: var(--sc-text-base);
+  --text-md: var(--sc-text-md);
+  --text-lg: var(--sc-text-lg);
+  --text-xl: var(--sc-text-xl);
+  --text-2xl: var(--sc-text-2xl);
+
+  --leading-tight: var(--sc-leading-tight);
+  --leading-normal: var(--sc-leading-normal);
+  --leading-relaxed: var(--sc-leading-relaxed);
+
+  --tracking-tight: var(--sc-tracking-tight);
+  --tracking-normal: var(--sc-tracking-normal);
+  --tracking-wide: var(--sc-tracking-wide);
+  --tracking-caps: var(--sc-tracking-caps);
+
+  /* --- radii ------------------------------------------------------------- */
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+
+  /* --- elevation --------------------------------------------------------- */
+  --shadow-e1: var(--elevation-1);
+  --shadow-e2: var(--elevation-2);
+  --shadow-e3: var(--elevation-3);
+  /* Named `ring` rather than `focus`: `shadow-focus` would be ambiguous with
+     the `--color-focus` key, since shadow-* also accepts a colour. */
+  --shadow-ring: var(--ring-focus);
+
+  /* --- motion ------------------------------------------------------------ */
+  --ease-standard: var(--sc-ease-standard);
+  --ease-emphasized: var(--sc-ease-emphasized);
+  --ease-exit: var(--sc-ease-exit);
+
+  --animate-fade-in: fade-in var(--dur-base) var(--sc-ease-standard) both;
+  --animate-rise-in: rise-in var(--dur-base) var(--sc-ease-standard) both;
+  --animate-slide-in: slide-in var(--dur-base) var(--sc-ease-emphasized) both;
+  --animate-scale-in: scale-in var(--dur-fast) var(--sc-ease-emphasized) both;
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-breathe: breathe 2.6s var(--sc-ease-standard) infinite;
+  --animate-spin-slow: spin 1.1s linear infinite;
+  --animate-flow: flow 1.2s linear infinite;
+}
+
+/* `dark:` is rarely needed - the token layer already resolved the theme, and a
+   component reaching for `dark:` is usually a component that should have used a
+   semantic token. It exists for the handful of cases where a *structural*
+   choice differs between themes (an inset highlight that only makes sense on a
+   dark surface, say), and it honours all three theme states. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+}

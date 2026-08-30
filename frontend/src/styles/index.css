@@ -1,0 +1,40 @@
+/* Stylesheet entry point.
+ *
+ * Order matters, and only in one direction: Tailwind first so its `base` layer
+ * lands underneath ours, then the token layers bottom-up (primitives feed
+ * semantic, semantic and density feed the bridge), then everything that
+ * consumes them.
+ *
+ * The layering is the point of the whole arrangement:
+ *
+ *   primitives   raw OKLCH ramps and scales, referenced only by semantic
+ *   semantic     what a token is FOR; the only layer components may read
+ *   density      one multiplier driving every dimension that should compact
+ *   bridge       semantic tokens mapped into Tailwind's namespaces
+ *   base         element defaults, focus ring, scrollbars
+ *   motion       keyframes and the global reduced-motion guard
+ */
+
+@import "tailwindcss";
+
+@import "../tokens/primitives.css";
+@import "../tokens/semantic.css";
+@import "../tokens/density.css";
+@import "../tokens/bridge.css";
+
+@import "./base.css";
+@import "./motion.css";
+
+/* Tailwind v4 infers content sources from the stylesheet's location. Naming
+   src/ explicitly keeps class detection working regardless of where the build
+   is invoked from - the app is built from frontend/ and served from the repo
+   root, so the inferred root is not reliably the same one. */
+@source "../";
+
+/* And explicitly NOT the build output. Inference roots at the nearest
+   package.json, which is frontend/, and dist/ is deliberately committed rather
+   than ignored - so without this the previous bundle is scanned as source and
+   its class names are folded back into the next build. The stylesheet then
+   only ever grows: a class deleted from the app survives in dist/ and keeps
+   re-seeding itself. Measured at 1.2kB of dead CSS before this line. */
+@source not "../../dist";

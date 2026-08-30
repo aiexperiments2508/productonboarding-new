@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "factory": "./sc/graph/build.py:build_graph"
+  },
+  "env": ".env"
+}

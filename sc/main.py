@@ -804,6 +804,103 @@ def product_preview(entity_id: str, use_model: bool = True) -> dict:
     return preview_mod.build(entity_id, summary, use_model=use_model)
 
 
+# ---------------------------------------------------------------------------
+# The publication estate
+#
+# The other end of the pipe. These read the blast radius the catalog already
+# derives and answer it in the vocabulary the people who have to act on it use:
+# SKUs, and the systems that own the listings carrying them.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/publication/systems")
+def publication_systems() -> dict:
+    """The systems that own live listings, derived from the channels.
+
+    Derived rather than configured: a publication estate that could disagree
+    with the channel list is a second account of where content goes, and the
+    first thing it would disagree about is the channel somebody just added.
+    """
+    from sc.estate import publication
+
+    base = baseline_mod.get()
+    return {"systems": [
+        {"id": s.id, "channel_id": s.channel_id, "title": s.title,
+         "owner": s.owner, "recallable": s.recallable,
+         "freeze_days": s.freeze_days, "endpoint": s.endpoint,
+         "verbs": list(publication.VERBS)}
+        for s in publication.systems(base)]}
+
+
+@app.get("/api/publication/impact/{entity_id}")
+def publication_impact(entity_id: str, as_of: str | None = None) -> dict:
+    """What a correction to this entity reaches, in SKUs and systems.
+
+    A blast radius expressed in internal identifiers is one only this system can
+    read. Everybody who has to act on one - a buyer, a supplier, a marketplace
+    account manager - works in SKUs.
+    """
+    from sc.estate import publication, remediation
+
+    base = baseline_mod.get()
+    trace = network_tools.trace_dependencies(entity_id, as_of=as_of)
+    return {
+        "root": entity_id,
+        "totals": trace["totals"],
+        "skus": publication.affected_skus(trace, base),
+        "systems": publication.blast_to_systems(trace, base),
+        # What would happen if this were dispatched now, without dispatching.
+        # A reviewer should see that the print channel is frozen before
+        # deciding, not from a report afterwards.
+        "dispatch_plan": remediation.plan_dispatch(trace, base),
+    }
+
+
+@app.post("/api/publication/dispatch")
+def publication_dispatch(body: dict) -> dict:
+    """Push an approved resolution out, reporting per system.
+
+    The approval gate, the stale-evidence check and the safety gate are all
+    still enforced at the planning boundary and are not re-implemented here. A
+    commit that refuses refuses everything, because those refusals are
+    properties of the resolution rather than of any one channel.
+    """
+    from sc.estate import remediation
+
+    incident_id = (body or {}).get("incident_id", "")
+    scenario_id = (body or {}).get("scenario_id", "")
+    entity_id = (body or {}).get("entity_id", "")
+    if not (incident_id and scenario_id and entity_id):
+        raise HTTPException(
+            status_code=400,
+            detail="incident_id, scenario_id and entity_id are required")
+
+    base = baseline_mod.get()
+    trace = network_tools.trace_dependencies(entity_id)
+    return remediation.dispatch(incident_id, scenario_id, trace, base,
+                                actor=(body or {}).get("actor", "publisher"))
+
+
+@app.post("/api/publication/revert")
+def publication_revert(body: dict) -> dict:
+    """Roll a published resolution back, reporting per system."""
+    from sc.estate import remediation
+
+    incident_id = (body or {}).get("incident_id", "")
+    scenario_id = (body or {}).get("scenario_id", "")
+    entity_id = (body or {}).get("entity_id", "")
+    if not (incident_id and scenario_id and entity_id):
+        raise HTTPException(
+            status_code=400,
+            detail="incident_id, scenario_id and entity_id are required")
+
+    base = baseline_mod.get()
+    trace = network_tools.trace_dependencies(entity_id)
+    return remediation.revert(incident_id, scenario_id, trace, base,
+                              reason=(body or {}).get("reason", ""),
+                              actor=(body or {}).get("actor", "publisher"))
+
+
 @app.get("/api/estate")
 def estate() -> dict:
     """The systems that feed the retailer, and what each has delivered.

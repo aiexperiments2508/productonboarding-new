@@ -7,7 +7,7 @@ import type { SectionId } from "../nav";
 /* Left navigation.
  *
  * Collapses to a 56px icon rail. The collapsed state is not decoration: the
- * Factory Floor's catalog map is the widest thing in the product and it reads
+ * Ingest Fabric's catalog map is the widest thing in the product and it reads
  * meaningfully better with another 160px, so the rail is what a reviewer
  * actually watches a correction from.
  *

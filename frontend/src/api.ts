@@ -26,6 +26,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 const get = <T,>(p: string) => req<T>(p);
 const post = <T,>(p: string, body?: unknown) =>
   req<T>(p, { method: "POST", body: JSON.stringify(body ?? {}) });
+const del = <T,>(p: string) => req<T>(p, { method: "DELETE" });
 
 /* --- provenance --------------------------------------------------------- */
 
@@ -682,6 +683,73 @@ export interface MCPServer {
   mutating: string[];
   read_only: boolean;
   command: string;
+  /** Where this came from. "built-in" ships here; "connected" was reached at
+   *  runtime and can leave again. */
+  source?: "built-in" | "connected";
+  state?: string;
+  /** Tools an operator has allowed a model to call. Connecting a system
+   *  records what it can do; it does not admit any of it. */
+  admitted?: string[];
+  /** Discovered names a built-in toolset already owns. The built-in keeps the
+   *  name; these are reported so the shadowing attempt is visible. */
+  collisions?: string[];
+}
+
+/* --- the external estate ------------------------------------------------ */
+
+/** One external system, as the manifest declares it and the arrivals count it. */
+export interface EstateSystem {
+  id: string;
+  title: string;
+  owner: string;
+  why: string;
+  emits: string[];
+  defects: string[];
+  defect_rate: number;
+  precedence: number;
+  well_behaved: boolean;
+  index: number;
+  /* Present once the system has delivered anything. */
+  arrivals?: number;
+  batches?: number;
+  defective?: number;
+  last_seen?: string | null;
+}
+
+/** A connection made at runtime: an address, what it said it could do, and
+ *  whether it is still answering. */
+export interface Connection {
+  id: string;
+  title: string;
+  owner: string;
+  url: string;
+  transport: string;
+  state: "connected" | "degraded" | string;
+  detail: string;
+  discovered_tools: string[];
+  admitted_tools: string[];
+  collisions: string[];
+  connected_at: string;
+  last_seen?: string | null;
+}
+
+export interface EstateState {
+  systems: EstateSystem[];
+  connections: Connection[];
+  defects: string[];
+  defect_counts: Record<string, number>;
+}
+
+/** One delivery landing. Real wall clock, not simulated: an arrival is a fact
+ *  about two processes talking, not about the world the tape replays. */
+export interface Arrival {
+  id: string;
+  system_id: string;
+  batch_id: string;
+  event_id: string;
+  seq: number;
+  arrived_at: string;
+  defects: string[];
 }
 
 export interface MCPTransport {
@@ -844,6 +912,32 @@ export const api = {
   /** Flip the MCP transport mid-demo. Takes effect on the next lookup. */
   setMcpTransport: (enabled: boolean) =>
     post<MCPTransport>("/api/mcp/transport", { enabled }),
+
+  /* --- the external estate ---------------------------------------------- */
+
+  /** Who feeds the retailer, what is reachable, and what has landed. */
+  estate: () => get<EstateState>("/api/estate"),
+
+  /** Deliveries as they landed, newest first. */
+  arrivals: (limit = 120) =>
+    get<{ arrivals: Arrival[] }>(`/api/estate/arrivals?limit=${limit}`),
+
+  /** Connect a system by address. A handshake that fails answers 200 with a
+   *  degraded connection carrying the reason - an unreachable supplier is a
+   *  thing to report, not a reason to fail the request. */
+  connectSystem: (url: string, title?: string, transport = "http") =>
+    post<Connection>("/api/estate/connections", { url, title, transport }),
+
+  /** Disconnect a system. What it delivered stays on the record. */
+  disconnectSystem: (id: string) =>
+    del<{ removed: boolean; connections: Connection[] }>(
+      `/api/estate/connections/${encodeURIComponent(id)}`),
+
+  /** Allow a model to call these tools on a connected system. Deliberately a
+   *  separate act from connecting: discovery is not admission. */
+  admitTools: (id: string, tools: string[]) =>
+    post<Connection>(
+      `/api/estate/connections/${encodeURIComponent(id)}/admit`, { tools }),
 
   /* --- A2A peers -------------------------------------------------------- */
 

@@ -236,3 +236,57 @@ CREATE TABLE IF NOT EXISTS runtime_config (
   value         TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- The external estate
+-- ---------------------------------------------------------------------------
+-- Two tables, and the split between them is the whole correctness argument.
+--
+-- `arrivals` is what landed: which system delivered it, in which batch, at
+-- which instant, and what was wrong with it. Concurrent and out of order,
+-- because ten systems deliver at once and nothing coordinates them.
+--
+-- Ingestion is *not* driven from here. It still reads the event plane in `seq`
+-- order, because the consumer cursor in event_cursors is a single watermark:
+-- a system delivering seq 50 before another delivers seq 30 would advance the
+-- cursor past 30 and the second batch would be dropped as already seen. So
+-- arrival is asynchronous and ingestion is sequenced, and an arrival is a fact
+-- about the integration surface rather than an instruction to the record.
+
+CREATE TABLE IF NOT EXISTS arrivals (
+  id            TEXT PRIMARY KEY,
+  system_id     TEXT NOT NULL,
+  batch_id      TEXT NOT NULL,            -- shared across one delivery
+  event_id      TEXT NOT NULL,
+  seq           INTEGER NOT NULL,         -- the tape position it carries
+  arrived_at    TEXT NOT NULL,            -- real wall clock, not simulated
+  defects       TEXT NOT NULL DEFAULT '[]'  -- JSON array of Defect names
+);
+
+CREATE INDEX IF NOT EXISTS idx_arrivals_system ON arrivals (system_id, seq);
+CREATE INDEX IF NOT EXISTS idx_arrivals_batch ON arrivals (batch_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_arrivals_event ON arrivals (event_id);
+
+-- What is connected right now. Persisted rather than held in memory so a
+-- connection survives a restart, and so "what was the estate when this ran"
+-- is answerable afterwards.
+--
+-- `discovered_tools` is what the system said it could do at the handshake.
+-- `admitted_tools` is the subset an operator has allowed a model to call.
+-- They are deliberately different columns: discovery is not admission, and
+-- connecting a system must not widen the evidence desk's allowlist by itself.
+
+CREATE TABLE IF NOT EXISTS connections (
+  id               TEXT PRIMARY KEY,
+  title            TEXT NOT NULL,
+  owner            TEXT NOT NULL,
+  url              TEXT NOT NULL,
+  transport        TEXT NOT NULL,         -- http | sse | stdio
+  state            TEXT NOT NULL,         -- connected | degraded | lost
+  detail           TEXT NOT NULL DEFAULT '',
+  discovered_tools TEXT NOT NULL DEFAULT '[]',
+  admitted_tools   TEXT NOT NULL DEFAULT '[]',
+  collisions       TEXT NOT NULL DEFAULT '[]',
+  connected_at     TEXT NOT NULL,
+  last_seen        TEXT
+);

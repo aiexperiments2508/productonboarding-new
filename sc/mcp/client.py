@@ -185,6 +185,76 @@ def call(tool: str, arguments: dict, direct) -> Any:
         return direct(**arguments)
 
 
+def handshake(url: str, transport: str = "http",
+              timeout: float = 4.0) -> tuple[list[str], str | None]:
+    """Ask an address what it can do. Returns (tools, error).
+
+    A real MCP ``initialize`` followed by ``tools/list`` - never a guess from
+    the URL. An address that answers is a system; one that does not is an
+    address, and the difference is exactly what a connection record is for.
+
+    Never raises. Every failure mode here - wrong scheme, nothing listening,
+    something listening that is not an MCP server, a server too slow to answer -
+    is a thing the operator needs told, not a thing that should end the request
+    they made. The caller records the reason and marks the connection degraded.
+    """
+    async def ask() -> list[str]:
+        from mcp import ClientSession
+
+        if transport == "sse":
+            from mcp.client.sse import sse_client as open_client
+            args: tuple = (url,)
+        else:
+            # `streamable_http_client`, not the older `streamablehttp_client`
+            # spelling - the latter is deprecated in mcp 1.29 and warns on
+            # every call.
+            from mcp.client.streamable_http import (
+                streamable_http_client as open_client)
+            args = (url,)
+
+        async with open_client(*args) as streams:
+            # streamable_http yields a third element (a session-id callback);
+            # sse yields two. Taking the first two works for both rather than
+            # branching on a shape that is not ours to depend on.
+            read, write = streams[0], streams[1]
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                listing = await session.list_tools()
+                return sorted(t.name for t in listing.tools)
+
+    loop = _bridge._ensure_loop()
+    future = asyncio.run_coroutine_threadsafe(ask(), loop)
+    try:
+        return future.result(timeout=timeout), None
+    except Exception as exc:  # noqa: BLE001 - every failure is a report
+        future.cancel()
+        return [], _reason(exc)
+
+
+def _reason(exc: BaseException) -> str:
+    """The useful sentence inside a failed handshake.
+
+    The MCP clients run their transport in a task group, so almost everything
+    that goes wrong arrives as an ExceptionGroup whose own message is
+    "unhandled errors in a TaskGroup" - true, and no help at all to somebody
+    who has just pasted an address. This digs out the innermost cause, which is
+    the connection refused, the 404 or the bad scheme they actually need told.
+    """
+    seen: list[str] = []
+    stack: list[BaseException] = [exc]
+    while stack:
+        current = stack.pop(0)
+        nested = getattr(current, "exceptions", None)
+        if nested:
+            stack.extend(nested)
+            continue
+        text = str(current).strip() or type(current).__name__
+        label = f"{type(current).__name__}: {text}"
+        if label not in seen:
+            seen.append(label)
+    return "; ".join(seen)[:400] or f"{type(exc).__name__}"
+
+
 def status() -> dict:
     """What the console reports about the transport."""
     return {

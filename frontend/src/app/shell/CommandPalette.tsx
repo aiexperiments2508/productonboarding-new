@@ -17,7 +17,7 @@ import { docTypeLabel } from "./DocPeek";
  *
  * Two jobs, and the second is the reason it exists rather than being a nav
  * shortcut. Commands reach the tape and the correction loop from anywhere,
- * which matters because the demo is narrated from the Factory Floor while the
+ * which matters because the demo is narrated from the Ingest Fabric while the
  * controls used to live two tabs away. And the search half queries the
  * reference library through /api/sop/search - a fused BM25 + dense index over
  * the content standards, the channel rules, the source-precedence policy and

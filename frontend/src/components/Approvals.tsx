@@ -720,7 +720,7 @@ export function Approvals({
                 art={<ArtNoDecision />}
                 title="Nothing awaiting a decision"
               >
-                Start a correction run from the Factory Floor — it stops here
+                Start a correction run from the Ingest Fabric — it stops here
                 once it knows what the supplier document changes and what that
                 would republish, with the graph genuinely suspended at the
                 interrupt.

@@ -15,6 +15,7 @@ idempotency-keyed.
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,8 @@ from typing import Callable
 from sc import db
 from sc.contracts import Event, ReplayState
 from sc.state import baseline as baseline_mod
+
+log = logging.getLogger(__name__)
 
 CURSOR_KEY = "replay_cursor"
 SPEED_KEY = "replay_speed"
@@ -139,7 +142,27 @@ def advance(steps: int = 1) -> list[Event]:
         conn.executemany("UPDATE events SET released_at = ? WHERE id = ?",
                          [(now, e.id) for e in events])
     db.set_config(CURSOR_KEY, str(events[-1].seq))
+    _record_arrivals(events)
     return events
+
+
+def _record_arrivals(events: list[Event]) -> None:
+    """Note which system carried each released event, in which batch.
+
+    Imported here rather than at module scope: the estate reads the tape to
+    work out who owns what, and a module-level import would close the circle.
+
+    Never fatal. Arrivals are how the Ingest Fabric explains a delivery; the
+    record is written by ingestion and does not depend on any of this. Losing
+    the explanation is a worse panel, not a worse run.
+    """
+    try:
+        from sc.estate import delivery
+
+        delivery.deliver(events)
+    except Exception:  # noqa: BLE001 - a display concern must not end a run
+        log.debug("could not record arrivals for %d event(s)", len(events),
+                  exc_info=True)
 
 
 def jump_to(seq: int) -> list[Event]:
@@ -156,6 +179,7 @@ def jump_to(seq: int) -> list[Event]:
         conn.executemany("UPDATE events SET released_at = ? WHERE id = ?",
                          [(now, e.id) for e in events])
     db.set_config(CURSOR_KEY, str(seq))
+    _record_arrivals(events)
     return events
 
 

@@ -17,6 +17,19 @@
 
 @import "tailwindcss";
 
+/* Inter, self-hosted and variable.
+ *
+ * The type ramp has always asked for "Inter var" and no font was ever shipped,
+ * so every machine without it installed - which is most of them - silently fell
+ * back to system-ui. The ramp was designed against Inter's metrics; running it
+ * on Segoe UI is not the design with a different font, it is different spacing,
+ * different cap height and a different optical weight at every step.
+ *
+ * Self-hosted rather than linked from a CDN: `run.py` has to work with no
+ * network, and a stylesheet that blocks first paint on a font host is a demo
+ * that opens on a blank page in a room with bad wifi. */
+@import "@fontsource-variable/inter";
+
 @import "../tokens/primitives.css";
 @import "../tokens/semantic.css";
 @import "../tokens/density.css";

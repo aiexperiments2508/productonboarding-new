@@ -636,16 +636,111 @@ def a2a_transport(body: dict) -> dict:
 
 @app.get("/api/mcp/servers")
 def mcp_servers() -> dict:
-    """The toolset partition, read from the registry that defines it."""
+    """Every toolset: the six that ship here, plus whatever is connected.
+
+    One listing rather than two endpoints, because the console's question is
+    "what can be reached", and a reader should not have to join two lists to
+    answer it. Each entry says where it came from, because "can I hand this
+    out" is a different question for a server that ships here and one somebody
+    connected five minutes ago.
+    """
     from sc.mcp import client as mcp_client
-    from sc.mcp import registry as mcp_registry
+    from sc.mcp import connections as mcp_connections
     from sc.mcp import _runtime
 
     return {
-        "servers": mcp_registry.describe(),
+        "servers": mcp_connections.toolsets(),
         "transport": mcp_client.status(),
         "counts": _runtime.counts(),
     }
+
+
+# ---------------------------------------------------------------------------
+# The external estate
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/estate")
+def estate() -> dict:
+    """The systems that feed the retailer, and what each has delivered.
+
+    The manifest is what the estate *is*; the connections are what is reachable
+    right now; the arrivals are what has actually landed. Three different
+    questions, answered together because the panel asks all three at once.
+    """
+    from sc.estate import arrivals as estate_arrivals
+    from sc.estate import manifest as estate_manifest
+    from sc.estate.defects import ALL as ALL_DEFECTS
+    from sc.mcp import connections as mcp_connections
+
+    delivered = {row["system_id"]: row for row in estate_arrivals.summary()}
+    return {
+        "systems": [{**system, **delivered.get(system["id"], {})}
+                    for system in estate_manifest.describe()],
+        "connections": mcp_connections.all_connections(),
+        "defects": [str(d) for d in ALL_DEFECTS],
+        "defect_counts": estate_arrivals.counts_by_defect(),
+    }
+
+
+@app.get("/api/estate/arrivals")
+def estate_arrivals_feed(limit: int = 120) -> dict:
+    """What has landed, newest first, with the batch and the system."""
+    from sc.estate import arrivals as estate_arrivals
+
+    return {"arrivals": estate_arrivals.recent(limit)}
+
+
+@app.post("/api/estate/connections")
+def estate_connect(body: dict) -> dict:
+    """Connect a system by address.
+
+    The handshake is real - `initialize` then `tools/list` - so what comes back
+    is what the system says about itself rather than what the URL implies. An
+    address nothing answers returns a degraded connection carrying the reason,
+    with status 200: an unreachable supplier is a thing to report, not a reason
+    to fail the request the operator made.
+    """
+    from sc.mcp import connections as mcp_connections
+
+    url = (body or {}).get("url", "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="a url is required")
+    return mcp_connections.connect_url(
+        url,
+        connection_id=(body or {}).get("id") or None,
+        title=(body or {}).get("title", ""),
+        owner=(body or {}).get("owner", ""),
+        transport=(body or {}).get("transport", "http"))
+
+
+@app.delete("/api/estate/connections/{connection_id}")
+def estate_disconnect(connection_id: str) -> dict:
+    """Disconnect a system. What it delivered stays on the record.
+
+    A bitemporal store does not retract history because a socket closed.
+    """
+    from sc.mcp import connections as mcp_connections
+
+    return {"removed": mcp_connections.disconnect(connection_id),
+            "connections": mcp_connections.all_connections()}
+
+
+@app.post("/api/estate/connections/{connection_id}/admit")
+def estate_admit(connection_id: str, body: dict) -> dict:
+    """Allow a model to call these tools on a connected system.
+
+    Discovery is not admission. Connecting a system records what it can do;
+    this is the separate, deliberate act that lets any of it be reached from
+    inside a run. Narrowed to what the system actually declared, and never to a
+    name a built-in toolset already owns.
+    """
+    from sc.mcp import connections as mcp_connections
+
+    record = mcp_connections.admit(connection_id, (body or {}).get("tools") or [])
+    if record is None:
+        raise HTTPException(status_code=404, detail="no such connection")
+    return record
 
 
 @app.get("/api/mcp/calls")

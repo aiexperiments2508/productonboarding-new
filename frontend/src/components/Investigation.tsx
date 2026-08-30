@@ -1648,7 +1648,7 @@ export function Investigation({ run, catalog, onOpenCitation }: {
         <Panel>
           <EmptyState art={<ArtNoRun />} title="No correction has been worked yet">
             Advance the replay to a supplier document, then start the loop from
-            the Factory Floor — or press <Code>⌘K</Code> and run it from
+            the Ingest Fabric — or press <Code>⌘K</Code> and run it from
             anywhere. The blast radius is produced on the way to a resolution.
           </EmptyState>
         </Panel>

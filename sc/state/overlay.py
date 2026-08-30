@@ -114,7 +114,7 @@ def is_quiet(overlay: Overlay) -> bool:
 
 
 def summarise(overlay: Overlay) -> list[str]:
-    """The lines the Factory Floor and the audit ledger show.
+    """The lines the Ingest Fabric and the audit ledger show.
 
     Each reads ``document version supersedes version: entity path old -> new``,
     because that is the sentence the brief asks every change to be able to

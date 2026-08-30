@@ -27,9 +27,9 @@ export type SectionId =
 export const SECTIONS: Section[] = [
   {
     id: "tower",
-    label: "Factory Floor",
+    label: "Ingest Fabric",
     description:
-      "The catalog, the supplier feed as it arrives, and which corrections are in force right now.",
+      "The external systems feeding the catalog, what each one is delivering right now, and which corrections are in force.",
     Icon: IconTower,
   },
   {

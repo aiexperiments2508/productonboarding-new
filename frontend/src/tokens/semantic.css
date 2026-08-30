@@ -78,6 +78,47 @@
   --neutral-text: var(--n-600);
   --neutral-border: var(--n-200);
 
+  /* --- estate and readiness ---------------------------------------------- */
+  /* Aliases of the status ramp rather than new colours, and defined once
+     rather than three times.
+     A token whose value is another semantic token needs no dark variant: the
+     token it points at is already redefined per theme, so this follows for
+     free. Adding a fourth palette here would be a fourth thing to keep
+     contrast-correct in two themes for no meaning the status ramp lacks.
+
+     What they buy is vocabulary. A component saying `estate-degraded` says
+     what it means; one saying `warn` says how it looks, and the next person to
+     restyle warnings has no way to know which warnings were about a system
+     that stopped answering. */
+  --estate-live: var(--ok-solid);
+  --estate-live-soft: var(--ok-soft);
+  --estate-live-border: var(--ok-border);
+  /* Connected and saying nothing. Not a fault - a supplier with no news is the
+     normal case - so neutral rather than warn. */
+  --estate-idle: var(--neutral-text);
+  --estate-idle-soft: var(--neutral-soft);
+  --estate-idle-border: var(--neutral-border);
+  --estate-degraded: var(--warn-solid);
+  --estate-degraded-soft: var(--warn-soft);
+  --estate-degraded-border: var(--warn-border);
+  --estate-lost: var(--danger-solid);
+  --estate-lost-soft: var(--danger-soft);
+  --estate-lost-border: var(--danger-border);
+
+  /* A product returned to its source is not an error. It is the system working:
+     the information was incomplete and the supplier is the only one who can
+     complete it. Warn, never danger - the red is reserved for a product that
+     must not be sold. */
+  --verdict-ready: var(--ok-solid);
+  --verdict-ready-soft: var(--ok-soft);
+  --verdict-ready-border: var(--ok-border);
+  --verdict-return: var(--warn-solid);
+  --verdict-return-soft: var(--warn-soft);
+  --verdict-return-border: var(--warn-border);
+  --verdict-blocked: var(--danger-solid);
+  --verdict-blocked-soft: var(--danger-soft);
+  --verdict-blocked-border: var(--danger-border);
+
   /* --- provenance -------------------------------------------------------- */
   /* The five classes of knowledge, and the whole audit claim rests on a
      reviewer telling an observation from an inference at a glance. Held at one

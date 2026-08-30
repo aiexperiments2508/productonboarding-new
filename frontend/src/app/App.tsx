@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, subscribe } from "../api";
 import type {
   CatalogState, Citation, Health, ReplayState, RunSnapshot, SCEvent,
+  TraceStep,
 } from "../api";
 import { Approvals } from "../components/Approvals";
 import { ControlTower } from "../components/ControlTower";
@@ -64,7 +65,30 @@ function Shell() {
   // both, at a size a room can read.
   const [liveNode, setLiveNode] = useState<string | null>(null);
   const [nodeTrail, setNodeTrail] = useState<string[]>([]);
+  // What the graph has actually found so far, as opposed to which node it is
+  // on. Streamed from the run and cleared when the reconciled snapshot lands.
+  const [liveTrace, setLiveTrace] = useState<TraceStep[]>([]);
   const threadRef = useRef<string | null>(null);
+
+  /* Take the findings a completed node streamed.
+   *
+   * The stream has always carried the whole update each node returned. The
+   * client read its `node` field to move a highlight and dropped the rest, then
+   * re-fetched the entire run state at the end - so a reviewer watched an inert
+   * phrase for the length of the run and every finding arrived at once.
+   *
+   * Only the trace is absorbed, and deliberately. The analytic views are
+   * rendered from the reconciled snapshot, because the server's reducers - which
+   * merge signals, carry readings forward and key spend by node - are the
+   * authority on what the state became, and re-implementing them here would be a
+   * second account of the same run. The trace is append-only and is the
+   * narration, so it is the one thing that can be shown early without inventing
+   * anything. */
+  const absorb = useCallback((update?: Record<string, unknown>) => {
+    const lines = update?.trace;
+    if (!Array.isArray(lines) || lines.length === 0) return;
+    setLiveTrace((prev) => [...prev, ...(lines as TraceStep[])]);
+  }, []);
 
   /* One node entered. Consecutive repeats are collapsed: validate_one runs once
    * per candidate and streams a node event each time, and three identical
@@ -154,17 +178,21 @@ function Shell() {
   const startRun = useCallback(async (caseId?: string) => {
     setBusy(true);
     setNodeTrail([]);
+    setLiveTrace([]);
     enterNode("starting");
     try {
       const incident = `INC-${Date.now().toString(36).toUpperCase()}`;
       const snapshot = await api.streamRun(
         { incident_id: incident, thread_id: incident, case_id: caseId },
         (e) => {
-          if (e.kind === "node") enterNode(e.node);
-          // The trace grows as the graph runs, so keep the snapshot fresh
-          // rather than waiting for the final frame - the review screen is
-          // watchable while the run is still going.
-          else if (e.kind === "run_finished") setLiveNode(null);
+          if (e.kind === "node") {
+            enterNode(e.node);
+            absorb(e.update);
+          }
+          // The reconciled state is the authority. Clearing the live trace here
+          // is what stops a finding a later node superseded from persisting on
+          // screen beside the snapshot that replaced it.
+          else if (e.kind === "run_finished") { setLiveNode(null); setLiveTrace([]); }
         },
       );
       threadRef.current = incident;
@@ -194,7 +222,7 @@ function Shell() {
       setBusy(false);
       setLiveNode(null);
     }
-  }, [enterNode, toast]);
+  }, [absorb, enterNode, toast]);
 
   /* Revise the resolution against evidence that arrived after it was written -
    * the clarification that names the variant, or a marketplace rejection.
@@ -211,11 +239,15 @@ function Shell() {
     }
     setReplanning(true);
     setNodeTrail([]);
+    setLiveTrace([]);
     enterNode("starting");
     try {
       const next = await api.streamReplan(thread, reason, (e) => {
-        if (e.kind === "node") enterNode(e.node);
-        else if (e.kind === "run_finished") setLiveNode(null);
+        if (e.kind === "node") {
+          enterNode(e.node);
+          absorb(e.update);
+        }
+        else if (e.kind === "run_finished") { setLiveNode(null); setLiveTrace([]); }
       });
       setRun(next);
       setSection("approvals");
@@ -235,7 +267,7 @@ function Shell() {
       setReplanning(false);
       setLiveNode(null);
     }
-  }, [enterNode, toast]);
+  }, [absorb, enterNode, toast]);
 
   const doReplay = useCallback(
     async (body: { action: string; steps?: number; speed?: number; to_seq?: number }) => {
@@ -296,7 +328,12 @@ function Shell() {
             watches for the minute the loop takes, so it must not scroll away
             with the section content or remount when the presenter navigates. */}
         {liveNode && (
-          <RunStage node={liveNode} trail={nodeTrail} revising={replanning} />
+          <RunStage
+            node={liveNode}
+            trail={nodeTrail}
+            findings={liveTrace}
+            revising={replanning}
+          />
         )}
 
         {/* Keyed so switching section replays the entrance rather than

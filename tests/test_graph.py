@@ -14,6 +14,7 @@ that are policy rather than classification cannot be argued down.
 
 from __future__ import annotations
 
+import copy
 import os
 from pathlib import Path
 
@@ -798,3 +799,172 @@ def test_a_correction_of_a_correction_narrows_the_scope_and_reports_the_move():
     assert {"listings_ready_pct", "fields_affected"} <= set(diff["moved"])
     # The superseded plan is still on the table, re-scored against v3.
     assert any(r.get("carried_from") for r in values["ranked"])
+
+
+# ---------------------------------------------------------------------------
+# Doing independent model work at once does not change the answer
+#
+# These run with the gateway unreachable like everything else here, so what is
+# concurrent is the fallback rather than a model call. That is enough to test
+# the property that matters: the pool, the per-worker collections and the
+# ordered reassembly are exercised either way, and it is the reassembly that
+# could silently reorder a change set. The latency claim is verified by running
+# the thing against a real gateway; the correctness claim is verified here.
+# ---------------------------------------------------------------------------
+
+
+def _reset_world() -> None:
+    """Put the store back where the fixture found it.
+
+    Needed by the tests that run the same correction twice and compare. A
+    second run against a store the first one wrote to is reading a different
+    world, so an equality between them would prove nothing.
+    """
+    db.init_db(drop=True)
+    graph_build.reset_graph()
+    for suffix in ("", "-wal", "-shm"):
+        path = graph_build.checkpoint_path()
+        candidate = path.with_name(path.name + suffix)
+        if candidate.exists():
+            candidate.unlink()
+    tape.load_tape(reset=True)
+    rag_index.build(include_comms=True, embed=False)
+    ingest.ingest(tape.jump_to(tape.inject_seq() + 12))
+
+
+#: The fields of a rewrite record that describe *what was decided*, as opposed
+#: to how long it took to decide it. Compared as a whole rather than field by
+#: field so a newly added key is caught by this test rather than ignored by it.
+def _rewrites(values: dict) -> list[tuple]:
+    return [(r["asset_id"], r["listing_id"], r["channel_id"], r["field"],
+             r["proposed_text"], r["status"], r["note"], tuple(r["citations"]),
+             r["budget"], r["used"])
+            for r in values.get("regenerated") or []]
+
+
+def _appended(update: dict) -> list[tuple]:
+    """The actions a regeneration pass added, reduced to what they say.
+
+    Action identifiers are UUIDs minted per call, so they differ between any two
+    passes and say nothing about whether the two agreed.
+    """
+    rows = []
+    for row in update.get("ranked") or []:
+        for action in (row.get("delta") or {}).get("actions") or []:
+            rows.append((row.get("name"), row.get("trace_hash"), action["kind"],
+                         action.get("asset_id"), action.get("field"),
+                         action.get("proposed_text"), action.get("reason"),
+                         action.get("listing_id")))
+    return rows
+
+
+def test_parallel_regeneration_matches_the_sequential_result(monkeypatch):
+    """The whole point. Concurrency here is allowed to change the clock and
+    nothing else - not the text, not the citations, not the order, and not the
+    change set that reaches the reviewer.
+
+    Compared at the node rather than across two whole runs, deliberately. A run
+    pins its recorded instant from the wall clock and the validator folds that
+    instant into the trace hash, so two runs legitimately disagree on the hash
+    for reasons that have nothing to do with concurrency. Feeding one state to
+    the node twice removes that difference and leaves only the one under test.
+    """
+    state = _run()["values"]
+
+    monkeypatch.setattr(nodes, "MAX_REGEN_WORKERS", 1)
+    serial = nodes.regenerate(copy.deepcopy(state))
+
+    monkeypatch.setattr(nodes, "MAX_REGEN_WORKERS", 6)
+    parallel = nodes.regenerate(copy.deepcopy(state))
+
+    assert _rewrites(serial), "the pass rewrote nothing, so this proves nothing"
+    assert _rewrites(serial) == _rewrites(parallel)
+    assert _appended(serial) == _appended(parallel)
+    assert serial["errors"] == parallel["errors"]
+    assert serial["status"] == parallel["status"]
+    assert (serial["trace"][0]["summary"] == parallel["trace"][0]["summary"]),         "the node's own account of what it did must not depend on the pool"
+
+
+def test_results_follow_the_targets_not_the_replies(monkeypatch):
+    """Assembled in target order, never in completion order. Ordering by
+    whichever reply landed first is not a tie-break that is usually right, it is
+    a different change set on a fast network."""
+    monkeypatch.setattr(nodes, "MAX_REGEN_WORKERS", 6)
+    values = _run()["values"]
+    written = values.get("regenerated") or []
+
+    assert written, "the run rewrote nothing, so this proves nothing"
+    # Unsettled fields first, then the ones already corrected deterministically
+    # that still lean on a withdrawn claim - the order the node documents, and
+    # the order a reviewer reads the cap in.
+    settled_at = [i for i, r in enumerate(written) if r["status"] == "SETTLED"]
+    unsettled_at = [i for i, r in enumerate(written) if r["status"] != "SETTLED"]
+    assert not (settled_at and unsettled_at) or min(settled_at) > max(unsettled_at)
+    # And no asset is rewritten twice, which a racing assembly could produce.
+    assert len({r["asset_id"] for r in written}) == len(written)
+
+
+def test_spend_within_a_stage_survives_concurrent_workers():
+    """Six workers each returning their own usage must total what six calls made
+    one after another would have totalled. The serial code appended to one
+    shared list, which is correct under one thread and silently lossy under
+    six."""
+    per_worker = [[LlmUsage(prompt_tokens=10, completion_tokens=2, cost_usd=0.001)],
+                  [LlmUsage(prompt_tokens=5, completion_tokens=1, cost_usd=0.002,
+                            cached=True)],
+                  [],
+                  [LlmUsage(prompt_tokens=7, completion_tokens=3, cost_usd=0.004)]]
+    merged: list[LlmUsage] = []
+    for worker in per_worker:
+        merged.extend(worker)
+
+    folded = nodes._spend("regenerate", *merged)["regenerate"]
+    assert folded["calls"] == 3
+    assert folded["prompt_tokens"] == 22
+    assert folded["completion_tokens"] == 6
+    assert folded["cost_usd"] == pytest.approx(0.007)
+    assert folded["cache_hits"] == 1
+
+
+def test_a_gateway_outage_is_reported_once_however_many_workers_meet_it():
+    """One outage is one fact about the run. The serial path deduplicated with a
+    membership test against a shared list, which six workers racing on would
+    turn into up to six identical lines."""
+    values = _run()["values"]
+    errors = values.get("errors") or []
+
+    for stage in ("extract", "regenerate"):
+        outages = [e for e in errors
+                   if e.startswith(f"{stage}: ")
+                   and ("cannot reach" in e or "unreachable" in e)]
+        assert len(outages) <= 1, f"{stage} reported its outage {len(outages)} times"
+    # And the run said out loud that it ran blind rather than presenting a
+    # fallback as a model's conclusion.
+    assert any("cannot reach" in e or "unreachable" in e for e in errors)
+
+
+def test_extraction_persists_in_tape_order_however_its_readings_raced(monkeypatch):
+    """Readings may be fetched at once; writes may not. The watermark advances
+    as each document is persisted and the next is read against it, so a covering
+    email restating its own specification sees what the specification wrote."""
+    monkeypatch.setattr(nodes, "MAX_EXTRACT_WORKERS", 1)
+    serial = _run("T-EXTRACT-SERIAL")["values"]
+
+    _reset_world()
+    monkeypatch.setattr(nodes, "MAX_EXTRACT_WORKERS", 6)
+    parallel = _run("T-EXTRACT-PARALLEL")["values"]
+
+    def signals(values: dict) -> list[tuple]:
+        return [(s["kind"], s.get("entity_id"), tuple(s.get("attribute_paths") or []))
+                for s in values.get("signals") or []]
+
+    assert signals(serial), "nothing was extracted, so this proves nothing"
+    assert signals(serial) == signals(parallel)
+
+    # The trace still reads document by document in the order the tape
+    # delivered them, which is what a reviewer follows.
+    def documents(values: dict) -> list[str]:
+        return [t["summary"].split()[0] for t in values["trace"]
+                if t["node"] == "extract" and t["summary"].startswith("EVT-")]
+
+    assert documents(serial) == documents(parallel)

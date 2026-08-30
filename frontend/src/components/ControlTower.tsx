@@ -20,9 +20,10 @@ import {
   ValueDiff, listingChannelState,
 } from "./common";
 import type { ChannelState } from "./common";
+import { EstatePanel } from "./EstatePanel";
 import { MapLegend, NetworkMap, listingStatusMap } from "./NetworkMap";
 
-/* The factory floor.
+/* The ingest fabric.
  *
  * The standing view: what the catalog is, what is moving through it, and what
  * the system currently believes on whose authority. Everything a reviewer needs
@@ -404,6 +405,10 @@ export function ControlTower({
               </div>
             )}
           </Panel>
+
+          {/* Who is feeding the catalog, above what they fed it. The map shows
+              the shape of the estate; this shows it moving. */}
+          <EstatePanel />
 
           <Panel
             title="Live event feed"

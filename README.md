@@ -87,7 +87,7 @@ runs 56 simulated days and carries six arcs.
 1. **The status strip** — the replay transport lives at the bottom of every
    screen, so "Jump to inject" and single-stepping are available while you are
    looking at the map rather than two tabs away.
-2. **Factory Floor** — sources, products, variants and channels, with the live
+2. **Ingest Fabric** — sources, products, variants and channels, with the live
    feed. Click any node to trace what depends on it. Most of what arrives is
    routine and the system correctly ignores it.
 3. **Day 13 — a warm-up.** A supplier flags kettle dimensions as provisional,

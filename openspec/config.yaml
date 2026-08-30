@@ -9,7 +9,13 @@ context: |
 
   Tech stack: Python 3.12+, LangGraph, FastAPI, SQLite (no server), numpy for
   the retrieval matrix, LiteLLM as the single model gateway. React 18 + Vite +
-  Tailwind v4 frontend, no chart library. 304 tests, pytest.
+  Tailwind v4 frontend, no chart library. pytest.
+
+  V2 extends this into a plug-and-play estate. Ten or more external systems
+  feed the retailer, each reached over MCP; they connect and disconnect while
+  the app is running, and the dependency map follows. Beside the correction
+  loop there is now a product surface: search a SKU, judge whether its
+  information is fit to launch, and preview the page it would become.
 
   The governing architectural rule: **mostly deterministic, bounded AI.** A
   model reads corrected values out of unstructured supplier prose, argues
@@ -31,6 +37,20 @@ context: |
     the confidence threshold blocks publication rather than degrading it.
   - Graph state is plain JSON - the checkpointer uses msgpack, so no enums, no
     datetimes, no pydantic objects in state.
+  - The estate is discovered, never declared. Nothing in the application names
+    a model alias, an external system or one of its tools statically; what the
+    app offers is what the gateway and the connected systems currently report.
+  - Discovery is not admission. A tool found on a newly connected system
+    becomes visible immediately and callable only when an operator admits it.
+    The evidence desk is an allowlist, and connecting a system does not widen
+    it.
+  - Reproducibility survives asynchrony. Systems emit in batches at jittered
+    times and arrive interleaved, but ingestion sorts by sequence and is
+    idempotency-keyed, so the same seed yields the same facts and the same
+    trace_hash however the batches raced.
+  - A verdict is arithmetic. Launch readiness, like publication, is decided by
+    counting open findings against rules; a model may find and cite a problem,
+    and may write the covering note, but never sets the outcome.
 
   Naming caution when writing specs: the codebase deliberately kept several
   names from the supply-chain project it was refactored from - SimResult and

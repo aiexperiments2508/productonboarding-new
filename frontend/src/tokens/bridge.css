@@ -82,6 +82,30 @@
   --color-neutral-text: var(--neutral-text);
   --color-neutral-border: var(--neutral-border);
 
+  /* --- estate and readiness ---------------------------------------------- */
+  --color-estate-live: var(--estate-live);
+  --color-estate-live-soft: var(--estate-live-soft);
+  --color-estate-live-border: var(--estate-live-border);
+  --color-estate-idle: var(--estate-idle);
+  --color-estate-idle-soft: var(--estate-idle-soft);
+  --color-estate-idle-border: var(--estate-idle-border);
+  --color-estate-degraded: var(--estate-degraded);
+  --color-estate-degraded-soft: var(--estate-degraded-soft);
+  --color-estate-degraded-border: var(--estate-degraded-border);
+  --color-estate-lost: var(--estate-lost);
+  --color-estate-lost-soft: var(--estate-lost-soft);
+  --color-estate-lost-border: var(--estate-lost-border);
+
+  --color-verdict-ready: var(--verdict-ready);
+  --color-verdict-ready-soft: var(--verdict-ready-soft);
+  --color-verdict-ready-border: var(--verdict-ready-border);
+  --color-verdict-return: var(--verdict-return);
+  --color-verdict-return-soft: var(--verdict-return-soft);
+  --color-verdict-return-border: var(--verdict-return-border);
+  --color-verdict-blocked: var(--verdict-blocked);
+  --color-verdict-blocked-soft: var(--verdict-blocked-soft);
+  --color-verdict-blocked-border: var(--verdict-blocked-border);
+
   /* --- provenance -------------------------------------------------------- */
   --color-prov-recorded: var(--prov-recorded);
   --color-prov-inferred: var(--prov-inferred);

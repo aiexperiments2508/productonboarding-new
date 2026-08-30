@@ -321,7 +321,7 @@ export function Scenarios({ run, onRefresh, catalog }: {
         <PageHeader section="scenarios" />
         <Panel>
           <EmptyState art={<ArtNoOptions />} title="No readings yet">
-            Start a correction run from the Factory Floor. Every reading of the
+            Start a correction run from the Ingest Fabric. Every reading of the
             supplier document — base only, a named variant, all variants — is
             validated against the channel rules and lands here with what it
             would change and what it would block.

@@ -167,7 +167,7 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
                 correction — the portal feed that certified the old value, the
                 corrected spec sheet, and the marketplace rejection that follows
                 arrive as separate events. The same controls are in the status
-                bar, so you can step the tape without leaving the Factory Floor.
+                bar, so you can step the tape without leaving the Ingest Fabric.
               </p>
             </div>
           </Panel>

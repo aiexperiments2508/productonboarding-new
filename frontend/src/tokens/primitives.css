@@ -95,8 +95,11 @@
   --purple-950: oklch(0.246 0.058 var(--h-purple));
 
   /* --- type ramp --------------------------------------------------------- */
-  --sc-font-sans: "Inter var", "Inter", system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", sans-serif;
+  /* "Inter Variable" is the family @fontsource-variable/inter registers; the
+     older "Inter var" name is kept ahead of the system stack for a machine
+     that has the font installed under it. */
+  --sc-font-sans: "Inter Variable", "Inter var", "Inter", system-ui,
+    -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --sc-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
     "Roboto Mono", Menlo, Consolas, monospace;
 

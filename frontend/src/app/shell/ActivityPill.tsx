@@ -119,7 +119,7 @@ export function ActivityPill({ liveNode, onOpenSystem }: {
         {activity.calls.length === 0 ? (
           <p className="px-2 py-3 text-sm text-faint">
             Nothing has asked a peer or a toolset for anything yet. Work a
-            correction from the Factory Floor and this fills up.
+            correction from the Ingest Fabric and this fills up.
           </p>
         ) : (
           <ul className="max-h-[280px] overflow-y-auto px-1 py-1">

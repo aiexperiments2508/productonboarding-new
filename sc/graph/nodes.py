@@ -14,8 +14,10 @@ a recommendation without a model is a bug rather than a limitation.
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
 from langgraph.types import Command, Send, interrupt
@@ -87,6 +89,24 @@ MAX_CANDIDATES = 3
 # "twelve of nineteen fields were rewritten" can act; one shown twelve and no
 # count cannot.
 MAX_REGENERATIONS = 12
+
+# How many of those rewrites are in flight at once. The fields are independent -
+# twelve bullets on five listings have nothing to say to each other - so the
+# loop was serial only because it was written in the order it was thought of.
+#
+# Six rather than twelve: the gateway is a single upstream with its own rate
+# limits, and asking it for twelve simultaneous reasoning completions produces a
+# 429 storm that the retry path turns back into serial latency. Six also keeps
+# the number of threads writing to the response cache inside what one SQLite
+# writer absorbs comfortably.
+#
+# Settable to 1, which restores exactly the serial path. That is what makes
+# "the concurrent result equals the serial result" a test rather than a claim.
+MAX_REGEN_WORKERS = max(1, int(os.environ.get("REGEN_WORKERS", "6")))
+
+# The same, for reading supplier documents. Extraction's *writes* stay strictly
+# sequential - see the note in `extract` - and only the readings are fanned out.
+MAX_EXTRACT_WORKERS = max(1, int(os.environ.get("EXTRACT_WORKERS", "6")))
 
 # One retry after a publish conflict. A second is a queue rather than a
 # recovery, and a reviewer should be told rather than watched over by a
@@ -534,35 +554,65 @@ def extract(state: FactoryState) -> dict:
     spent: list[LlmUsage] = []
     latest = recorded
 
+    documents: list[tuple[str, object]] = []
     for event_id in state.get("event_ids", []):
         row = db.one("SELECT * FROM events WHERE id = ?", (event_id,))
         if row is None:
             continue
-        event = tape._row_to_event(row)
-        payload = event.payload or {}
-        model_name: str | None = None
+        documents.append((event_id, tape._row_to_event(row)))
 
+    def read_one(item: tuple) -> tuple:
+        """One document, read by the model or from its structured hint.
+
+        A reading depends on the catalog and the document alone - never on what
+        a previous document wrote - which is precisely why this half may be done
+        concurrently and the persistence below may not.
+
+        Nothing here writes: the audit line, the facts and the watermark all
+        belong to the sequential pass, so a reading that is later skipped as
+        immaterial has cost a call and changed nothing.
+        """
+        event_id, event = item
         try:
             extracted, usage = gateway.complete_json(
                 extract_messages(base, event, hint),
                 model=fast_model(), agent="extract", run_id=run_id)
-            spent.append(usage)
-            model_name = fast_model()
+            return event_id, event, extracted, usage, fast_model(), None
         except GatewayError as exc:
             # The structured hint every tape event carries. It is the
             # machine-readable form of the same notice rather than a reading of
             # it, which is why it can stand in for the model without pretending
             # to be an observation.
-            extracted = _extraction_from_payload(event)
+            return (event_id, event, _extraction_from_payload(event), None,
+                    None, exc)
+
+    if len(documents) > 1 and MAX_EXTRACT_WORKERS > 1:
+        with ThreadPoolExecutor(
+                max_workers=min(MAX_EXTRACT_WORKERS, len(documents)),
+                thread_name_prefix="extract") as pool:
+            readings = list(pool.map(read_one, documents))
+    else:
+        readings = [read_one(item) for item in documents]
+
+    # The writes stay in tape order, and that is not a stylistic preference.
+    # `latest` is a watermark that advances as each document is persisted, and
+    # the next document is read against it, so that a covering email restating
+    # its own specification sees what the specification already wrote. Persist
+    # these concurrently and the same correction is asserted twice.
+    for event_id, event, extracted, usage, model_name, outage in readings:
+        payload = event.payload or {}
+        if usage is not None:
+            spent.append(usage)
+        if outage is not None:
             # One line, not one per document: the gateway being down is a
             # single fact about the run, and repeating it fourteen times buries
             # the extraction errors that are worth reading.
-            outage = f"extract: {exc}"
-            if outage not in errors:
-                errors.append(outage)
+            message = f"extract: {outage}"
+            if message not in errors:
+                errors.append(message)
             traces.append(step("extract", f"{event_id} read from its structured "
                                           f"hint - no model available",
-                               error=str(exc)[:160]))
+                               error=str(outage)[:160]))
 
         planning.audit("extract", "EXAMINE", "event", event_id,
                        {"material": extracted.get("material"),
@@ -2777,14 +2827,53 @@ def regenerate(state: FactoryState) -> dict:
     errors: list[str] = []
     spent: list[LlmUsage] = []
 
-    for row in targets:
+    def rewrite_one(row: dict) -> tuple:
+        """One target, with its own error and spend collections.
+
+        The shared lists the serial loop appended to are exactly what a pool
+        breaks: ``errors`` is deduplicated with a membership test and ``spent``
+        with an append, and neither is atomic. Each worker owns its own, and the
+        assembly below folds them back in target order - so two runs that raced
+        differently still produce the same lists in the same order.
+        """
         asset = base.assets[row["id"]]
         listing = base.listings[asset.listing_id]
         channel = base.channels[listing.channel_id]
         budget, used = _budget(base, channel.id, asset.field, asset.text)
-        text, status, note, citations = _rewrite(
-            state, row, listing, channel, budget, table, standards, source,
-            base, values, errors, spent)
+        worker_errors: list[str] = []
+        worker_spent: list[LlmUsage] = []
+        result = _rewrite(state, row, listing, channel, budget, table,
+                          standards, source, base, values,
+                          worker_errors, worker_spent)
+        return result, budget, used, worker_errors, worker_spent
+
+    # Every input to a rewrite - the attribute table, the standards, the
+    # effective values, the catalog - is settled before this point, so the
+    # targets are independent and the loop was serial only by habit. With one
+    # worker this is exactly the loop it replaces, which is what makes the
+    # equality test meaningful rather than circular.
+    if len(targets) > 1 and MAX_REGEN_WORKERS > 1:
+        with ThreadPoolExecutor(
+                max_workers=min(MAX_REGEN_WORKERS, len(targets)),
+                thread_name_prefix="regenerate") as pool:
+            # `map` yields in the order it was given, never completion order.
+            outcomes = list(pool.map(rewrite_one, targets))
+    else:
+        outcomes = [rewrite_one(row) for row in targets]
+
+    for row, outcome in zip(targets, outcomes):
+        (text, status, note, citations), budget, used, w_errors, w_spent = outcome
+        for message in w_errors:
+            # The same deduplication the serial path did, done once the pool has
+            # drained: one gateway outage is one fact about the run, however
+            # many workers met it.
+            if message not in errors:
+                errors.append(message)
+        spent.extend(w_spent)
+
+        asset = base.assets[row["id"]]
+        listing = base.listings[asset.listing_id]
+        channel = base.channels[listing.channel_id]
 
         if text is None and asset.id in settled:
             # Nothing this node could add, but the field is not unchanged: the

@@ -10,6 +10,7 @@ export { Badge, Dot } from "./Badge";
 export type { BadgeTone } from "./Badge";
 export { Panel, Section } from "./Panel";
 export { Table, Th, Td, Tr } from "./Table";
+export { Tabs, TabList, Tab, TabPanel } from "./Tabs";
 export { Tooltip, TooltipProvider } from "./Tooltip";
 export { Menu, MenuItem, MenuLabel, MenuSeparator, MenuRadioGroup, MenuRadioItem } from "./Menu";
 export { Select, Field } from "./Select";

@@ -472,7 +472,7 @@ export function Scenarios({ run, onRefresh, catalog }: {
         </Panel>
 
         {selected && (
-          <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
             <Panel
               title={`Detail — ${selected.name}`}
               subtitle={selected.scenario_id}
@@ -774,7 +774,7 @@ function HashRead({ label, hash, ms, agrees }: {
   label: string;
   hash: string;
   ms: number;
-  /** Set on the second read only; colours the hash by whether it moved. */
+  /** Set on the second read only; says whether the hash moved. */
   agrees?: boolean;
 }) {
   return (
@@ -793,6 +793,16 @@ function HashRead({ label, hash, ms, agrees }: {
           {hash.slice(0, 16)}
         </span>
         <span className="font-mono text-2xs text-faint tabular-nums">
+          {/* The hue stays - this is a real verdict, not decoration - but it
+              stops being the only way to read it. Comparing two sixteen-
+              character hex strings by eye is exactly the task colour was
+              carrying on its own here, which left anyone who cannot separate
+              red from green doing it a character at a time. */}
+          {agrees !== undefined && (
+            <span className={agrees ? "text-ok-text" : "text-danger-text"}>
+              {agrees ? "matches · " : "differs · "}
+            </span>
+          )}
           {ms}ms
         </span>
       </div>

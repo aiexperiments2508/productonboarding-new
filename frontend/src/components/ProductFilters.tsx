@@ -183,14 +183,18 @@ function FacetMenu({
 /* --- the counting answer -------------------------------------------------- */
 
 export function ProductRollupStrip({
-  rollup, loading,
+  rollup, loading, className,
 }: {
   rollup: ProductRollup | null;
   loading: boolean;
+  /** The caller sits this above a `flex-1` list in a flex column, so it has to
+   *  say `shrink-0`. Without it the strip is squeezed on a short window and
+   *  its four figures clip against the panel's own `overflow-hidden`. */
+  className?: string;
 }) {
   if (loading && !rollup) {
     return (
-      <Panel title="Disposition" subtitle="counting…">
+      <Panel title="Disposition" subtitle="counting…" className={className}>
         <div className="grid grid-cols-4 gap-2">
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-14" rounded="md" />
@@ -211,6 +215,7 @@ export function ProductRollupStrip({
 
   return (
     <Panel
+      className={className}
       title="Disposition"
       subtitle={window}
       actions={

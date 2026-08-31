@@ -19,6 +19,10 @@
   --warn: #d8a33c;
   --bad: #d9615a;
   --mono: "Cascadia Mono", Consolas, "SF Mono", monospace;
+
+  /* Consumed by /shared/base.css, which draws every focus ring and picks no
+     colour of its own. This console's ring is its own blue. */
+  --focus-ring: var(--accent);
 }
 
 * { box-sizing: border-box; }
@@ -39,7 +43,7 @@ body {
 .id .sub { color: var(--dim); font-size: 12px; }
 .dot {
   width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
-  box-shadow: 0 0 0 3px rgba(69,181,122,.16);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok) 16%, transparent);
 }
 .counts { display: flex; gap: 18px; flex: 1; font-size: 12px; color: var(--soft); }
 .counts b { color: var(--ink); font-family: var(--mono); }
@@ -53,6 +57,7 @@ body {
   background: none; border: 0; border-bottom: 2px solid transparent;
   color: var(--soft); padding: 9px 14px; font: inherit; cursor: pointer;
 }
+.view:hover { color: var(--ink); }
 .view.on { color: var(--ink); border-bottom-color: var(--accent); }
 
 main { padding: 18px; }
@@ -81,6 +86,8 @@ table.grid th {
   padding: 8px 12px; border-bottom: 1px solid var(--line);
 }
 table.grid td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.grid tbody tr { transition: background-color var(--t-fast, 90ms) linear; }
+table.grid tbody tr:hover { background: var(--panel-2); }
 table.grid tr:last-child td { border-bottom: 0; }
 table.grid code, .mono { font-family: var(--mono); font-size: 12px; }
 
@@ -88,9 +95,24 @@ table.grid code, .mono { font-family: var(--mono); font-size: 12px; }
   display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 2px;
   border: 1px solid; font-family: var(--mono);
 }
-.tag.ok { color: var(--ok); border-color: rgba(69,181,122,.4); background: rgba(69,181,122,.1); }
-.tag.warn { color: var(--warn); border-color: rgba(216,163,60,.4); background: rgba(216,163,60,.1); }
-.tag.bad { color: var(--bad); border-color: rgba(217,97,90,.4); background: rgba(217,97,90,.1); }
+/* Derived from the token rather than re-stated beside it. These were six
+   rgba() literals of the three hexes declared at the top of this file, so a
+   token change moved a tag's text and left its background behind. */
+.tag.ok {
+  color: var(--ok);
+  border-color: color-mix(in oklab, var(--ok) 40%, transparent);
+  background: color-mix(in oklab, var(--ok) 10%, transparent);
+}
+.tag.warn {
+  color: var(--warn);
+  border-color: color-mix(in oklab, var(--warn) 40%, transparent);
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+}
+.tag.bad {
+  color: var(--bad);
+  border-color: color-mix(in oklab, var(--bad) 40%, transparent);
+  background: color-mix(in oklab, var(--bad) 10%, transparent);
+}
 .tag.dim { color: var(--dim); border-color: var(--line); }
 .mine { color: var(--accent); font-size: 11px; margin-left: 6px; }
 
@@ -102,6 +124,7 @@ table.grid code, .mono { font-family: var(--mono); font-size: 12px; }
   border-left: 3px solid var(--warn); padding: 14px 16px;
   display: flex; justify-content: space-between; gap: 20px; align-items: flex-start;
 }
+.card:hover { border-color: var(--line); background: var(--panel-2); }
 .card.erratum { border-left-color: var(--bad); }
 .card h3 { margin: 0 0 4px; font-size: 14px; }
 .card .meta { color: var(--soft); font-size: 12px; }
@@ -139,7 +162,8 @@ dialog label span { display: block; font-size: 12px; color: var(--soft); margin-
 dialog input { width: 100%; }
 dialog menu { display: flex; gap: 10px; justify-content: flex-end; padding: 0; margin: 16px 0 0; }
 .warn {
-  background: rgba(216,163,60,.1); border-left: 3px solid var(--warn);
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+  border-left: 3px solid var(--warn);
   padding: 8px 11px; font-size: 12px; color: var(--warn); margin: 0;
 }
 #callsDialog { max-width: 800px; }
@@ -158,3 +182,38 @@ dialog menu { display: flex; gap: 10px; justify-content: flex-end; padding: 0; m
   max-width: 380px;
 }
 .alert.warn { border-left-color: var(--warn); }
+
+/* --- narrow screens -------------------------------------------------------
+ *
+ * There were no media queries in this file at all, which is defensible for a
+ * wall display right up until somebody opens it on a phone to discharge an
+ * erratum - which is exactly when they would, because that is the one job here
+ * that happens away from a desk.
+ *
+ * Two things actually broke rather than merely looking tight: the Estate table
+ * is seven columns and had nothing to scroll inside, and `.chan .f` held a
+ * fixed 220px label column that cannot fit beside a value on a 375px screen.
+ */
+
+/* Tables scroll inside their own frame rather than stretching the page. On a
+   wide screen this does nothing at all. */
+.tablewrap { overflow-x: auto; }
+
+@media (max-width: 820px) {
+  .top { flex-wrap: wrap; gap: 10px 16px; }
+  .counts { flex-wrap: wrap; gap: 8px 14px; order: 3; flex-basis: 100%; }
+  .views { overflow-x: auto; }
+  .view { white-space: nowrap; }
+
+  main { padding: 14px; }
+
+  .filters { flex-wrap: wrap; }
+  input, select { min-width: 0; width: 100%; }
+
+  /* Label over value, not beside it. */
+  .chan .f { grid-template-columns: 1fr; gap: 2px; padding: 6px 0; }
+
+  /* The due date drops under the description instead of being squeezed
+     against it. */
+  .card { flex-direction: column; gap: 10px; }
+}

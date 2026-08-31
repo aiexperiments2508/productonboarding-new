@@ -21,6 +21,24 @@
   --hold: #8a5300;
   --hold-bg: #fff8ec;
   --hold-line: #e8c98d;
+
+  /* Written out twelve times before it was named once. */
+  --sans: "Helvetica Neue", Arial, sans-serif;
+
+  /* The channel strip is a control rail bolted above the shop and is
+     deliberately not part of it, so it keeps its own three greys rather than
+     borrowing the shop's - a shopper must never read it as chrome they own. */
+  --rail: #1b2129;
+  --rail-ink: #cfd6de;
+  --rail-line: #39424e;
+
+  --ink-body: #333c46;
+  --hold-ink: #6c5424;
+  --disabled: #9aa5ae;
+
+  /* Consumed by /shared/base.css, which draws every focus ring and picks no
+     colour of its own. */
+  --focus-ring: var(--accent);
 }
 
 * { box-sizing: border-box; }
@@ -30,25 +48,24 @@ body {
   font: 16px/1.6 Georgia, "Times New Roman", serif;
 }
 
-h1, h2, .logo, .buynow, nav, .strip, .sku, .specs th { font-family: "Helvetica Neue", Arial, sans-serif; }
+h1, h2, .logo, .buynow, nav, .strip, .sku, .specs th { font-family: var(--sans); }
 
 /* --- the channel strip is not part of the shop --------------------------- */
 
 .strip {
   display: flex; align-items: center; gap: 12px;
-  background: #1b2129; color: #cfd6de; padding: 6px 24px; font-size: 13px;
-  font-family: "Helvetica Neue", Arial, sans-serif;
+  background: var(--rail); color: var(--rail-ink); padding: 6px 24px; font-size: 13px;
+  font-family: var(--sans);
 }
 .strip .spacer { flex: 1; }
 .channels { display: flex; gap: 6px; }
-.channels button {
-  background: transparent; color: #cfd6de; border: 1px solid #39424e;
+.channels button, .strip .ghost {
+  background: transparent; color: var(--rail-ink); border: 1px solid var(--rail-line);
   padding: 3px 10px; font: inherit; cursor: pointer; border-radius: 3px;
 }
-.channels button.on { background: #cfd6de; color: #1b2129; border-color: #cfd6de; }
-.strip .ghost {
-  background: transparent; color: #cfd6de; border: 1px solid #39424e;
-  padding: 3px 10px; font: inherit; cursor: pointer; border-radius: 3px;
+.channels button:hover, .strip .ghost:hover { border-color: var(--rail-ink); }
+.channels button.on {
+  background: var(--rail-ink); color: var(--rail); border-color: var(--rail-ink);
 }
 
 /* --- shop chrome --------------------------------------------------------- */
@@ -64,7 +81,7 @@ h1, h2, .logo, .buynow, nav, .strip, .sku, .specs th { font-family: "Helvetica N
 .masthead nav { display: flex; gap: 22px; flex: 1; }
 .masthead nav a { color: var(--ink); text-decoration: none; font-size: 14px; }
 .masthead nav a:hover { color: var(--accent); }
-.basket { font-size: 14px; color: var(--soft); font-family: "Helvetica Neue", Arial, sans-serif; }
+.basket { font-size: 14px; color: var(--soft); font-family: var(--sans); }
 
 main { max-width: 1080px; margin: 0 auto; padding: 26px 24px 80px; }
 
@@ -73,6 +90,7 @@ h2 { font-size: 17px; margin: 0 0 12px; }
 
 .link { background: none; border: 0; color: var(--accent); cursor: pointer;
         font: inherit; text-decoration: underline; padding: 0; margin-bottom: 16px; }
+.link:hover { color: var(--accent-dark); }
 
 /* --- shelf --------------------------------------------------------------- */
 
@@ -82,15 +100,29 @@ h2 { font-size: 17px; margin: 0 0 12px; }
 .tile .shot {
   background: var(--wash); border: 1px solid var(--line);
   aspect-ratio: 1; display: grid; place-items: center; overflow: hidden;
+  transition: border-color var(--t-fast, 90ms) var(--t-ease, ease);
 }
-.tile img { max-width: 84%; max-height: 84%; }
-.tile b { display: block; margin-top: 10px; font-size: 15px; font-weight: 400; }
+/* The one application of the three where a little warmth is on-identity: this
+   is a shop, and product tiles that do nothing under the cursor read as a
+   screenshot of a shop. The shot is `overflow: hidden`, so the scale stays
+   inside its frame and nothing reflows. */
+.tile img {
+  max-width: 84%; max-height: 84%;
+  transition: transform var(--t-base, 160ms) var(--t-ease, ease);
+}
+.tile:hover .shot { border-color: var(--soft); }
+.tile:hover img { transform: scale(1.04); }
+.tile:hover b { color: var(--accent); }
+.tile b {
+  display: block; margin-top: 10px; font-size: 15px; font-weight: 400;
+  transition: color var(--t-fast, 90ms) var(--t-ease, ease);
+}
 .tile .p { color: var(--price); font-weight: 700; font-size: 16px; margin-top: 3px; }
 .tile .flag {
   display: inline-block; margin-top: 6px; font-size: 12px;
   background: var(--hold-bg); border: 1px solid var(--hold-line);
   color: var(--hold); padding: 1px 8px;
-  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--sans);
 }
 
 /* --- product page -------------------------------------------------------- */
@@ -105,19 +137,21 @@ h2 { font-size: 17px; margin: 0 0 12px; }
   width: 62px; height: 62px; object-fit: contain;
   background: var(--wash); border: 1px solid var(--line); cursor: pointer; padding: 4px;
 }
+.thumbs img:hover { border-color: var(--soft); }
 .thumbs img.on { border-color: var(--accent); }
 
 .crumb { color: var(--soft); font-size: 13px; margin: 0 0 6px;
-         font-family: "Helvetica Neue", Arial, sans-serif; }
+         font-family: var(--sans); }
 .sku { color: var(--soft); font-size: 13px; margin: 0 0 14px;
-       font-family: "Helvetica Neue", Arial, sans-serif; }
+       font-family: var(--sans); }
 .price { color: var(--price); font-size: 30px; font-weight: 700; margin: 0 0 18px; }
 
 .buynow {
   background: var(--accent); color: #fff; border: 0; padding: 13px 30px;
   font-size: 16px; font-weight: 600; cursor: pointer; border-radius: 3px;
 }
-.buynow:disabled { background: #9aa5ae; cursor: not-allowed; }
+.buynow:hover:not(:disabled) { background: var(--accent-dark); }
+.buynow:disabled { background: var(--disabled); cursor: not-allowed; }
 .deliv { color: var(--soft); font-size: 13px; margin-top: 10px; }
 
 .withheld {
@@ -125,39 +159,40 @@ h2 { font-size: 17px; margin: 0 0 12px; }
   border-left: 4px solid var(--hold); padding: 14px 16px; margin-bottom: 18px;
 }
 .withheld strong { display: block; color: var(--hold); margin-bottom: 5px;
-                   font-family: "Helvetica Neue", Arial, sans-serif; }
-.withheld p { margin: 0; font-size: 14px; color: #6c5424; }
+                   font-family: var(--sans); }
+.withheld p { margin: 0; font-size: 14px; color: var(--hold-ink); }
 
 .pdp-body { display: grid; grid-template-columns: 1.1fr 1fr; gap: 44px; margin-top: 44px; }
 .bullets ul { margin: 0 0 16px; padding-left: 20px; }
 .bullets li { margin-bottom: 6px; }
-.desc { color: #333c46; }
+.desc { color: var(--ink-body); }
 
 table.specs { width: 100%; border-collapse: collapse; font-size: 15px; }
 table.specs td { padding: 9px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.specs td:first-child { color: var(--soft); width: 46%;
-                             font-family: "Helvetica Neue", Arial, sans-serif; font-size: 14px; }
+                             font-family: var(--sans); font-size: 14px; }
 
 /* A field the retailer has taken down. It must not read like an absence: a
  * shopper with an allergy needs "we are checking this", not a blank. */
 .redacted {
   background: var(--hold-bg); border: 1px solid var(--hold-line);
   color: var(--hold); padding: 5px 9px; display: block;
-  font-family: "Helvetica Neue", Arial, sans-serif; font-size: 13px;
+  font-family: var(--sans); font-size: 13px;
 }
-.redacted em { display: block; font-style: normal; color: #6c5424; margin-top: 3px; }
+.redacted em { display: block; font-style: normal; color: var(--hold-ink); margin-top: 3px; }
 
 /* --- log, flashes, footer ------------------------------------------------ */
 
 dialog {
   border: 1px solid var(--line); border-radius: 4px; padding: 24px;
-  max-width: 720px; width: 92%; font-family: "Helvetica Neue", Arial, sans-serif;
+  max-width: 720px; width: 92%; font-family: var(--sans);
 }
 dialog::backdrop { background: rgba(16,20,25,.5); }
 dialog menu { display: flex; justify-content: flex-end; padding: 0; margin: 16px 0 0; }
 dialog .lede { color: var(--soft); font-size: 14px; }
 .ghost { background: #fff; border: 1px solid var(--line); padding: 8px 16px;
          cursor: pointer; font: inherit; border-radius: 3px; }
+.ghost:hover { border-color: var(--soft); background: var(--wash); }
 
 .log { max-height: 50vh; overflow: auto; border: 1px solid var(--line); }
 .log div {
@@ -169,19 +204,32 @@ dialog .lede { color: var(--soft); font-size: 14px; }
 
 #flashes { position: fixed; right: 20px; bottom: 56px; display: grid; gap: 8px; }
 .flash {
-  background: #1b2129; color: #fff; padding: 11px 15px; font-size: 14px;
+  background: var(--rail); color: #fff; padding: 11px 15px; font-size: 14px;
   max-width: 380px; border-left: 3px solid var(--hold);
-  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--sans);
 }
 
 .foot {
   position: fixed; left: 0; right: 0; bottom: 0;
   display: flex; justify-content: space-between; gap: 20px;
   padding: 7px 24px; background: var(--wash); border-top: 1px solid var(--line);
-  font-size: 12px; color: var(--soft); font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 12px; color: var(--soft); font-family: var(--sans);
 }
 
 @media (max-width: 820px) {
   .pdp-top, .pdp-body { grid-template-columns: 1fr; gap: 26px; }
-  .masthead nav { display: none; }
+
+  /* The nav used to be `display: none` here, with nothing in its place - a
+     shop whose departments cease to exist on a phone. It scrolls instead. */
+  .masthead { flex-wrap: wrap; gap: 14px 20px; padding: 14px 18px; }
+  .masthead nav {
+    order: 3; flex-basis: 100%; gap: 16px;
+    overflow-x: auto; padding-bottom: 2px;
+  }
+  .masthead nav a { white-space: nowrap; }
+
+  main { padding: 18px 18px 80px; }
+  h1 { font-size: 24px; }
+  .price { font-size: 24px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
 }

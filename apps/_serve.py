@@ -67,8 +67,14 @@ def sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
 
 
-def build(name: str, title: str, web_dir: Path, client, bus: Broadcaster,
-          *, colour: str = "") -> FastAPI:
+#: The interaction layer all three applications share - focus rings, transition
+#: timing, reduced motion. Geometry and timing only, never colour: see the note
+#: at the top of that file for why that boundary is the point rather than a
+#: tidiness rule.
+SHARED_WEB = Path(__file__).parent / "_web"
+
+
+def build(name: str, title: str, web_dir: Path, client, bus: Broadcaster) -> FastAPI:
     """A bare application: its page, its health, and its event stream."""
     app = FastAPI(title=title)
 
@@ -117,14 +123,22 @@ def build(name: str, title: str, web_dir: Path, client, bus: Broadcaster,
         deeply confusing, because the server is serving the right file and the
         page is running the wrong one. `no-cache` means "revalidate", not "do
         not store": the 304 still saves the transfer.
+
+        `/shared` is here for the same reason and is the worse case: one stale
+        copy of it would take the focus rings off all three applications at
+        once, and nothing on any of the three would look broken.
         """
         response = await call_next(request)
-        if request.url.path.startswith("/static"):
+        if request.url.path.startswith(("/static", "/shared")):
             response.headers["Cache-Control"] = "no-cache"
         return response
 
     if (web_dir / "index.html").exists():
         app.mount("/static", StaticFiles(directory=web_dir), name="static")
+        # Mounted separately from /static, and before each page's own
+        # stylesheet in the markup, so an application's rules still win over
+        # anything here.
+        app.mount("/shared", StaticFiles(directory=SHARED_WEB), name="shared")
 
         @app.get("/")
         async def index() -> FileResponse:

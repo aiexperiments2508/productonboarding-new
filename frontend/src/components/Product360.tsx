@@ -278,7 +278,11 @@ export function Product360() {
         )}
       >
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          <ProductRollupStrip rollup={rollup} loading={countingBusy} />
+          <ProductRollupStrip
+            rollup={rollup}
+            loading={countingBusy}
+            className="shrink-0"
+          />
 
           <Panel
             title="Products"

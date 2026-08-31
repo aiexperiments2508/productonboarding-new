@@ -203,14 +203,21 @@ const MEMBER_TONE: Record<MemberChange, string> = {
 interface Member { key: string; text: string; change: MemberChange }
 
 /** Occurrence-qualified keys, so a list that legitimately repeats a member
- *  ("sugar" twice) diffs by position rather than collapsing. */
+ *  ("sugar" twice) diffs by position rather than collapsing.
+ *
+ *  The separator is a NUL because an ingredient may contain any printable
+ *  character, and a separator an ingredient can contain is one that collides
+ *  eventually. Written as the escape and never as the raw byte: a literal
+ *  control character in the source makes git, grep and `file` all classify
+ *  this module as binary, so it drops out of the searches of whoever comes
+ *  to change it. */
 function keyed(list: string[]): { key: string; text: string }[] {
   const seen = new Map<string, number>();
   return list.map((raw) => {
     const text = String(raw);
     const n = (seen.get(text) ?? 0) + 1;
     seen.set(text, n);
-    return { key: `${text} ${n}`, text };
+    return { key: `${text}\u0000${n}`, text };
   });
 }
 

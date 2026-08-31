@@ -11,7 +11,11 @@
  */
 
 const $ = (id) => document.getElementById(id);
-const state = { system: null, supplier: "", product: null, spec: null };
+const state = {
+  system: null, supplier: "", product: null, spec: null,
+  /** Which of the two top-level views is on screen. */
+  view: "products",
+};
 
 /* --- plumbing ----------------------------------------------------------- */
 
@@ -68,20 +72,19 @@ const FORMATS = [
 ];
 
 async function loadFeed() {
-  const bulk = $("bulk");
   if (!state.system) return;
   let described;
   try {
     described = await api(`/portal-api/${state.system}/feed`);
   } catch {
-    bulk.hidden = true;
+    offerBulk(false);
     return;
   }
   if (!described || !described.branches) {
-    bulk.hidden = true;
+    offerBulk(false);
     return;
   }
-  bulk.hidden = false;
+  offerBulk(true);
 
   // Every endpoint can hand out a template; only some take one back. The
   // manifest decides which, and a portal that offered the form anyway would be
@@ -166,7 +169,7 @@ function renderFeedResult(result) {
       <li>${images.matched || 0} photographs matched</li>
     </ul>
     ${rows.unknown_columns && rows.unknown_columns.length
-      ? `<p class="warn">Columns we do not recognise, and did not read:
+      ? `<p class="feedwarn">Columns we do not recognise, and did not read:
          <code>${rows.unknown_columns.join("</code> <code>")}</code></p>` : ""}
     ${bad.length
       ? `<table class="feedbad"><thead><tr><th>Line</th><th>SKU</th>
@@ -176,6 +179,42 @@ function renderFeedResult(result) {
         `</tbody></table>` : ""}
     <p class="note">${result.note}</p>`;
 }
+
+/* --- the two views ------------------------------------------------------- */
+
+/* Which of the supplier's two jobs is on screen.
+ *
+ * These were shown together: the product list, and then the upload grid below
+ * it. Two tasks stacked in one column, so the second one lived under however
+ * many products the first one had. They are now tabs, using the same bar this
+ * page already had on the product detail.
+ */
+
+function showView(name) {
+  state.view = name;
+  document.querySelectorAll("#viewtabs .tab").forEach((tab) => {
+    const on = tab.dataset.view === name;
+    tab.classList.toggle("on", on);
+    tab.setAttribute("aria-selected", String(on));
+  });
+  $("catalogue").hidden = name !== "products";
+  $("bulk").hidden = name !== "bulk";
+}
+
+/* Whether this endpoint has a bulk door at all.
+ *
+ * Not every system takes an archive. Hiding the tab is better than showing one
+ * that leads to a refusal - and if the supplier is standing on a tab that has
+ * just gone away, step them back to the products. */
+function offerBulk(available) {
+  const tab = document.querySelector('#viewtabs .tab[data-view="bulk"]');
+  if (tab) tab.hidden = !available;
+  if (!available && state.view === "bulk") showView("products");
+}
+
+document.querySelectorAll("#viewtabs .tab").forEach((tab) => {
+  tab.onclick = () => showView(tab.dataset.view);
+});
 
 /* --- sign in ------------------------------------------------------------ */
 
@@ -234,6 +273,7 @@ $("go").onclick = () => {
   $("systemName").textContent = state.system;
   $("who").hidden = false;
   $("signIn").hidden = true;
+  $("viewtabs").hidden = false;
   loadProducts();
 };
 
@@ -242,8 +282,9 @@ $("signOut").onclick = () => location.reload();
 /* --- products ----------------------------------------------------------- */
 
 async function loadProducts(query = "") {
-  $("catalogue").hidden = false;
+  $("viewtabs").hidden = false;
   $("detail").hidden = true;
+  showView(state.view || "products");
   loadFeed();
   $("products").innerHTML = `<p class="lede">Loading…</p>`;
 
@@ -298,6 +339,9 @@ async function openProduct(productId) {
   state.product = productId;
   state.spec = spec;
 
+  // One product sits a level below both views, so the bar goes with them
+  // rather than staying above a screen neither tab describes.
+  $("viewtabs").hidden = true;
   $("catalogue").hidden = true;
   $("bulk").hidden = true;
   $("detail").hidden = false;
@@ -346,14 +390,18 @@ const skuOf = (variantId) =>
 const format = (value) =>
   Array.isArray(value) ? value.join(", ") : value === null || value === undefined ? "—" : value;
 
-document.querySelectorAll(".tab").forEach((tab) => {
+/* Scoped to #detail. There are two tab bars on this page now, and an unscoped
+   `.tab` selector would have this one driving both. */
+document.querySelectorAll("#detail .tab").forEach((tab) => {
   tab.onclick = () => showTab(tab.dataset.tab);
 });
 
 function showTab(name) {
-  document.querySelectorAll(".tab").forEach((t) =>
-    t.classList.toggle("on", t.dataset.tab === name)
-  );
+  document.querySelectorAll("#detail .tab").forEach((t) => {
+    const on = t.dataset.tab === name;
+    t.classList.toggle("on", on);
+    t.setAttribute("aria-selected", String(on));
+  });
   ["spec", "files", "history"].forEach((t) => {
     $(`tab-${t}`).hidden = t !== name;
   });

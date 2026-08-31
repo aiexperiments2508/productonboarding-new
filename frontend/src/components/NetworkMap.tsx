@@ -367,11 +367,29 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
   const hitListings = affected?.listings ?? new Set<string>();
 
   return (
-    <div className="relative">
+    /* The frame keeps the drawing's own ratio at every width.
+     *
+     * There used to be a `minHeight` here, and on any container narrower than
+     * about 1000px it was actively harmful: the box grew past the ratio the
+     * viewBox asks for, `preserveAspectRatio` scaled the picture down to fit
+     * the *width*, and the difference became empty letterbox. So the map got
+     * smaller and the frame got bigger at the same time - and the hover card,
+     * which is positioned as a percentage of this box, drifted off its node by
+     * exactly that gap.
+     *
+     * Without it the box always matches the viewBox, so nothing letterboxes
+     * and the card stays put. Below the width where 11px labels stop being
+     * readable, scrolling sideways is the honest answer rather than scaling
+     * further down; MIN_H already stops a sparse estate drawing as a strip.
+     *
+     * The min-width lives here rather than at the call site so a second caller
+     * cannot forget it. It needs an `overflow-x-auto` parent to scroll against
+     * - which cannot be this element, because the hover card below is
+     * positioned against it and an overflow container would clip it. */
+    <div className="relative min-w-[720px]">
       <svg
         className="block w-full bg-sunken"
         viewBox={`0 0 ${W} ${H}`}
-        style={{ minHeight: Math.min(H, 520) }}
         role="img"
         aria-label="Product catalog, from supplier sources through to sales channels, with the blast radius of the correction highlighted"
       >

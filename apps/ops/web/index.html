@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ops Console</title>
+<link rel="stylesheet" href="/shared/base.css">
 <link rel="stylesheet" href="/static/ops.css">
 </head>
 <body>
@@ -21,45 +22,55 @@
   </div>
 </header>
 
-<nav class="views">
-  <button class="view on" data-view="estate">Estate</button>
-  <button class="view" data-view="owed">Work owed</button>
-  <button class="view" data-view="ledger">Ledger</button>
-  <button class="view" data-view="inspect">Inspect a SKU</button>
+<nav class="views" role="tablist" aria-label="Ops Console views">
+  <button class="view on" role="tab" aria-selected="true"
+          aria-controls="v-estate" data-view="estate">Estate</button>
+  <button class="view" role="tab" aria-selected="false"
+          aria-controls="v-owed" data-view="owed">Work owed</button>
+  <button class="view" role="tab" aria-selected="false"
+          aria-controls="v-ledger" data-view="ledger">Ledger</button>
+  <button class="view" role="tab" aria-selected="false"
+          aria-controls="v-inspect" data-view="inspect">Inspect a SKU</button>
 </nav>
 
 <main>
 
-  <section id="v-estate">
-    <table class="grid">
-      <thead>
-        <tr><th>Channel</th><th>Kind</th><th>Recall</th><th>Freeze</th>
-            <th>Withheld</th><th>Owed</th><th>Standing</th></tr>
-      </thead>
-      <tbody id="estate"></tbody>
-    </table>
+  <section id="v-estate" role="tabpanel">
+    <!-- Seven columns. Without a frame to scroll inside, a narrow screen just
+         pushes the whole page sideways. -->
+    <div class="tablewrap">
+      <table class="grid">
+        <thead>
+          <tr><th>Channel</th><th>Kind</th><th>Recall</th><th>Freeze</th>
+              <th>Withheld</th><th>Owed</th><th>Standing</th></tr>
+        </thead>
+        <tbody id="estate"></tbody>
+      </table>
+    </div>
     <p class="foot-note" id="estateNote"></p>
   </section>
 
-  <section id="v-owed" hidden>
+  <section id="v-owed" role="tabpanel" hidden>
     <p class="lede">A redaction on a web page finishes when it is written. On a
       printed run there is nothing to take down, so what is recorded is the work
       still owed to the world. Nothing closes it but somebody doing it.</p>
     <div id="owed" class="owed"></div>
   </section>
 
-  <section id="v-ledger" hidden>
+  <section id="v-ledger" role="tabpanel" hidden>
     <div class="filters">
       <select id="ledgerChannel"><option value="">All channels</option></select>
     </div>
-    <table class="grid">
-      <thead><tr><th>When</th><th>Channel</th><th>Verb</th><th>Listing</th>
-                 <th>Actor</th><th>Why</th></tr></thead>
-      <tbody id="ledger"></tbody>
-    </table>
+    <div class="tablewrap">
+      <table class="grid">
+        <thead><tr><th>When</th><th>Channel</th><th>Verb</th><th>Listing</th>
+                   <th>Actor</th><th>Why</th></tr></thead>
+        <tbody id="ledger"></tbody>
+      </table>
+    </div>
   </section>
 
-  <section id="v-inspect" hidden>
+  <section id="v-inspect" role="tabpanel" hidden>
     <div class="filters">
       <input id="sku" placeholder="SKU, e.g. OVF-GRC-300" value="OVF-GRC-300">
       <button class="btn primary" id="inspect">Inspect across the estate</button>

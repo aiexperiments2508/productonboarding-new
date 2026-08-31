@@ -4,8 +4,8 @@ import type { BatchProduct, BatchReport, BatchRow, FixableGap } from "../api";
 import { IconAlert, IconDoc, IconSpark } from "../icons";
 import { PageHeader } from "../app/shell/PageHeader";
 import {
-  Badge, Button, Code, EmptyState, Panel, Skeleton, Table, Tooltip, cn,
-  useToast,
+  Badge, Button, Code, EmptyState, LoadingBody, Panel, SkeletonKpis,
+  SkeletonTable, Tab, TabList, TabPanel, Table, Tabs, Tooltip, cn, useToast,
 } from "../ui";
 import { ArtAllClear, ArtQuietFeed } from "../art/illustrations";
 import { Kpi } from "./common";
@@ -46,7 +46,7 @@ const STATE_LABEL: Record<FixableGap["state"], string> = {
   SAFETY_HELD: "safety - the supplier sends this",
 };
 
-type Tab = "summary" | "products" | "fixable";
+type TabId = "summary" | "products" | "fixable";
 
 export function IntakeReport({ batchId, onOpenBatch }: {
   batchId?: string | null;
@@ -57,7 +57,7 @@ export function IntakeReport({ batchId, onOpenBatch }: {
   const [selected, setSelected] = useState<string | null>(batchId ?? null);
   const [report, setReport] = useState<BatchReport | null>(null);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<Tab>("summary");
+  const [tab, setTab] = useState<TabId>("summary");
   const [actor, setActor] = useState("");
   const [fixing, setFixing] = useState(false);
 
@@ -116,25 +116,56 @@ export function IntakeReport({ batchId, onOpenBatch }: {
 
   if (batches !== null && batches.length === 0) {
     return (
-      <>
+      <div className="flex min-h-0 flex-1 flex-col">
         <PageHeader section="intake" />
-        <EmptyState art={<ArtQuietFeed />} title="No supplier has sent a batch yet">
+        {/* Centred in the space rather than stacked at the top of it: an empty
+            state pushed against the header reads as a paragraph that failed to
+            load, not as a screen waiting for something to arrive. */}
+        <EmptyState
+          className="min-h-0 flex-1"
+          art={<ArtQuietFeed />}
+          title="No supplier has sent a batch yet"
+        >
           A supplier downloads a template from the Vendor Portal, fills it in,
           and sends it back as one archive with its photographs. The rows arrive
           on the live feed in the Ingest Fabric, and the report appears here.
         </EmptyState>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
+    /* This section owns its height and never lengthens the page.
+     *
+     * The shell's <main> is `overflow-hidden` on purpose - see the note in
+     * App.tsx. A section that hands it a taller-than-viewport column does not
+     * get a scrollbar, it gets silently clipped, and the bottom of a
+     * forty-product list becomes unreachable.
+     *
+     * The title, the four figures and the tab bar are pinned; only the tab
+     * contents scroll. Letting the summary scroll with them was worse than it
+     * sounds: on a normal screen there is about thirty pixels of overflow, so
+     * the wheel barely moves - but thirty pixels is exactly enough to slice
+     * the top off the summary card, leaving a bordered box with no header. It
+     * read as broken while behaving correctly.
+     *
+     * Pinning it needs a floor, or it fails the other way. `flex-1` on the tab
+     * set resolves to zero when the viewport is shorter than the chrome above
+     * it, and the contents vanish rather than overflow. So `Tabs fill` carries
+     * `min-h-[20rem]`, and the column below is a scroller of last resort: on a
+     * short screen the whole section scrolls instead of collapsing. */
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         section="intake"
         actions={
           batches && batches.length > 1 ? (
             <select
-              className="rounded-md border border-subtle bg-raised px-2 py-1 text-sm"
+              aria-label="Which batch to report on"
+              className={cn(
+                "rounded-md border border-subtle bg-raised px-2 py-1 text-sm",
+                "transition-colors duration-[var(--dur-fast)] ease-standard",
+                "hover:border-strong"
+              )}
               value={selected ?? ""}
               onChange={(e) => { setSelected(e.target.value); onOpenBatch?.(e.target.value); }}
             >
@@ -148,45 +179,55 @@ export function IntakeReport({ batchId, onOpenBatch }: {
         }
       />
 
+      {/* The scroller of last resort. Idle at any normal height - the tab
+          panel does the scrolling - and the reason a short window degrades to
+          a scrollbar instead of to an empty screen. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {loading && !report ? (
-        <Skeleton className="h-[420px] w-full" rounded="md" />
+        /* Shaped like the thing that replaces it - a row of figures over a
+           table - so the screen does not rearrange itself the moment the
+           report lands. A single grey slab would. */
+        <LoadingBody label="Reading the batch">
+          <div className="flex flex-col gap-3">
+            <SkeletonKpis count={4} />
+            <SkeletonTable rows={8} cols={4} />
+          </div>
+        </LoadingBody>
       ) : report ? (
-        <div className="flex flex-col gap-3">
+        <>
           <Headline report={report} current={current} />
 
-          <div className="flex gap-1 border-b border-subtle">
-            {(["summary", "products", "fixable"] as Tab[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={cn(
-                  "px-3 py-2 text-sm transition-colors",
-                  tab === t
-                    ? "border-b-2 border-accent text-accent-text"
-                    : "text-muted hover:text-default"
-                )}
-              >
-                {t === "summary" ? "Summary"
-                  : t === "products" ? `Products (${report.products.length})`
-                  : `What AI could fix (${report.fixable.candidates})`}
-              </button>
-            ))}
-          </div>
+          <Tabs fill value={tab} onValueChange={(v) => setTab(v as TabId)}>
+            <TabList ariaLabel="Views of this batch">
+              <Tab value="summary">Summary</Tab>
+              <Tab value="products" count={report.products.length}>Products</Tab>
+              <Tab value="fixable" count={report.fixable.candidates}>
+                What AI could fix
+              </Tab>
+            </TabList>
 
-          {tab === "summary" && <Summary report={report} />}
-          {tab === "products" && <Products report={report} />}
-          {tab === "fixable" && (
-            <Fixable
-              report={report}
-              actor={actor}
-              setActor={setActor}
-              busy={fixing}
-              onApply={applyFixes}
-            />
-          )}
-        </div>
+            <TabPanel value="summary" scroll>
+              <Summary report={report} />
+            </TabPanel>
+
+            <TabPanel value="products" scroll>
+              <Products report={report} />
+            </TabPanel>
+
+            <TabPanel value="fixable" scroll>
+              <Fixable
+                report={report}
+                actor={actor}
+                setActor={setActor}
+                busy={fixing}
+                onApply={applyFixes}
+              />
+            </TabPanel>
+          </Tabs>
+        </>
       ) : null}
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -198,6 +239,7 @@ function Headline({ report, current }: {
   const t = report.totals;
   return (
     <Panel
+      className="mb-3 shrink-0"
       title={`${report.supplier} sent ${t.assessed} product${t.assessed === 1 ? "" : "s"}`}
       subtitle={
         current?.file

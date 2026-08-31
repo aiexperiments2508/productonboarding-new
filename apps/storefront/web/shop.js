@@ -10,6 +10,23 @@ const state = { channel: "ch-web", sku: null, platform: "" };
 
 const api = (path) => fetch(path).then((r) => r.json());
 
+/* Make a non-button behave like one.
+ *
+ * The shelf tiles and the thumbnail strip are a div and an img carrying click
+ * handlers, which works for a mouse and is completely inert for everything
+ * else. Pointer, Enter and Space all reach the same place from here, and the
+ * markup carries the role and the tab stop that let a keyboard find them at
+ * all. Space is preventDefault'd because its default on a focused element is
+ * to scroll the page. */
+function activate(node, run) {
+  node.onclick = run;
+  node.onkeydown = (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    run();
+  };
+}
+
 /* Money is not modelled anywhere in this system, and inventing a price feed
  * would be inventing data. These are the seed pack's own prices, written here
  * because a product page without a price does not read as a product page.
@@ -99,7 +116,9 @@ async function shelf() {
     .map((p) => {
       const hero = pickImage(p.media);
       const held = p.withheld || p.redacted_fields.length;
-      return `<div class="tile" data-sku="${p.sku}">
+      // A div with an onclick is a div nobody can reach without a mouse.
+      return `<div class="tile" role="button" tabindex="0"
+                   aria-label="${p.product.name}" data-sku="${p.sku}">
         <div class="shot">${hero ? `<img src="${hero}" alt="">` : ""}</div>
         <b>${p.product.name}</b>
         <div class="p">${priceOf(p)}</div>
@@ -109,7 +128,7 @@ async function shelf() {
     .join("");
 
   $("grid").querySelectorAll(".tile").forEach((tile) => {
-    tile.onclick = () => openProduct(tile.dataset.sku);
+    activate(tile, () => openProduct(tile.dataset.sku));
   });
 }
 
@@ -153,14 +172,15 @@ async function openProduct(sku) {
   $("hero").alt = page.product.name;
   $("thumbs").innerHTML = (page.media || [])
     .map((m, i) => `<img src="${mediaUrl(m.uri)}" alt="${m.alt_text}" data-i="${i}"
+                         role="button" tabindex="0"
                          class="${mediaUrl(m.uri) === hero ? "on" : ""}">`)
     .join("");
   $("thumbs").querySelectorAll("img").forEach((thumb) => {
-    thumb.onclick = () => {
+    activate(thumb, () => {
       $("hero").src = thumb.src;
       $("thumbs").querySelectorAll("img").forEach((t) => t.classList.remove("on"));
       thumb.classList.add("on");
-    };
+    });
   });
 
   // A listing the retailer has taken off air. The shop says so plainly rather

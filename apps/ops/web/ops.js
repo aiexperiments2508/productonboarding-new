@@ -21,9 +21,13 @@ const post = (path, body) =>
 
 document.querySelectorAll(".view").forEach((button) => {
   button.onclick = () => {
-    document.querySelectorAll(".view").forEach((b) =>
-      b.classList.toggle("on", b === button)
-    );
+    document.querySelectorAll(".view").forEach((b) => {
+      const on = b === button;
+      b.classList.toggle("on", on);
+      // The class is what it looks like; this is what it *is*. Without it a
+      // screen reader announces four tabs and never which one is open.
+      b.setAttribute("aria-selected", String(on));
+    });
     ["estate", "owed", "ledger", "inspect"].forEach((v) => {
       $(`v-${v}`).hidden = v !== button.dataset.view;
     });

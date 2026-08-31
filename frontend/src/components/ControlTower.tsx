@@ -486,16 +486,17 @@ export function ControlTower({
                   page={mapView?.page}
                   busy={mapBusy}
                 />
+                {/* The scroller the map's own min-width scrolls against.
+                    Both axes: sideways below the width its labels survive,
+                    downwards when a dense estate outgrows half the viewport. */}
                 <div className="max-h-[52vh] overflow-auto">
-                  <div className="min-w-[720px]">
-                    <NetworkMap
-                      catalog={mapCatalog}
-                      affected={traced}
-                      live={live}
-                      selected={selected}
-                      onSelect={setSelected}
-                    />
-                  </div>
+                  <NetworkMap
+                    catalog={mapCatalog}
+                    affected={traced}
+                    live={live}
+                    selected={selected}
+                    onSelect={setSelected}
+                  />
                 </div>
                 <div className="border-t border-subtle px-3 py-2.5">
                   <MapLegend live={live.pulses.size > 0} />
@@ -911,13 +912,18 @@ function BundleStrip({ batch, onAssess, onOpenReport, sweep, busy }: {
           </p>
         </div>
       ) : done ? (
+        /* Only `blocked` keeps its hue. The other two figures have their
+           sentence printed beside them, so the colour restates the words - and
+           green on a count of things that merely passed is celebration rather
+           than signal. A non-zero blocked count is the one figure here that
+           changes what somebody does next, so it stays red. */
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
           <span>
-            <strong className="text-ok-text">{done.totals.cleared}</strong> went
+            <strong className="text-fg">{done.totals.cleared}</strong> went
             through clean
           </span>
           <span>
-            <strong className="text-warn-text">{done.totals.returned}</strong> back
+            <strong className="text-fg">{done.totals.returned}</strong> back
             to the source
           </span>
           {done.totals.blocked > 0 && (

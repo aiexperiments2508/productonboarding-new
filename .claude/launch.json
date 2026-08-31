@@ -4,8 +4,38 @@
     {
       "name": "platform",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["run.py", "--no-gateway"],
+      "runtimeArgs": [
+        "run.py",
+        "--no-gateway"
+      ],
       "port": 8000
+    },
+    {
+      "name": "vendor-portal",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "apps.vendor.server"
+      ],
+      "port": 8110
+    },
+    {
+      "name": "storefront",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "apps.storefront.server"
+      ],
+      "port": 8120
+    },
+    {
+      "name": "ops-console",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "apps.ops.server"
+      ],
+      "port": 8130
     }
   ]
 }

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vendor Portal</title>
+<link rel="stylesheet" href="/shared/base.css">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -24,6 +25,16 @@
 
 <main>
 
+  <!-- The two things a supplier comes here to do. Shown together until now,
+       which meant scrolling past every product to reach the upload. -->
+  <nav class="tabs viewtabs" id="viewtabs" role="tablist"
+       aria-label="Vendor Portal" hidden>
+    <button class="tab on" role="tab" aria-selected="true"
+            aria-controls="catalogue" data-view="products">My products</button>
+    <button class="tab" role="tab" aria-selected="false"
+            aria-controls="bulk" data-view="bulk">Send a whole range</button>
+  </nav>
+
   <!-- Sign in -->
   <section id="signIn" class="panel">
     <h1>Sign in</h1>
@@ -42,9 +53,11 @@
   </section>
 
   <!-- Products -->
-  <section id="catalogue" class="panel" hidden>
+  <section id="catalogue" class="panel" role="tabpanel"
+           aria-labelledby="viewtabs" hidden>
+    <!-- No heading: the tab above says "My products", and repeating it here
+         would be the same words twice, six pixels apart. -->
     <div class="rowhead">
-      <h1>My products</h1>
       <input id="search" type="search" placeholder="Search by name or SKU">
     </div>
     <div id="products" class="cards"></div>
@@ -52,8 +65,8 @@
   </section>
 
   <!-- Bulk: the whole range in one archive -->
-  <section id="bulk" class="panel" hidden>
-    <h1>Send a whole range</h1>
+  <section id="bulk" class="panel" role="tabpanel"
+           aria-labelledby="viewtabs" hidden>
     <p class="lede">One archive: the spreadsheet, and your photographs in an
       <code>images/</code> folder. Every row is judged the same way a single
       correction is.</p>
@@ -94,20 +107,23 @@
     <h1 id="detailName"></h1>
     <p class="lede" id="detailMeta"></p>
 
-    <nav class="tabs">
-      <button class="tab on" data-tab="spec">Specification</button>
-      <button class="tab" data-tab="files">Documents &amp; images</button>
-      <button class="tab" data-tab="history">What happened</button>
+    <nav class="tabs" role="tablist" aria-label="This product">
+      <button class="tab on" role="tab" aria-selected="true"
+              aria-controls="tab-spec" data-tab="spec">Specification</button>
+      <button class="tab" role="tab" aria-selected="false"
+              aria-controls="tab-files" data-tab="files">Documents &amp; images</button>
+      <button class="tab" role="tab" aria-selected="false"
+              aria-controls="tab-history" data-tab="history">What happened</button>
     </nav>
 
-    <div class="tabbody" id="tab-spec">
+    <div class="tabbody" id="tab-spec" role="tabpanel">
       <table class="spec">
         <thead><tr><th>Attribute</th><th>Variant</th><th>We hold</th><th>Source</th><th></th></tr></thead>
         <tbody id="specRows"></tbody>
       </table>
     </div>
 
-    <div class="tabbody" id="tab-files" hidden>
+    <div class="tabbody" id="tab-files" role="tabpanel" hidden>
       <div class="two">
         <form class="sub" id="docForm">
           <h2>Send a document</h2>
@@ -133,7 +149,7 @@
       </div>
     </div>
 
-    <div class="tabbody" id="tab-history" hidden>
+    <div class="tabbody" id="tab-history" role="tabpanel" hidden>
       <div id="history" class="timeline"></div>
     </div>
   </section>

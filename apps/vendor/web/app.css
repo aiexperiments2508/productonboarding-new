@@ -23,6 +23,14 @@
   --warn: #8a5a00;
   --bad: #9a2c2c;
   --bad-soft: #fdf2f2;
+  /* A recessed panel inside a white one. Was written out as a literal on
+     `.sub` and referenced as a `--sunken` that did not exist by the bulk
+     block, so half of it rendered transparent. */
+  --sunken: #fbfcfd;
+
+  /* Consumed by /shared/base.css, which draws every focus ring but chooses no
+     colour. This portal's ring is its own slab blue. */
+  --focus-ring: var(--brand);
 }
 
 * { box-sizing: border-box; }
@@ -92,9 +100,12 @@ button { font: inherit; cursor: pointer; }
   background: var(--brand); color: #fff; border: 1px solid var(--brand-dark);
   padding: 8px 16px; font-weight: 600;
 }
+.primary:hover:not(:disabled) { background: var(--brand-dark); }
 .primary:disabled { background: #93a5b7; border-color: #93a5b7; cursor: not-allowed; }
 .ghost { background: #fff; border: 1px solid var(--line); padding: 8px 16px; }
+.ghost:hover { border-color: var(--brand); background: var(--sunken); }
 .link { background: none; border: 0; color: var(--brand); text-decoration: underline; padding: 0; }
+.link:hover { color: var(--brand-dark); }
 .back { margin-bottom: 10px; display: inline-block; }
 .tiny { font-size: 12px; padding: 4px 10px; }
 
@@ -105,6 +116,7 @@ button { font: inherit; cursor: pointer; }
   text-align: left; background: #fff; border: 1px solid var(--line);
   padding: 12px 14px; display: block; width: 100%;
 }
+.systems button:hover { border-color: var(--brand); }
 .systems button.on { border-color: var(--brand); box-shadow: inset 3px 0 0 var(--brand); }
 .systems b { display: block; font-size: 14px; }
 .systems span { display: block; font-size: 13px; color: var(--ink-soft); }
@@ -117,6 +129,7 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--line); padding: 14px; background: #fff;
   display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
 }
+.card:hover { border-color: var(--brand); }
 .card b { font-size: 15px; }
 .card .meta { color: var(--ink-soft); font-size: 13px; margin-top: 2px; }
 .card .skus { margin-top: 6px; font-size: 12px; color: var(--ink-soft); }
@@ -128,12 +141,29 @@ button { font: inherit; cursor: pointer; }
 /* --- tabs and spec ------------------------------------------------------ */
 
 .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--line); margin: 16px 0 0; }
+/* `display: flex` is an author rule and beats the user agent's
+   `[hidden] { display: none }`, so a hidden tab bar would otherwise stay on
+   screen. The panels below have no display rule of their own and so do not
+   need this. */
+.tabs[hidden] { display: none; }
 .tab {
   background: none; border: 0; border-bottom: 3px solid transparent;
   padding: 9px 14px; color: var(--ink-soft); font-weight: 600; font-size: 14px;
 }
+.tab:hover { color: var(--ink); }
 .tab.on { color: var(--brand); border-bottom-color: var(--brand); }
 .tabbody { padding-top: 16px; }
+
+/* The same bar, one level up.
+ *
+ * "My products" and "Send a whole range" used to be shown at the same time -
+ * a card per product, and then a two-column upload grid underneath it - so a
+ * supplier with thirty lines scrolled past all thirty to reach the thing they
+ * came to do. They are two tasks, not two parts of one, and this page already
+ * had a tab bar on the product detail that says so. Same vocabulary, one level
+ * up; nothing new to learn. */
+.viewtabs { margin: 0 0 18px; }
+.viewtabs .tab { font-size: 15px; padding: 10px 16px; }
 
 table.spec { width: 100%; border-collapse: collapse; font-size: 14px; }
 table.spec th {
@@ -151,7 +181,7 @@ table.spec code { font-size: 12px; color: var(--ink-soft); }
 .theirs { color: var(--ink-soft); font-size: 12px; }
 
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.sub { border: 1px solid var(--line); padding: 16px; background: #fbfcfd; }
+.sub { border: 1px solid var(--line); padding: 16px; background: var(--sunken); }
 
 /* --- timeline ----------------------------------------------------------- */
 
@@ -219,33 +249,39 @@ dialog menu { display: flex; gap: 10px; justify-content: flex-end; padding: 0; m
 
 /* --- sending a whole range ----------------------------------------------- */
 
-.bulkgrid { display: grid; gap: 1.4rem; grid-template-columns: 1fr 1fr; }
+.bulkgrid { display: grid; gap: 22px; grid-template-columns: 1fr 1fr; }
 @media (max-width: 760px) { .bulkgrid { grid-template-columns: 1fr; } }
 
 .bulkcol h2 {
-  font-size: .82rem; text-transform: uppercase; letter-spacing: .08em;
-  color: var(--muted); margin: 0 0 .6rem;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--ink-soft); margin: 0 0 10px;
 }
 
-.downloads { display: flex; flex-wrap: wrap; gap: .4rem .5rem; margin: .6rem 0; }
-.downloads a { font-size: .86rem; }
+.downloads { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 10px 0; }
+.downloads a { font-size: 13px; }
 
+/* Square, like everything else on this page. The 8px radius this arrived with
+   was the only rounded corner in the stylesheet. */
 .feedresult {
-  margin-top: 1rem; padding: .9rem 1rem;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--sunken);
+  margin-top: 16px; padding: 14px 16px;
+  border: 1px solid var(--line); background: var(--sunken);
 }
-.feedresult h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.feedresult h3 { margin: 0 0 8px; font-size: 15px; }
 
-.feedstats { margin: 0 0 .6rem; padding-left: 1.1rem; color: var(--muted); }
-.feedstats li { font-size: .88rem; }
+.feedstats { margin: 0 0 10px; padding-left: 18px; color: var(--ink-soft); }
+.feedstats li { font-size: 13px; }
 
-.feedbad { width: 100%; border-collapse: collapse; margin: .6rem 0; }
+.feedbad { width: 100%; border-collapse: collapse; margin: 10px 0; }
 .feedbad th, .feedbad td {
-  text-align: left; padding: .3rem .5rem; font-size: .82rem;
+  text-align: left; padding: 5px 8px; font-size: 12px;
   border-bottom: 1px solid var(--line);
 }
-.feedbad th { color: var(--muted); font-weight: 600; }
+.feedbad th { color: var(--ink-soft); font-weight: 600; }
 
 /* A column nobody recognises is the loud case: a supplier about to lose a
-   mandatory declaration to a typo in a header. */
-.warn { color: var(--warn, #a15c00); font-size: .88rem; }
+   mandatory declaration to a typo in a header.
+   Named `feedwarn` and not `warn`: `.warn` above is the red-bordered block the
+   spec dialog uses for a safety-class field, and a second `.warn` at the same
+   specificity was quietly winning on font-size and painting amber text onto
+   that red panel. Two meanings, two classes. */
+.feedwarn { color: var(--warn); font-size: 13px; }

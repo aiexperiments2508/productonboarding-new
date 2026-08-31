@@ -1,0 +1,106 @@
+/* The interaction layer these three applications all lacked.
+ *
+ * Measured before this file existed, across 598 lines of stylesheet:
+ *
+ *                     vendor   ops   storefront
+ *   :focus-visible         0     0            0
+ *   transition             0     0            0
+ *   prefers-reduced-motion 0     0            0
+ *
+ * Zero focus rings means none of the three could be operated by anybody not
+ * using a mouse, which is not a polish problem.
+ *
+ * The obvious fix is to write the same twenty lines into each stylesheet, and
+ * the obvious fix is how they drift: three copies, one of which gets a tweak.
+ * So it lives here once, and `_serve.build` mounts it for all three.
+ *
+ * WHAT THIS FILE MAY NOT CONTAIN, and the reason is the whole point of these
+ * applications: no colour, no type, no spacing, no radii. The Vendor Portal is
+ * a dated corporate extranet, the Storefront is a shopper-facing retail page
+ * and the Ops Console is a dark wall display, and they look unlike each other
+ * deliberately - the one claim the three of them exist to make is that they are
+ * separate systems joined only by a protocol, and a shared palette would say
+ * the opposite louder than any of the copy says it.
+ *
+ * Geometry and timing carry no house style. Colour does. So this file has the
+ * first two and none of the third: every ring is drawn in `--focus-ring`,
+ * which each application sets to its own brand in its own stylesheet.
+ *
+ * The three houses keep their fascias. They all get door handles that work.
+ */
+
+:root {
+  /* Fast enough that a hover feels like a response rather than an animation.
+     Anything past ~200ms on a pointer interaction reads as lag. */
+  --t-fast: 90ms;
+  --t-base: 160ms;
+  --t-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Overridden per application. `currentColor` is a deliberate fallback rather
+     than a colour choice: an app that forgets to set this still gets a visible
+     ring, in whatever it was already painting text with. */
+  --focus-ring: currentColor;
+}
+
+/* --- the ring -------------------------------------------------------------
+ *
+ * `:focus-visible`, not `:focus`, so a mouse click on a button does not leave a
+ * ring behind it while every keyboard path still shows one.
+ *
+ * Ordinary specificity, not `:where()`, and that is load bearing: each app's
+ * own stylesheet loads after this one, so where an app already has a
+ * considered focus style of its own - the Vendor Portal's inset outline on
+ * form fields, say - that one still wins. This fills the gaps; it does not
+ * overrule the deliberate cases.
+ */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible,
+[role="tab"]:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- timing ---------------------------------------------------------------
+ *
+ * Paint properties only. `transition: all` is the tempting one-liner and it is
+ * how a hover ends up animating a layout: `all` includes width, height and
+ * padding, so any rule that changes one of those under :hover starts costing a
+ * reflow per frame. The five below can be composited and cannot reflow.
+ */
+a,
+button,
+input,
+select,
+textarea,
+summary,
+[role="tab"] {
+  transition:
+    background-color var(--t-fast) var(--t-ease),
+    border-color var(--t-fast) var(--t-ease),
+    color var(--t-fast) var(--t-ease),
+    outline-color var(--t-fast) var(--t-ease),
+    box-shadow var(--t-base) var(--t-ease);
+}
+
+/* --- and the way out ------------------------------------------------------
+ *
+ * Not zero: a duration of exactly 0 skips `transitionend`, so anything that
+ * waits on that event never hears back. Near-zero finishes within a frame and
+ * still fires.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

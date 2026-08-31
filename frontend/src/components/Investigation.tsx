@@ -1676,7 +1676,13 @@ export function Investigation({ run, catalog, onOpenCitation }: {
         }
       />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+      {/* One scroller for the whole section, and nothing inside it may
+          shrink. `[&>*]:shrink-0` is the load-bearing half: without it a flex
+          column that scrolls will still squeeze its children to fit, and a
+          Panel squeezed below its content silently clips the remainder behind
+          its own `overflow-hidden` - no scrollbar, no clue, just a finding
+          nobody can reach. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
         {/* --- 0 - the case ------------------------------------------------ */}
         <CaseHeading
           summary={v.case}
@@ -1687,7 +1693,7 @@ export function Investigation({ run, catalog, onOpenCitation }: {
         />
 
         {/* --- 1 - the correction ------------------------------------------ */}
-        <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,2.2fr)_minmax(300px,1fr)]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,2.2fr)_minmax(300px,1fr)]">
           <Panel
             title="The correction"
             icon={<IconDoc size={14} />}
@@ -1715,7 +1721,7 @@ export function Investigation({ run, catalog, onOpenCitation }: {
             )}
           </Panel>
 
-          <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
+          <div className="flex min-w-0 flex-col gap-3">
             <Panel title="Assessment">
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -2057,8 +2063,8 @@ export function Investigation({ run, catalog, onOpenCitation }: {
         </Panel>
 
         {/* --- 6 - evidence, guidance, refusals ----------------------------- */}
-        <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(330px,1fr)]">
-          <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(330px,1fr)]">
+          <div className="flex min-w-0 flex-col gap-3">
             <EvidenceLog records={v.evidence_log ?? []} />
 
             {chain.length > 0 && (
@@ -2102,7 +2108,7 @@ export function Investigation({ run, catalog, onOpenCitation }: {
             )}
           </div>
 
-          <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
+          <div className="flex min-w-0 flex-col gap-3">
             {(v.prior_incidents ?? []).length > 0 && (
               <Panel title="Has this happened before?">
                 <div className="flex flex-col gap-2">

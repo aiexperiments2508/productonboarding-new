@@ -495,8 +495,14 @@ export function Approvals({
                           {rec.trade_offs.map((t, i) => (
                             <tr key={i} className="border-b border-subtle">
                               <Td className="text-sm">{t.dimension}</Td>
-                              <Td className="text-sm text-ok-text">{t.gain}</Td>
-                              <Td className="text-sm text-danger-text">{t.cost}</Td>
+                              {/* Not coloured. The columns are headed Gain and
+                                  Cost, so a green column and a red one restate
+                                  the header on every row - and a table painted
+                                  end to end in the two status hues is the
+                                  loudest thing on a panel whose actual
+                                  warnings need to out-shout it. */}
+                              <Td className="text-sm">{t.gain}</Td>
+                              <Td className="text-sm">{t.cost}</Td>
                             </tr>
                           ))}
                         </tbody>

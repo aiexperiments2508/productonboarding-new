@@ -29,8 +29,8 @@ document governs the copy itself and the evidence behind it.
 | CH-SHELF | `<short name> <headline spec>` | 40 characters, RUL-S01 |
 
 The variant qualifier is **mandatory** wherever a product carries more than one
-variant. PRD-01 ships as VAR-01A "AeroPure 300" and VAR-01B "AeroPure 300 Max".
-A VAR-01B title reading only "AeroPure 300" is a defect even though it sits
+variant. PRD-01 ships as VAR-01A "Northaven AP300" and VAR-01B "Northaven AP300 Max".
+A VAR-01B title reading only "Northaven AP300" is a defect even though it sits
 well inside the character limit, because it makes the listing indistinguishable
 from its sibling and makes every later correction ambiguous to scope.
 
@@ -77,6 +77,20 @@ holds, and frequently do.
 | `peanut-free` | "peanut"/"peanuts" absent from `food.allergens.contains` ∪ `may_contain` |
 | `gluten-free` | "gluten"/"wheat" absent from contains ∪ may_contain |
 | `high-fibre` | `food.fibre_g` ≥ 6 |
+| `made-in-britain` | `origin.country` is the United Kingdom |
+| `recyclable-packaging` | `packaging.recyclable_pct` ≥ 90 |
+
+The last two are the environmental and origin claims `INT-002` lists as
+restricted. Giving them a predicate moves them out of that document's
+jurisdiction and into this one: a claim with a rule is checked by the
+validator at publish, and a claim without one can only be noticed by somebody
+reading. Every restricted claim that can be given a predicate should be.
+
+A predicate is evaluated against whatever is in force, and what is in force is
+sometimes a value the supplier sent in the wrong shape - `"90%"` where an
+integer was declared. A claim resting on an unparseable value does not hold.
+That is not the rule being strict: the record cannot substantiate what it
+cannot read, and the wrong type is already reported as its own finding.
 
 A claim listed in an asset's `claims_used`, or in a variant's `claims`, whose
 rule fails is a `claim_consistency` **HARD** violation. The claim is never

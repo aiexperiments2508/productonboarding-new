@@ -802,7 +802,7 @@ def test_a_correction_of_a_correction_withdraws_the_pending_approval():
 
 
 def test_a_correction_of_a_correction_narrows_the_scope_and_reports_the_move():
-    """The finale. v2 said "the AeroPure 300 draws 65 W" and could have meant
+    """The finale. v2 said "the Northaven AP300 draws 65 W" and could have meant
     either model; v3 says it is the Max, and certifies the base model at 45 W
     on a different document. The record now separates the two readings, so the
     revision must stop applying the correction to the base model - and say what

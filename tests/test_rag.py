@@ -75,8 +75,8 @@ def test_stopwords_are_dropped():
 def test_bm25_separates_similar_identifiers():
     """The property embeddings cannot deliver."""
     index = BM25([
-        "VAR-01A AeroPure 300 is rated at 45 W and remains low-energy",
-        "VAR-01B AeroPure 300 Max is rated at 65 W and loses the claim",
+        "VAR-01A Northaven AP300 is rated at 45 W and remains low-energy",
+        "VAR-01B Northaven AP300 Max is rated at 65 W and loses the claim",
     ])
     ranked = index.rank("VAR-01B", top_k=2)
     assert ranked and ranked[0][0] == 1

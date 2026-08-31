@@ -160,6 +160,58 @@ def test_forbidden_content_is_found_without_a_model():
     assert findings[0].basis == "INT-002"
 
 
+def test_a_withdrawn_product_is_blocked_without_a_model():
+    """The one blocking finding that needs no reading.
+
+    ``saleability`` asks a model whether a mandate covers this product, which
+    is a question about a regulation's scope. This asks whether a withdrawal
+    notice has already been served, which is a fact in the record - and
+    putting it behind a gateway would mean a withdrawn product read as merely
+    incomplete every time the gateway was down.
+    """
+    base = baseline_mod.get()
+    record = record_mod.build(CLEAN)
+    record.values[checks_mod.SALE_PERMITTED] = False
+
+    findings = checks_mod.sale_permitted(record, base)
+
+    assert findings, "a withdrawn product was not blocked"
+    assert findings[0].severity == BLOCKING
+    assert findings[0].basis == "REG-003"
+    assert verdict_mod.decide(findings) == verdict_mod.BLOCKED
+
+
+def test_a_product_still_permitted_raises_nothing():
+    """Only an explicit denial blocks.
+
+    A missing value is a gap ``applicable_attributes`` already reports.
+    Reading "we were never told" as "not permitted" would hold the whole
+    catalogue the first time a supplier left the field empty, which is a
+    fail-closed rule doing more harm than the thing it guards against.
+    """
+    base = baseline_mod.get()
+    record = record_mod.build(CLEAN)
+
+    assert record.values.get(checks_mod.SALE_PERMITTED) is True
+    assert not checks_mod.sale_permitted(record, base)
+
+    record.values.pop(checks_mod.SALE_PERMITTED)
+    assert not checks_mod.sale_permitted(record, base)
+
+
+def test_both_surfaces_name_the_same_attribute():
+    """A withdrawal bars a launch here and refuses a publish in the validator.
+
+    Two names for one fact would mean one surface silently not implementing
+    it, and the surface that failed to would be whichever a reviewer happened
+    to be looking at.
+    """
+    from sc.sim import engine
+
+    assert checks_mod.SALE_PERMITTED == engine.SALE_PERMITTED
+    assert "sale_permitted" in verdict_mod.SALEABILITY_CHECKS
+
+
 def test_readiness_and_publication_read_one_rule_table():
     """Two implementations of one rule are two answers to "why was this held",
     and the reviewer is shown whichever one ran."""

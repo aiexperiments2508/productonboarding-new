@@ -14,7 +14,7 @@ tags: [print, catalogue, freeze-window, stale-version, irreversible, sequencing,
 
 ## Summary
 
-A SUP-01 correction to PRD-06 Voltaic Desk Fan V2 raised its rated power from
+A SUP-01 correction to PRD-06 Northaven Desk Fan V2 raised its rated power from
 40 W to 55 W. The correction arrived three days before the spring catalogue's
 press date. It was applied to the attribute, propagated to CH-WEB, CH-MKT-A and
 CH-SHELF within the hour, and applied to the CH-PRINT catalogue copy as well -

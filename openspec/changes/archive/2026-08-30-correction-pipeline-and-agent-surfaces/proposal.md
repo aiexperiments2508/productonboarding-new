@@ -29,7 +29,7 @@ the size it is.
   derived from every fact in force, so an air-purifier wattage correction and a
   snack bar's net weight arrived at the reviewer as one approval. That was the
   visible half. The invisible half was worse: `_forced_escalation` measured the
-  **union** blast radius, so an AeroPure run came back CRITICAL with a
+  **union** blast radius, so an Northaven AP300 run came back CRITICAL with a
   `triage_reason` reading "escalated by policy: PRD-02, PRD-05 is regulated" -
   rendered verbatim on two screens and carried into the approval grounds. The
   purifier is not regulated and its rated power is not safety-class; the

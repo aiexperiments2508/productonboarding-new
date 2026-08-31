@@ -491,16 +491,15 @@ supplied, and the imaging system is the one that has to fix it.
 tells you who to email.''
 \end{say}
 
-\textbf{Do this:} scroll down to \ui{THE RECORD}.
+\textbf{Do this:} click \ui{The record} in the strip under the product name.
 
 \begin{say}[Say this]
 ``And for every value, which system gave it to us. When two systems disagree,
 we can say which one was wrong.''
 \end{say}
 
-\textbf{Do this:} click \ui{AeroPure 300} at the top of the list --- a green
-one. Then type a name into the small box next to the button, and click
-\ui{Open staging page}.
+\textbf{Do this:} click \ui{Northaven AP300} at the top of the list --- a green
+one. Then click \ui{Open staging page}, top right.
 
 \begin{say}[Say this]
 ``This one passed, so we can see the page it would become.
@@ -511,10 +510,47 @@ document we actually wrote. It shows you both, underneath. If it cannot
 support a claim from both, it does not make the claim.''
 \end{say}
 
-\begin{careful}[The staging page asks for a name]
-This is deliberate --- it is unpublished commercial content, and the system
-records who looked at it. If you click the button without typing a name,
-nothing happens and you will look stuck. Type a name first.
+\begin{careful}[The staging page records who looked]
+The \ui{Viewing as} box beside the button is deliberate --- this is unpublished
+commercial content, and the system records who saw it before it launched. It is
+filled in for you; change it to your own name if you like.
+\end{careful}
+
+% ---------------------------------------------------------------------------
+\subsection{If somebody asks ``does it only do allergens?''}
+
+They will, and the honest answer is a list. The tape carries seven more
+corrections on the rest of the catalogue, each a different \emph{kind} of
+thing going wrong. Use \ui{Jump to the correction} and then step the transport
+to the day, or just say what they are.
+
+\begin{center}
+\begin{tabular}{@{}rll@{}}
+\textbf{Day} & \textbf{What arrives} & \textbf{Why it is different} \\
+\midrule
+8  & A pack shrinks & shelf label and price per unit both quote it \\
+22 & A certificate expires & product unchanged, the claim loses its evidence \\
+27 & Country of origin moves & a labelling particular and a claim at once \\
+44 & \textbf{A withdrawal notice} & not a correction --- nothing is wrong, it stops \\
+48 & An export classification & lawful here, restricted elsewhere \\
+52 & A fibre label is revised & ordered declaration, so a reorder is a change \\
+56 & The rules themselves change & nobody's fault, nothing to return \\
+\end{tabular}
+\end{center}
+
+\begin{say}[Say this, on day 44]
+``This one is worth a second. Everything else we have looked at was a value
+being wrong. Here nothing is wrong --- a market authority has said stop, and
+the record is perfect. The system takes every channel down on the authority of
+the notice, and it does not pretend it can recall the printed catalogue. That
+is an erratum, owed and dated.''
+\end{say}
+
+\begin{careful}[Two of these are not safety issues, and saying so matters]
+The export classification on day 48 and the lapsed certificate on day 22 both
+sound alarming and neither is a safety finding. If somebody in the room hears
+``dual-use'' and reaches for the word ``unsafe'', correct it --- the product is
+fine, and we simply cannot ship it everywhere.
 \end{careful}
 
 % ---------------------------------------------------------------------------
@@ -750,7 +786,7 @@ traffic'' \\[3pt]
 \textbf{4.} \ui{Review \& Audit} --- ``it stopped for a human'' --- scroll,
 type a name, \ui{Approve and republish} \\[3pt]
 \textbf{5.} \ui{Product 360} --- click the orange one, ``named finding, not a
-score'' --- click a green one, type a name, \ui{Open staging page}
+score'' --- click a green one, \ui{Open staging page}
 \end{tcolorbox}
 
 \vspace{0.4em}
@@ -759,8 +795,7 @@ score'' --- click a green one, type a name, \ui{Open staging page}
 Page dead $\rightarrow$ check the terminal, \texttt{python run.py} again\\
 ``file in use'' $\rightarrow$ close all terminals, retry\\
 Gateway not green $\rightarrow$ carry on, say it is running without AI\\
-Lost $\rightarrow$ \ui{Rewind the tape}, then \ui{Jump to the correction}\\
-Stuck on staging page $\rightarrow$ you forgot to type a name
+Lost $\rightarrow$ \ui{Rewind the tape}, then \ui{Jump to the correction}
 \end{tcolorbox}
 
 \vspace{0.4em}

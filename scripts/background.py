@@ -42,126 +42,138 @@ surface was built to draw.
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Who else the retailer buys from
+# The assortment, from the retailer profile
 # ---------------------------------------------------------------------------
-# Hand-authored rather than generated. A supplier is a proper noun, and
-# "Supplier 47" in a demo about knowing who to chase reads as a system that
-# does not know who it buys from.
+# None of this is hardcoded any more. `data/profiles/<id>.json` says who the
+# retailer buys from, what it sells and how its categories are labelled, and
+# `RETAILER_PROFILE` picks the file. A supplier is still a proper noun and a
+# product is still a product line somebody could read off a shelf edge - what
+# changed is that they are data, so pointing the demo at a different retailer
+# is a new profile rather than an edit here.
 
-SUPPLIERS = [
-    # id,        name,                        family
-    ("SUP-11", "Northgate Appliance Co.",     "home"),
-    ("SUP-12", "Harrow & Vale Kitchenware",   "home"),
-    ("SUP-13", "Bramblewood Bakery",          "food"),
-    ("SUP-14", "Copperfield Provisions",      "food"),
-    ("SUP-15", "Lumen Audio Works",           "audio"),
-    ("SUP-16", "Petrichor Home Fragrance",    "home"),
-    ("SUP-17", "Kestrel Small Domestics",     "home"),
-    ("SUP-18", "Silverbrook Foods",           "food"),
-]
+import importlib.util as _ilu
+from pathlib import Path as _Path
+
+_spec = _ilu.spec_from_file_location(
+    "seed_retailer", _Path(__file__).resolve().parent / "retailer.py")
+retailer = _ilu.module_from_spec(_spec)          # type: ignore[arg-type]
+_spec.loader.exec_module(retailer)               # type: ignore[union-attr]
+
+PROFILE = retailer.PROFILE
+
+#: id, name, branch - in profile order, because the draw walks it.
+SUPPLIERS = retailer.suppliers()
+
+#: Every node, including the branch roots. The generator merges this over its
+#: own hand-authored hero nodes, so the profile is the source of truth for a
+#: label the two might otherwise disagree about.
+TAXONOMY = retailer.taxonomy()
+
+def _interleave(rows: list[tuple[str, str, bool]]) -> list[tuple[str, str, bool]]:
+    """Deal the assortment round-robin across branches.
+
+    The profile lists lines branch by branch, because that is how somebody
+    writes and reads one. Walking that order and stopping at `COUNT` would
+    build a catalog of groceries and clothes with no pharmacy in it at all -
+    the branches that happen to be written last would simply not exist.
+
+    Dealing instead means the cut falls proportionally: every branch is
+    represented, the big ones stay big, and which lines are left over is a
+    property of the assortment rather than of the order somebody typed it in.
+    """
+    by_branch: dict[str, list[tuple[str, str, bool]]] = {}
+    for row in rows:
+        by_branch.setdefault(row[0].split(".")[0], []).append(row)
+    order = sorted(by_branch)
+    out: list[tuple[str, str, bool]] = []
+    for i in range(max(len(v) for v in by_branch.values())):
+        for branch in order:
+            if i < len(by_branch[branch]):
+                out.append(by_branch[branch][i])
+    return out
+
+
+#: The catalogue, as `(leaf, product line, is_own_brand)`. 180 lines for 144
+#: products, so no line is used twice and the mix is a real assortment rather
+#: than a formula with the numbers filed off.
+LINES = _interleave(retailer.lines())
+
+_BRANCHES = retailer.branches()
+_VOCAB = PROFILE["vocabularies"]
+_OWN = retailer.own_brand()
+
+
+def _branch(leaf: str) -> str:
+    return leaf.split(".")[0]
+
+
+def _mkt_a_code(leaf: str) -> str:
+    """Marketplace A's own category code for one of our leaves.
+
+    Derived rather than hand-listed: the code is opaque to a reader either way,
+    and 88 hand-written mappings is 88 chances to leave one out and discover it
+    as a CATEGORY_MAPPED violation on a product nobody was looking at.
+    """
+    branch = _branch(leaf)
+    base = 1000 + 100 * sorted(_BRANCHES).index(branch)
+    within = 10 * (sorted(k for k in TAXONOMY if k.startswith(f"{branch}."))
+                   .index(leaf) + 1)
+    label = TAXONOMY[leaf].split(" > ")[-1]
+    return f"{base}/{2000 + within} {label}"
+
+
+def _mkt_b_path(leaf: str) -> str:
+    """Marketplace B's taxonomy is flatter than ours - two levels, always."""
+    parts = leaf.split(".")
+    return f"{parts[0]}/{parts[-1]}"
+
+
+#: Only leaves that carry a product line need a mapping; a node nothing sits in
+#: cannot be listed against. Both marketplaces are given the same coverage, so
+#: "this product is on one marketplace and not the other" stays a fact about
+#: the channel draw rather than an artefact of a missing mapping.
+_LEAVES_IN_USE = sorted({leaf for leaf, _n, _o in LINES})
+MKT_A_CATS = {leaf: _mkt_a_code(leaf) for leaf in _LEAVES_IN_USE}
+MKT_B_CATS = {leaf: _mkt_b_path(leaf) for leaf in _LEAVES_IN_USE}
 
 # ---------------------------------------------------------------------------
-# Where they sit in the taxonomy
-# ---------------------------------------------------------------------------
-# Two of these leaves sit outside every prefix in REQUIRED_MEDIA on purpose.
-# "this category needs no imagery" and "this category is missing its imagery"
-# are different states, and a catalog where every category required pictures
-# could not show the difference.
-
-TAXONOMY = {
-    "home.laundry": "Home > Laundry",
-    "home.laundry.irons": "Home > Laundry > Irons & Steamers",
-    "home.floorcare": "Home > Floorcare",
-    "home.floorcare.vacuums": "Home > Floorcare > Vacuum Cleaners",
-    "home.kitchen.toasters": "Home > Kitchen > Toasters",
-    "home.kitchen.blenders": "Home > Kitchen > Blenders",
-    "home.air-treatment.humidifiers": "Home > Air Treatment > Humidifiers",
-    "food.bakery": "Food > Bakery",
-    "food.bakery.biscuits": "Food > Bakery > Biscuits",
-    "food.beverages": "Food > Beverages",
-    "food.beverages.tea": "Food > Beverages > Tea",
-    "food.snacks.nuts": "Food > Snacks > Nuts & Seeds",
-    "audio.speakers": "Audio > Speakers",
-    "audio.speakers.portable": "Audio > Speakers > Portable Speakers",
-    "audio.headphones.over-ear": "Audio > Headphones > Over-Ear",
-}
-
-#: Leaves background products are drawn from, with the words used to name them.
-#: Ordered, because the draw walks it and a set would not be reproducible.
-LEAVES: list[tuple[str, str, tuple[str, ...]]] = [
-    ("home.laundry.irons", "Steam Iron", ("Glide", "Crease", "Vapour", "Sleek")),
-    ("home.floorcare.vacuums", "Vacuum Cleaner",
-     ("Whirl", "Dustline", "Cyclo", "Sweep")),
-    ("home.kitchen.toasters", "Toaster", ("Amber", "Crust", "Morningside")),
-    ("home.kitchen.blenders", "Blender", ("Vortex", "Smoothline", "Blitz")),
-    ("home.kitchen.kettles", "Kettle", ("Brookvale", "Steamwell")),
-    ("home.air-treatment.humidifiers", "Humidifier",
-     ("Mistral", "Dewpoint", "Vapourfield")),
-    ("home.air-treatment.fans", "Desk Fan", ("Zephyr", "Breezeline")),
-    ("food.bakery.biscuits", "Biscuits", ("Hearthstone", "Butterfield")),
-    ("food.beverages.tea", "Tea", ("Cloudleaf", "Rosehill")),
-    ("food.snacks.nuts", "Nut Mix", ("Grovewell", "Saltbrook")),
-    ("food.snacks.bars", "Snack Bar", ("Trailhead", "Meadowcut")),
-    ("audio.speakers.portable", "Portable Speaker", ("Resonate", "Palmwave")),
-    ("audio.headphones.over-ear", "Headphones", ("Halcyon", "Deepfield")),
-]
-
-#: Marketplace category mappings for the new leaves. Without these a listing on
-#: Marketplace A fails CATEGORY_MAPPED, which is a real rule and not one to
-#: route around by keeping background products off the channel.
-MKT_A_CATS = {
-    "home.laundry.irons": "1043/2280 Irons & Steamers",
-    "home.floorcare.vacuums": "1043/2150 Vacuum Cleaners",
-    "home.kitchen.toasters": "1043/3310 Toasters",
-    "home.kitchen.blenders": "1043/3340 Blenders",
-    "home.air-treatment.humidifiers": "1043/2240 Humidifiers",
-    "home.air-treatment.fans": "1043/2260 Fans",
-    "home.kitchen.kettles": "1043/3320 Kettles",
-    "food.bakery.biscuits": "3120/4510 Biscuits",
-    "food.beverages.tea": "3120/4720 Tea",
-    "food.snacks.nuts": "3120/4430 Nuts & Seeds",
-    "audio.speakers.portable": "2255/6720 Portable Speakers",
-    "audio.headphones.over-ear": "2255/6620 Over-Ear Headphones",
-}
-
-MKT_B_CATS = {
-    "home.laundry.irons": "laundry/irons",
-    "home.floorcare.vacuums": "floorcare/vacuums",
-    "home.kitchen.toasters": "kitchen/toasters",
-    "home.kitchen.blenders": "kitchen/blenders",
-    "home.air-treatment.humidifiers": "climate/humidifiers",
-    "food.bakery.biscuits": "snacks/biscuits",
-    "food.beverages.tea": "drinks/tea",
-    "food.snacks.nuts": "snacks/nuts",
-    "audio.speakers.portable": "audio/speakers",
-    "audio.headphones.over-ear": "audio/headphones",
-}
-
-# ---------------------------------------------------------------------------
-# The vocabulary each family's copy and attributes are built from
+# The vocabulary each branch's attributes are built from
 # ---------------------------------------------------------------------------
 
-FILTERS = ("HEPA H13", "HEPA H12", "Carbon + HEPA", "Washable mesh")
-ENERGY = ("A", "A", "A", "B", "B", "C")
+FOOD = _VOCAB["food"]
+INGREDIENTS = {k: list(v["ingredients"]) for k, v in FOOD.items()}
+CONTAINS = {k: list(v["contains"]) for k, v in FOOD.items()}
+MAY_CONTAIN = {k: list(v["may_contain"]) for k, v in FOOD.items()}
 
-INGREDIENTS = {
-    "food.bakery.biscuits": ["wheat flour", "butter", "sugar", "eggs", "salt"],
-    "food.beverages.tea": ["black tea", "bergamot oil"],
-    "food.snacks.nuts": ["almonds", "cashews", "sea salt", "sunflower oil"],
-    "food.snacks.bars": ["oats", "honey", "raisins", "sunflower oil"],
-}
-CONTAINS = {
-    "food.bakery.biscuits": ["gluten", "milk", "egg"],
-    "food.beverages.tea": [],
-    "food.snacks.nuts": ["nuts"],
-    "food.snacks.bars": ["oats"],
-}
-MAY_CONTAIN = {
-    "food.bakery.biscuits": ["nuts"],
-    "food.beverages.tea": [],
-    "food.snacks.nuts": ["peanuts"],
-    "food.snacks.bars": ["nuts"],
-}
+FILTERS = tuple(_VOCAB["filter_types"])
+ENERGY = tuple(_VOCAB["energy_classes"])
+FIBRES = tuple(tuple(f) for f in _VOCAB["fibre_composition"])
+CARE_CODES = tuple(_VOCAB["care_codes"])
+INCI = tuple(tuple(i) for i in _VOCAB["inci"])
+ACTIVES = tuple(tuple(a) for a in _VOCAB["actives"])
+PLUGS = tuple(_VOCAB["plug_types"])
+BATTERIES = tuple(_VOCAB["battery_types"])
+ORIGINS = tuple(_VOCAB["origins"])
+CERT_PREFIXES = tuple(_VOCAB["certificate_prefixes"])
+
+#: Which branches take a mains plug, a cell, a fibre label, an ingredient list.
+#: Prefix tuples rather than branch names, because the line is drawn inside a
+#: branch as often as between two - a kettle is mains and a knife is not.
+MAINS = ("home.kitchen.", "home.laundry.", "home.floorcare.",
+         "home.air-treatment.", "electronics.vision.",
+         "electronics.computing.", "electronics.audio.soundbars")
+CELLS = ("electronics.mobile.", "electronics.personal.", "electronics.audio.",
+         "general.toys.", "baby.toys.", "health.devices.")
+TEXTILE = ("apparel.", "home.textiles.")
+COSMETIC = ("hpc.toiletries.", "hpc.cosmetics.")
+MEDICINAL = ("health.medicines.", "health.supplements.")
+CERTIFIED = ("electronics.", "home.kitchen.", "home.laundry.",
+             "home.floorcare.", "home.air-treatment.", "general.toys.",
+             "general.garden.", "general.diy.", "baby.toys.",
+             "baby.feeding.bottles", "health.devices.")
+#: Packaged goods declare a net quantity. A jumper does not.
+PACKAGED = ("food.", "hpc.", "baby.feeding.", "baby.nappies.", "health.",
+            "general.pet.", "general.diy.paint")
 
 #: Copy that must never be published, planted so the forbidden-content check
 #: has something to find outside the hand-authored six. Every phrase is one
@@ -172,6 +184,8 @@ BAD_SENTENCES = (
     "Completely safe for use around infants and pets.",
     "Guaranteed to cut your energy bill in half.",
     "Treats the causes of poor sleep, not just the symptoms.",
+    "Prevents the build-up that causes odours, 100% effective.",
+    "A harmless formulation that cures dry skin for good.",
 )
 
 # ---------------------------------------------------------------------------
@@ -245,14 +259,16 @@ def build(rng, *, count: int = COUNT) -> dict:
 
     for n in range(count):
         pid = f"PRD-{101 + n}"
-        leaf, noun, names = LEAVES[n % len(LEAVES)]
-        family = leaf.split(".")[0]
-        candidates = [s for s in SUPPLIERS if s[2] == family] or SUPPLIERS
+        # Walk the lines rather than sampling them: 180 lines for 144 products
+        # means every product is a distinct thing somebody could buy, and no
+        # two rows of the catalog are the same product with a different number
+        # bolted on.
+        leaf, line, own = LINES[n % len(LINES)]
+        branch = _branch(leaf)
+        candidates = [s for s in SUPPLIERS if s[2] == branch] or SUPPLIERS
         supplier = candidates[rng.randint(0, len(candidates) - 1)]
-        stem = names[rng.randint(0, len(names) - 1)]
-        model = 100 + rng.randint(1, 899)
-        name = f"{stem} {model} {noun}"
-        regulated = family == "food"
+        name = f"{_OWN} {line}" if own else line
+        regulated = retailer.is_regulated(leaf)
 
         products.append((pid, name, leaf, supplier[0], regulated))
         listing_channels[pid] = _channels_for(leaf, rng)
@@ -262,9 +278,10 @@ def build(rng, *, count: int = COUNT) -> dict:
         # story turns on.
         for v in range(rng.randint(1, 3)):
             vid = f"VAR-{101 + n}{chr(ord('A') + v)}"
-            variant_name = name if v == 0 else f"{name} {('Plus', 'Max')[v - 1]}"
+            variant_name = (name if v == 0
+                            else f"{name} {_qualifier(leaf, v)}")
             variants.append((vid, pid, variant_name, v == 0))
-            skus[vid] = f"{stem[:3].upper()}-{model}-{chr(ord('A') + v)}"
+            skus[vid] = f"{branch[:3].upper()}-{101 + n:03d}-{chr(ord('A') + v)}"
             prices[vid] = round(4 + rng.uniform(0, 180), 2)
 
             damaged = rng.chance(DEFECT_SHARE)
@@ -292,6 +309,34 @@ def build(rng, *, count: int = COUNT) -> dict:
     }
 
 
+#: How a second and third variant of one line differ. A jumper comes in
+#: colours, a shampoo comes in sizes, a television comes in a bigger one -
+#: and "Semi-Skimmed Milk 2 L Max" is the sort of name that tells a room the
+#: catalog was generated.
+_QUALIFIERS: tuple[tuple[tuple[str, ...], tuple[str, str]], ...] = (
+    (("apparel.", "home.textiles."), ("Navy", "Charcoal")),
+    (("food.", "hpc.", "baby.", "health.", "general.pet."),
+     ("Multipack", "Large Pack")),
+)
+
+
+def _qualifier(leaf: str, v: int) -> str:
+    for prefixes, words in _QUALIFIERS:
+        if leaf.startswith(prefixes):
+            return words[v - 1]
+    return ("Plus", "Max")[v - 1]
+
+
+def _declares_food(leaf: str) -> bool:
+    """Does this leaf carry an ingredient and allergen declaration?
+
+    Food does, and so does anything eaten that is not shelved with it - infant
+    formula and weaning foods are in `baby.` because that is where a shopper
+    looks for them, not because the labelling regime lets them off.
+    """
+    return leaf in FOOD
+
+
 def _lists_allergens(leaf: str) -> bool:
     """Does this category have an allergen declaration to make?
 
@@ -302,7 +347,7 @@ def _lists_allergens(leaf: str) -> bool:
     it is kept off those two channels rather than given a declaration it has no
     basis for.
     """
-    return not leaf.startswith("food.") or bool(CONTAINS.get(leaf))
+    return not _declares_food(leaf) or bool(CONTAINS.get(leaf))
 
 
 def _channels_for(leaf: str, rng) -> list[str]:
@@ -326,6 +371,30 @@ def _channels_for(leaf: str, rng) -> list[str]:
     return channels
 
 
+#: Attributes whose declared type may be spoiled without breaking the
+#: publish-time contract. Every one of these is optional at the category and
+#: demanded by no channel, so a wrong type here is a readiness finding and
+#: never a validator violation. `specs.power_w` is deliberately absent:
+#: CH-MKT-A types it (RUL-A03), so spoiling it would break a listing.
+_SPOILABLE = ("specs.noise_db", "specs.coverage_m2", "packaging.recyclable_pct",
+              "food.net_weight_g", "food.fibre_g")
+
+#: How each type is got wrong. Always the way a real export gets it wrong -
+#: the unit typed into the cell, the percent sign kept - rather than noise,
+#: because a reviewer has to recognise the mistake to fix it at source.
+_SPOILED = {
+    "specs.noise_db": lambda v: f"{v} dB",
+    "specs.coverage_m2": lambda v: f"{v} m2",
+    "packaging.recyclable_pct": lambda v: f"{v}%",
+    "food.net_weight_g": lambda v: f"{v} g",
+    "food.fibre_g": lambda v: f"{v}g",
+}
+
+
+def _spoil(path: str, value):
+    return _SPOILED[path](value)
+
+
 def _attributes(vid: str, leaf: str, doc: str, rng, damaged: bool,
                 salt: int) -> list[tuple]:
     """One variant's values.
@@ -334,16 +403,132 @@ def _attributes(vid: str, leaf: str, doc: str, rng, damaged: bool,
     that could not be published would be breaking the validator's contract
     rather than failing a readiness check, and those are different claims made
     by different code. What gets left out is what the category declares and no
-    channel demands - a sound level, an energy class, a fibre figure - which is
-    exactly the gap `applicable_attributes` exists to report.
+    channel demands - a sound level, a fibre label, a recyclability figure -
+    which is exactly the gap `applicable_attributes` exists to report.
+
+    The compliance attributes are the interesting half. `compliance.*` is
+    safety-class, so a document that moves one inherits forced escalation,
+    mandatory review, the fail-closed confidence gate and the redaction path
+    without a line of new rule code. Here they are simply set to the state a
+    product is in when nothing has gone wrong yet: on sale, correctly aged,
+    not export-controlled. The arcs are what move them.
     """
     rows: list[tuple] = []
 
     def put(path: str, value) -> None:
         rows.append((vid, path, value, doc, "v1"))
 
+    def pick(seq):
+        return seq[rng.randint(0, len(seq) - 1)]
+
     # Required everywhere it applies, so it is never dropped.
     put("identifiers.gtin", _gtin(salt * 7 + 11, broken=False))
+
+    # Every product is on sale until something says otherwise. Recorded rather
+    # than inferred, so the fail-closed gate has nothing to fire on and the
+    # baseline is publishable - which is what makes a later takedown legible
+    # as a change rather than as a catalog that was always broken.
+    put("compliance.sale_permitted", True)
+    put("origin.country", pick(ORIGINS))
+
+    age = retailer.minimum_age(leaf)
+    if age is not None:
+        put("compliance.min_age", age)
+
+    if leaf in retailer.export_controlled():
+        # "NONE" is a classification, not an absence. A product nobody has
+        # classified and a product classified as unrestricted are different
+        # states, and only one of them is safe to ship.
+        put("compliance.export_control", "NONE")
+
+    claimed: list[str] = []
+    optional: list[str] = []
+    values: dict[str, object] = {}
+
+    def offer(path: str, value) -> None:
+        """An attribute the category declares and no channel demands."""
+        optional.append(path)
+        values[path] = value
+
+    if leaf.startswith(PACKAGED):
+        put("pack.net_quantity", float(10 * rng.randint(3, 120)))
+        put("pack.unit", "g" if rng.chance(0.7) else "ml")
+        offer("packaging.recyclable_pct", 5 * rng.randint(4, 20))
+
+    if leaf.startswith("home."):
+        if leaf.startswith(MAINS):
+            put("specs.power_w", 20 * rng.randint(2, 120))
+            put("specs.plug_type", pick(PLUGS))
+            offer("energy.class", pick(ENERGY))
+        offer("specs.noise_db", rng.randint(28, 62))
+        if leaf.startswith("home.air-treatment"):
+            offer("specs.coverage_m2", 5 * rng.randint(4, 20))
+            offer("specs.filter_type", pick(FILTERS))
+
+    if leaf.startswith("electronics."):
+        if leaf.startswith(MAINS):
+            put("specs.power_w", rng.randint(15, 220))
+            put("specs.plug_type", pick(PLUGS))
+            offer("energy.class", pick(ENERGY))
+        elif rng.chance(0.5):
+            offer("specs.power_w", rng.randint(2, 40))
+
+    if leaf.startswith(CELLS):
+        put("specs.battery_type", pick(BATTERIES))
+
+    if _declares_food(leaf):
+        put("food.ingredients", list(INGREDIENTS[leaf]))
+        put("food.allergens.contains", list(CONTAINS[leaf]))
+        put("food.allergens.may_contain", list(MAY_CONTAIN[leaf]))
+        if leaf.startswith("food."):
+            # Declared against groceries only. Infant formula carries the same
+            # ingredient and allergen statement, and its quantity is declared
+            # as a pack net quantity rather than in the grocery vocabulary.
+            offer("food.net_weight_g", 10 * rng.randint(3, 60))
+            offer("food.fibre_g", round(rng.uniform(0.4, 9.5), 1))
+
+    if leaf.startswith(TEXTILE):
+        # Ordered, and the order is the declaration: a fibre label is read as
+        # descending percentage, so reordering it says something different.
+        put("textile.fibre_composition", list(pick(FIBRES)))
+        offer("textile.care_code", pick(CARE_CODES))
+
+    if leaf.startswith(COSMETIC):
+        put("cosmetic.inci", list(pick(INCI)))
+
+    if leaf.startswith(MEDICINAL):
+        put("health.active_ingredient", list(pick(ACTIVES)))
+
+    if leaf.startswith(CERTIFIED):
+        offer("compliance.certificate_ref",
+              f"{pick(CERT_PREFIXES)}-{2400 + rng.randint(1, 599)}")
+
+    # The gap. One applicable attribute nobody sent, which is the single most
+    # common thing wrong with a supplier's data and the reason
+    # `applicable_attributes` is the first check in the list.
+    #
+    # Some of the time the supplier *did* answer and answered in the wrong
+    # shape - a weight as "375 g", a percentage as "90%". That is a different
+    # defect with a different remedy, and keeping the two apart is the whole
+    # argument for a named finding over a quality score. Only attributes no
+    # channel declares a dtype for are spoiled this way: a mistyped value the
+    # publish-time validator would reject is a broken catalog, not a readiness
+    # finding, and the two must not be confused.
+    target = optional[rng.randint(0, len(optional) - 1)] if (
+        damaged and optional) else None
+    mistyped = (target is not None
+                and target in _SPOILABLE
+                and rng.chance(0.4))
+
+    for path in optional:
+        if path == target and not mistyped:
+            _declare(vid, "applicable_attributes", path)
+            continue
+        if path == target:
+            put(path, _spoil(path, values[path]))
+            _declare(vid, "declared_types", path)
+            continue
+        put(path, values[path])
 
     # Claims apply to every category, so a variant with no claims value is a
     # variant with an open finding - which would have made "returned to source"
@@ -354,54 +539,26 @@ def _attributes(vid: str, leaf: str, doc: str, rng, damaged: bool,
     # Anything actually claimed has to hold against the substantiation table,
     # because a claim the validator would refuse at publish is a claim the
     # reviewer approves and the channel rejects - the worst of both.
-    claimed: list[str] = []
-
-    if leaf.startswith("home."):
-        put("specs.power_w", 20 * rng.randint(2, 120))
-        optional = ["specs.noise_db", "energy.class"]
-        if leaf.startswith("home.air-treatment"):
-            optional += ["specs.coverage_m2", "specs.filter_type"]
-        values = {
-            "specs.noise_db": rng.randint(28, 62),
-            "energy.class": ENERGY[rng.randint(0, len(ENERGY) - 1)],
-            "specs.coverage_m2": 5 * rng.randint(4, 20),
-            "specs.filter_type": FILTERS[rng.randint(0, len(FILTERS) - 1)],
-        }
-        # The gap. One applicable attribute nobody sent, which is the single
-        # most common thing wrong with a supplier's data and the reason
-        # `applicable_attributes` is the first check in the list.
-        dropped = optional[rng.randint(0, len(optional) - 1)] if damaged else None
-        for path in optional:
-            if path == dropped:
-                _declare(vid, "applicable_attributes", path)
-                continue
-            put(path, values[path])
-
-    if leaf.startswith("food."):
-        put("food.ingredients", list(INGREDIENTS[leaf]))
-        put("food.allergens.contains", list(CONTAINS[leaf]))
-        put("food.allergens.may_contain", list(MAY_CONTAIN[leaf]))
-        optional = ["food.net_weight_g", "food.fibre_g"]
-        values = {
-            "food.net_weight_g": 10 * rng.randint(3, 60),
-            "food.fibre_g": round(rng.uniform(0.4, 9.5), 1),
-        }
-        dropped = optional[rng.randint(0, len(optional) - 1)] if damaged else None
-        for path in optional:
-            if path == dropped:
-                _declare(vid, "applicable_attributes", path)
-                continue
-            put(path, values[path])
-
-    if leaf.startswith("audio.") and rng.chance(0.5):
-        put("specs.power_w", rng.randint(2, 40))
-
     held = {path: value for _e, path, value, *_r in rows}
-    if held.get("specs.noise_db") is not None and held["specs.noise_db"] <= 40:
+
+    def figure(path: str):
+        """The value as a number, or None if this variant's is spoiled.
+
+        A claim rests on a value, and a value the supplier sent as "38 dB" is
+        not one yet. Declining to claim on it is the correct reading: the
+        record cannot substantiate what it cannot parse, and the wrong type is
+        already reported as its own finding.
+        """
+        try:
+            return float(str(held[path]).rstrip("%").strip())
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    if (noise := figure("specs.noise_db")) is not None and noise <= 40:
         claimed.append("ultra-quiet")
-    if held.get("specs.power_w") is not None and held["specs.power_w"] <= 50:
+    if (power := figure("specs.power_w")) is not None and power <= 50:
         claimed.append("low-energy")
-    if leaf.startswith("food."):
+    if _declares_food(leaf):
         allergens = " ".join(str(a) for a in
                              (CONTAINS.get(leaf) or []) + (MAY_CONTAIN.get(leaf) or []))
         if "peanut" not in allergens:
@@ -409,8 +566,13 @@ def _attributes(vid: str, leaf: str, doc: str, rng, damaged: bool,
         if "gluten" not in allergens and "wheat" not in " ".join(
                 INGREDIENTS.get(leaf) or []):
             claimed.append("gluten-free")
-        if held.get("food.fibre_g") is not None and held["food.fibre_g"] >= 6:
+        if (fibre := figure("food.fibre_g")) is not None and fibre >= 6:
             claimed.append("high-fibre")
+    if held.get("origin.country") == "United Kingdom":
+        claimed.append("made-in-britain")
+    if (recyclable := figure("packaging.recyclable_pct")) is not None \
+            and recyclable >= 90:
+        claimed.append("recyclable-packaging")
     put("claims", claimed)
 
     return rows
@@ -428,7 +590,7 @@ def _declaration(leaf: str) -> str:
 
     Empty for anything that is not food, which is why it composes.
     """
-    if not leaf.startswith("food."):
+    if not _declares_food(leaf):
         return ""
     contains = CONTAINS.get(leaf) or []
     may = MAY_CONTAIN.get(leaf) or []
@@ -448,7 +610,10 @@ def _copy(name: str, leaf: str, sku: str, power: int | None = None) -> dict:
     that tried to be interesting would quote figures, which would make every
     background product a landmine competing with the one the demo is about.
     """
-    words = leaf.split(".")[-1].replace("-", " ")
+    # "our biscuits range" reads better than "our food.bakery.biscuits range",
+    # and the label the profile already carries is what a shopper would be
+    # shown, so there is no second vocabulary to keep in step.
+    words = TAXONOMY.get(leaf, leaf).split(" > ")[-1].lower()
     title = f"{name}"
     declaration = _declaration(leaf)
     return {
@@ -492,11 +657,12 @@ def _damage(vid: str, leaf: str, rng, media_missing: set,
     roll = rng.next()
 
     if roll < 0.45:
-        # Imagery that never arrived. Which role depends on the category, the
-        # same way INT-001 does.
-        role = ("PACK_FRONT" if leaf.startswith("food.") and rng.chance(0.5)
-                else "INGREDIENT_PANEL" if leaf.startswith("food.")
-                else "HERO" if rng.chance(0.4) else "IN_SITU")
+        # Imagery that never arrived. Which roles a category cannot launch
+        # without is the profile's answer, the same way INT-001 is a reviewer's
+        # - so a branch added to the profile gets a findable media gap without
+        # anything here learning its name.
+        needed = retailer.required_media().get(f"{_branch(leaf)}.", ("HERO",))
+        role = needed[rng.randint(0, len(needed) - 1)]
         media_missing.add((vid, role))
         _declare(vid, "required_media", role)
     elif roll < 0.62:

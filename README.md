@@ -242,8 +242,8 @@ applications open from a strip at the top of it.
 
 ## Driving the demo
 
-The seed pack is a retailer onboarding an air purifier and a packaged snack
-across six channels: its own website, two marketplaces with incompatible
+The seed pack is a UK superstore onboarding an air purifier and a packaged
+snack across six channels: its own website, two marketplaces with incompatible
 schemas, the printed catalogue, shelf-edge labels, and search facets. The tape
 runs 62 simulated days - the first of July to the thirty-first of August 2026 -
 and carries six arcs.
@@ -253,12 +253,39 @@ of the rest of it. Every question the fabric and the product surface exist to
 answer is a question about a population: which supplier is holding a launch up,
 how much of last week's intake came in fit to publish, which category the data
 pool keeps mangling. A catalog of six answers all of them by pointing at the
-same two rows. So the background is generated around the six - a few hundred
-products the demo never mentions, roughly a third of them short of something
-the checks will find - and the tape carries the five thousand routine events
-that a population that size produces. What is hand-authored is the story; what
-is generated is the world it happens in, and `scripts/background.py` says which
-is which.
+same two rows. So the background is generated around the six - a hundred and
+forty-four products the demo never mentions, roughly two in five short of
+something the checks will find - and the tape carries the five thousand routine
+events that a population that size produces. What is hand-authored is the
+story; what is generated is the world it happens in, and
+`scripts/background.py` says which is which.
+
+**The assortment is eight branches, and none of it is hardcoded.** Grocery,
+Home & Kitchen, Clothing & Footwear, Electricals, Household & Personal Care,
+Baby & Child, Health & Pharmacy, General Merchandise - real product lines a
+shopper would recognise, under a fascia and supplier brands that are entirely
+invented. Which branches exist, what each is called, which imagery a category
+cannot launch without and which branches are regulated all live in
+`data/profiles/ashcombe.json`, and `RETAILER_PROFILE` picks the file the same
+way `DATA_SEED` picks the draw. Pointing the demo at a different retailer is a
+new profile rather than a refactor; the parts the running system needs are
+copied into `catalog.json` so `sc/` reads the assortment from the baseline
+instead of holding category prefixes of its own.
+
+**Seven more arcs happen to the rest of it.** The six above are the story and
+they happen to six hand-authored products. Beside them the tape carries a pack
+shrinking, a conformity certificate expiring, a country of origin moving, a
+market authority serving a **withdrawal notice**, an export-control
+classification, a fibre label revised, and the mandatory particulars for
+cosmetics being amended. Between them they exercise fifteen classes of
+correction rather than three, and the interesting ones are the three that are
+not corrections at all: a takedown, a recall and an export restriction say
+nothing in the record is wrong. `compliance.sale_permitted` is a safety-class
+attribute for exactly that reason - marking it so buys forced escalation,
+mandatory review, withholding rather than rewriting, and the per-channel
+redaction path with no new rule code - and `sale_prohibited` is its own
+publish-time constraint, because a product an authority has stopped is not a
+product whose copy needs improving.
 
 1. **The status strip** — the replay transport lives at the bottom of every
    screen, so "Jump to inject" and single-stepping are available while you are
@@ -277,7 +304,7 @@ is which.
    precedence in `POL-002` settles it: label artwork outranks a portal feed,
    which outranks an email. The system drafts a supplier clarification rather
    than guessing.
-5. **Day 33 — the inject.** Revision v2 of the AeroPure specification says the
+5. **Day 33 — the inject.** Revision v2 of the Northaven AP300 specification says the
    rated power is 65 W, superseding the 45 W published in v1, and notes that a
    measurement sheet belonging to *one model in the range* was folded into the
    earlier document — without saying which. Run the loop and watch **Blast

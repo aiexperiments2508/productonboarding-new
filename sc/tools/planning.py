@@ -230,7 +230,7 @@ def compare_scenarios(deltas: list[dict], weights: dict | None = None,
 def _scenario_name(base: Baseline, change_set: ChangeSet) -> str:
     """Name a reading after the variants it moves, not after its id.
 
-    "AeroPure 300 Max only" is the sentence a reviewer is choosing between;
+    "Northaven AP300 Max only" is the sentence a reviewer is choosing between;
     ``D-4f19c2`` is not.
     """
     scope = change_set.scope

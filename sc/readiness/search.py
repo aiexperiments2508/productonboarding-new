@@ -14,7 +14,7 @@ one.
 
 Deliberately not the retrieval index. This is an exact and prefix match over a
 few dozen rows, and fusing BM25 with embeddings to answer "which variant is
-AER-300-MAX" would be a slower way to get a worse answer.
+NAV-AP300-MAX" would be a slower way to get a worse answer.
 """
 
 from __future__ import annotations

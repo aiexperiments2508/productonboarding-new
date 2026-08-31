@@ -125,7 +125,7 @@ def test_documents_and_emails_write_no_attribute_facts():
         "applies_to": "UNCLEAR", "is_correction": True})
     mail = _event(2, EventType.COMMS, {
         "from": "specs@sup-01.example", "to": "product-content@internal",
-        "subject": "AeroPure 300 - corrected rated power", "doc_id": "DOC-01",
+        "subject": "Northaven AP300 - corrected rated power", "doc_id": "DOC-01",
         "doc_version": "v2", "product": "PRD-01"}, source="MAILBOX")
     before = _facts("variant", "VAR-01B", "specs.power_w")
 

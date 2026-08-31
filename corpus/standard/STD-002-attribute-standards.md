@@ -21,18 +21,68 @@ a field; they do not differ in what the value is.
 
 | path | dtype | unit | safety class | applies to |
 |---|---|---|---|---|
-| `specs.power_w` | int | W | no | home. |
-| `specs.noise_db` | int | dB | no | home. |
+| `specs.power_w` | int | W | no | mains appliances |
+| `specs.noise_db` | int | dB | no | mains appliances |
 | `specs.coverage_m2` | int | m² | no | home.air-treatment |
 | `specs.filter_type` | str | - | no | home.air-treatment |
-| `energy.class` | str | - | no | home. |
-| `food.ingredients` | list[str] | - | no | food. |
-| `food.allergens.contains` | list[str] | - | **yes** | food. |
-| `food.allergens.may_contain` | list[str] | - | **yes** | food. |
+| `specs.plug_type` | str | - | **yes** | mains appliances |
+| `specs.battery_type` | str | - | **yes** | cell-powered goods |
+| `energy.class` | str | - | no | mains appliances |
+| `food.ingredients` | list[str] | - | no | food., infant formula |
+| `food.allergens.contains` | list[str] | - | **yes** | food., infant formula |
+| `food.allergens.may_contain` | list[str] | - | **yes** | food., infant formula |
 | `food.net_weight_g` | int | g | no | food. |
 | `food.fibre_g` | float | g | no | food. |
+| `pack.net_quantity` | float | - | no | packaged goods |
+| `pack.unit` | str | - | no | packaged goods |
+| `packaging.recyclable_pct` | int | % | no | food., hpc., baby. |
+| `textile.fibre_composition` | list[str] | - | no | apparel., home.textiles. |
+| `textile.care_code` | str | - | no | apparel., home.textiles. |
+| `cosmetic.inci` | list[str] | - | **yes** | hpc.toiletries., hpc.cosmetics. |
+| `health.active_ingredient` | list[str] | - | **yes** | health. |
+| `origin.country` | str | - | no | all |
+| `compliance.sale_permitted` | bool | - | **yes** | all |
+| `compliance.min_age` | int | years | **yes** | age-restricted lines |
+| `compliance.export_control` | str | - | **yes** | electronics.personal. |
+| `compliance.certificate_ref` | str | - | no | equipment and toys |
 | `identifiers.gtin` | str | - | no | all |
 | `claims` | list[str] | - | no | all |
+
+"Mains appliances" and "packaged goods" are the retailer's own groupings and
+are listed leaf by leaf in the catalogue rather than as a branch prefix: a
+kettle is mains and a saucepan is not, and both are `home.`. A prefix that
+swept in the saucepan would make four channels require a wattage the product
+does not have.
+
+## Safety class
+
+Six attributes carry it, and the count is deliberate rather than incidental.
+Marking an attribute safety-class buys four behaviours at once: a correction
+touching it is escalated to CRITICAL whatever a model thought, the resolution
+requires human approval, an inferred value below the confidence threshold
+blocks publication rather than degrading it, and a redaction of it withdraws a
+marketplace listing rather than placeholding it.
+
+That is a lot of consequence for one boolean, which is why it is not given to
+an attribute merely because it sounds serious. `specs.battery_type` carries it
+because a mis-declared cell is a shipping and storage question rather than
+because a cell is dangerous; `compliance.sale_permitted` carries it because it
+is what a withdrawal notice moves.
+
+## Ordered attributes
+
+Three, and the same rule governs all three: the order is part of the value, so
+a reordering is a change and not a rewording.
+
+| path | why the order is a declaration |
+|---|---|
+| `food.ingredients` | descending weight at the time of use - `REG-001` |
+| `textile.fibre_composition` | descending percentage by weight - `REG-004` |
+| `cosmetic.inci` | descending weight when added - `REG-005` |
+
+CH-MKT-B checks the first (RUL-B04, rejection MKB-2208). The other two are
+checked at readiness rather than at publish, because no channel has yet
+declared a rule about them.
 
 `food.ingredients` is an **ordered** attribute. Its order is part of its value:
 reordering it without changing its members is a change, and CH-MKT-B checks it

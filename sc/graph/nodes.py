@@ -125,7 +125,11 @@ FALLBACK_CONFIDENCE = 0.8
 # is withheld rather than rewritten. Everything else in the safety gate -
 # a missing allergen declaration above all - is a defect in the copy, which the
 # copywriter can fix and ``validate_final`` re-checks.
-UNFIXABLE_BY_COPY = ("safety_confidence",)
+# `sale_prohibited` joins it for the same reason and a stronger one: no
+# sentence a copywriter can write makes a withdrawn product sellable, and a
+# leg that tried would be spending a model call on rewording a listing that is
+# coming down.
+UNFIXABLE_BY_COPY = ("safety_confidence", "sale_prohibited")
 
 # Fields that are prose rather than machine data. These are the ones worth a
 # model call when the deterministic rewrite cannot settle them.
@@ -315,17 +319,42 @@ def _examined_events() -> set[str]:
     return {r["entity_id"] for r in rows}
 
 
+#: Attribute path prefix to correction kind, most consequential first. The
+#: order is the precedence: a document that moves two of these is named by the
+#: first one it matches, because that is the half a reviewer has to act on.
+#:
+#: Mirrored by ``_golden_kind`` in ``scripts/generate_data.py``, and
+#: ``tests/test_golden.py`` asserts the two agree - the answer key grading
+#: extraction has to classify a document the same way the fallback does, or the
+#: evaluation measures the disagreement instead of the model.
+KIND_BY_PATH: tuple[tuple[str, str], ...] = (
+    ("compliance.sale_permitted", str(CorrectionKind.REGULATORY_ORDER)),
+    ("compliance.export_control", str(CorrectionKind.EXPORT_RESTRICTION)),
+    ("food.allergens", str(CorrectionKind.ALLERGEN_CHANGE)),
+    ("food.ingredients", str(CorrectionKind.INGREDIENT_CHANGE)),
+    ("cosmetic.inci", str(CorrectionKind.COMPOSITION_CHANGE)),
+    ("health.active_ingredient", str(CorrectionKind.COMPOSITION_CHANGE)),
+    ("textile.fibre_composition", str(CorrectionKind.COMPOSITION_CHANGE)),
+    ("compliance.certificate_ref", str(CorrectionKind.CERTIFICATION_LAPSE)),
+    ("compliance.min_age", str(CorrectionKind.LEGAL_REQUIREMENT_CHANGE)),
+    ("pack.net_quantity", str(CorrectionKind.NET_QUANTITY_CHANGE)),
+    ("food.net_weight_g", str(CorrectionKind.NET_QUANTITY_CHANGE)),
+    ("origin.country", str(CorrectionKind.ORIGIN_CHANGE)),
+)
+
+
 def _kind_for_path(path: str) -> str:
     """Which class of correction a change to this attribute is.
 
-    Allergens outrank everything: a document that reorders an ingredient list
-    *and* adds a possible allergen is an allergen change, because that is the
-    half with the consequence.
+    Allergens outrank everything a supplier can say: a document that reorders
+    an ingredient list *and* adds a possible allergen is an allergen change,
+    because that is the half with the consequence. Above them sit the two
+    things that are not corrections at all - an order that the product may not
+    be sold, and a restriction on where it may go.
     """
-    if path.startswith("food.allergens"):
-        return str(CorrectionKind.ALLERGEN_CHANGE)
-    if path == "food.ingredients":
-        return str(CorrectionKind.INGREDIENT_CHANGE)
+    for prefix, kind in KIND_BY_PATH:
+        if path == prefix or path.startswith(f"{prefix}."):
+            return kind
     return str(CorrectionKind.SPEC_CORRECTION)
 
 
@@ -510,9 +539,22 @@ def open_cases(signals: list[dict], base) -> list[dict]:
         _detected_at({"detected_at": c["first_detected"]}), c["case_id"]))
 
 
+#: Kinds that are grave whatever they touch. An order to stop selling and a
+#: recall are not corrections whose severity depends on their blast radius -
+#: they are the severity. Kept separate from the safety-class attribute test
+#: because a takedown can name a product whose every attribute is ordinary.
+GRAVE_KINDS = frozenset({
+    str(CorrectionKind.REGULATORY_ORDER),
+    str(CorrectionKind.SAFETY_RECALL),
+    str(CorrectionKind.EXPORT_RESTRICTION),
+})
+
+
 def _severity_hint(signals: list[dict], safety: bool, regulated: bool) -> str:
     """How bad a case looks before triage measures it. A hint, never a verdict."""
     if safety or regulated:
+        return "CRITICAL"
+    if any(s.get("kind") in GRAVE_KINDS for s in signals):
         return "CRITICAL"
     if any(s.get("kind") == str(CorrectionKind.CHANNEL_REJECTION) for s in signals):
         return "HIGH"
@@ -772,12 +814,32 @@ def _extraction_from_payload(event) -> dict:
         kind = str(CorrectionKind.DOC_WITHDRAWN)
     elif payload.get("conflicts_with"):
         kind = str(CorrectionKind.SOURCE_CONFLICT)
+    # Flags a supplier cannot set. These arrive on the regulatory feed, they
+    # say the sale itself is in question rather than any value in the record,
+    # and they are read before the paths because a takedown that also revised
+    # a weight is a takedown.
+    elif payload.get("takedown"):
+        kind = str(CorrectionKind.REGULATORY_ORDER)
+    elif payload.get("recall"):
+        kind = str(CorrectionKind.SAFETY_RECALL)
+    elif payload.get("export_restricted"):
+        kind = str(CorrectionKind.EXPORT_RESTRICTION)
+    elif payload.get("rule_change"):
+        kind = str(CorrectionKind.LEGAL_REQUIREMENT_CHANGE)
     else:
+        # Most consequential path wins, and `KIND_BY_PATH` is in that order,
+        # so the earliest entry any path matches is the answer.
+        best = len(KIND_BY_PATH)
         for path in paths:
-            if path:
-                kind = _kind_for_path(path)
-                if kind == str(CorrectionKind.ALLERGEN_CHANGE):
-                    break
+            if not path:
+                continue
+            named = _kind_for_path(path)
+            rank = next((i for i, (_p, k) in enumerate(KIND_BY_PATH)
+                         if k == named), len(KIND_BY_PATH))
+            if rank < best:
+                best, kind = rank, named
+            elif kind is None:
+                kind = named
     entities = [str(e) for e in payload.get("entities") or [] if e]
 
     return {
@@ -804,7 +866,7 @@ def _resolve_entity(base, named) -> str:
     """Map what a document called something onto a catalog id, or give up.
 
     A model asked for an id routinely answers with the label it read - "PRD-01
-    AeroPure 300 Air Purifier [home.air-treatment.purifiers]" - and passing that
+    Northaven AP300 Air Purifier [home.air-treatment.purifiers]" - and passing that
     through as an id refuses an extraction that was right about the value and
     only wrong about the name. Nothing here guesses: resolution is by identity
     alone - an exact id, the id the label leads with, an exact product or
@@ -1306,11 +1368,19 @@ def _forced_escalation(signals: list[dict], blast: dict, case_id: str = "") -> s
     regulated = sorted({p for p in blast["affected"].get("products", [])
                         if p in base.products and base.products[p].regulated
                         and (not in_case or p in in_case)})
+    # An order from an authority is a ground on its own. The two tests above
+    # both read the *record* - which attributes are safety-class, which
+    # products are regulated - and a withdrawal notice can name a product where
+    # neither is true. The gravity is in the notice, not in the catalog.
+    ordered = sorted({str(s.get("kind")) for s in scoped
+                      if str(s.get("kind")) in GRAVE_KINDS})
     parts = []
     if safety:
         parts.append(f"{', '.join(safety)} is safety-class")
     if regulated:
         parts.append(f"{', '.join(regulated)} is regulated")
+    if ordered:
+        parts.append(f"{', '.join(ordered).lower().replace('_', ' ')} in scope")
     return "; ".join(parts)
 
 

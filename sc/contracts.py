@@ -295,6 +295,12 @@ class ContentAsset(BaseModel):
 
 
 class SourceDocKind(StrEnum):
+    #: A mandate, withdrawal notice, recall or restriction from a market
+    #: authority. Outranks every supplier document, including label artwork:
+    #: artwork is the legal source for what a pack *says*, and this is the
+    #: legal source for whether it may be sold at all. Nobody in the supplier
+    #: estate can issue one.
+    NOTICE = "NOTICE"
     SPEC_SHEET = "SPEC_SHEET"
     LABEL_ARTWORK = "LABEL_ARTWORK"
     PORTAL_FEED = "PORTAL_FEED"
@@ -338,6 +344,15 @@ class Catalog(BaseModel):
     #: the record decide together.
     media: list[MediaAsset] = Field(default_factory=list)
     taxonomy: dict[str, object] = Field(default_factory=dict)
+    #: The retailer this catalog belongs to: which branches it trades, what
+    #: each is called, which imagery a branch cannot launch without, and which
+    #: branches are regulated. Written by the seed generator from the retailer
+    #: profile, so the categories the checks reason about come from the
+    #: assortment rather than from prefixes written out in ``sc/``.
+    #:
+    #: Defaulted, because a pack generated before this existed is still a
+    #: valid catalog and the readers all fall back to what they used to hold.
+    profile: dict[str, object] = Field(default_factory=dict)
     horizon_start: date
     horizon_days: int
 
@@ -416,9 +431,54 @@ class Event(BaseModel):
 
 
 class CorrectionKind(StrEnum):
-    SPEC_CORRECTION = "SPEC_CORRECTION"
+    """What class of thing arrived.
+
+    Ordered by how the derivation resolves ties rather than alphabetically: an
+    order from an authority outranks a change to a value, a safety recall
+    outranks an ordinary composition change, and an allergen change outranks
+    everything a supplier can say about the same document. The rule is that
+    the half with the consequence names the whole.
+    """
+
+    # --- orders, from somebody who can stop a sale --------------------------
+    #: A market authority has ordered the listing down. Not a correction to a
+    #: value: the value may be perfectly accurate and the product still may not
+    #: be sold. Carried by `regulatory-feed`, which outranks every supplier
+    #: document the estate holds.
+    REGULATORY_ORDER = "REGULATORY_ORDER"
+    #: Stock already sold has to come back. Reaches the same channels as a
+    #: takedown and a different set of people.
+    SAFETY_RECALL = "SAFETY_RECALL"
+    #: A destination restriction, not a safety one. The product is lawful here
+    #: and may not be shipped there, so the remedy is withholding a channel
+    #: rather than correcting any copy.
+    EXPORT_RESTRICTION = "EXPORT_RESTRICTION"
+
+    # --- changes to what the product is ------------------------------------
     ALLERGEN_CHANGE = "ALLERGEN_CHANGE"
     INGREDIENT_CHANGE = "INGREDIENT_CHANGE"
+    #: The same act as an ingredient change, outside food: a fibre label
+    #: revised, a formulation restated, a coating changed. Ordered declarations
+    #: either way, so a reorder is a change and not a rewording.
+    COMPOSITION_CHANGE = "COMPOSITION_CHANGE"
+    #: A pack got smaller. Ordinary commercially and never immaterial: it is a
+    #: mandatory particular, it is printed on the shelf edge, and price per
+    #: unit is computed from it.
+    NET_QUANTITY_CHANGE = "NET_QUANTITY_CHANGE"
+    #: Where it was made. Moves a claim rather than a specification.
+    ORIGIN_CHANGE = "ORIGIN_CHANGE"
+
+    # --- changes to what may be said about it ------------------------------
+    #: A certificate expired or was withdrawn. Nothing about the product
+    #: changed; what changed is that the evidence behind a claim stopped
+    #: existing, which is a different thing to explain to a supplier.
+    CERTIFICATION_LAPSE = "CERTIFICATION_LAPSE"
+    #: The rule moved, not the record. Copy that was compliant when it was
+    #: written is not compliant now, and no supplier did anything wrong.
+    LEGAL_REQUIREMENT_CHANGE = "LEGAL_REQUIREMENT_CHANGE"
+
+    # --- the original five --------------------------------------------------
+    SPEC_CORRECTION = "SPEC_CORRECTION"
     SOURCE_CONFLICT = "SOURCE_CONFLICT"
     CHANNEL_REJECTION = "CHANNEL_REJECTION"
     DOC_WITHDRAWN = "DOC_WITHDRAWN"

@@ -31,11 +31,31 @@ from sc.contracts import ChannelRuleKind, MediaRole
 #: Which image roles a category cannot launch without. Mirrors INT-001 rather
 #: than inventing a second rule - the document is what a reviewer is shown when
 #: they ask why a product was held.
+#:
+#: The catalog carries the answer for the retailer it describes, and
+#: ``required_media_for`` reads it from there. This table is the fallback for a
+#: pack generated before profiles existed, which is why it still names three
+#: branches that a current pack has eight of.
 REQUIRED_MEDIA: dict[str, tuple[MediaRole, ...]] = {
     "home.": (MediaRole.HERO, MediaRole.IN_SITU),
     "food.": (MediaRole.PACK_FRONT, MediaRole.INGREDIENT_PANEL),
     "audio.": (MediaRole.HERO,),
 }
+
+
+def required_media_for(base) -> dict[str, tuple[MediaRole, ...]]:
+    """The category-to-imagery table this catalog declares.
+
+    A retailer that sells clothing needs a detail shot on a garment and a
+    retailer that does not has no opinion about one, so the table belongs to
+    the assortment. Falls back to the module constant when the catalog carries
+    no profile - an older pack is still a valid catalog.
+    """
+    branches = (getattr(base.catalog, "profile", None) or {}).get("branches")
+    if not branches:
+        return REQUIRED_MEDIA
+    return {f"{key}.": tuple(MediaRole(r) for r in spec.get("required_media", ()))
+            for key, spec in branches.items()}
 
 #: Content that may never appear, whatever a supplier sends. From INT-002. These
 #: are not weighed against completeness and they are not gradeable; the phrase
@@ -60,6 +80,11 @@ FORBIDDEN_PHRASES: tuple[tuple[str, str], ...] = (
 #: make it a judgement.
 BLOCKING = "BLOCKING"
 OPEN = "OPEN"
+
+#: The attribute a withdrawal notice moves. Mirrors ``sim.engine.SALE_PERMITTED``
+#: - the same fact bars a launch here and refuses a publish there, and the two
+#: surfaces must not disagree about which attribute says so.
+SALE_PERMITTED = "compliance.sale_permitted"
 
 
 @dataclass(frozen=True)
@@ -223,7 +248,7 @@ def required_media(record: Record, base) -> list[Finding]:
     product nobody with an allergy can check, and a count would call it complete.
     """
     wanted: tuple[MediaRole, ...] = ()
-    for prefix, roles in REQUIRED_MEDIA.items():
+    for prefix, roles in required_media_for(base).items():
         if record.category.startswith(prefix):
             wanted = roles
             break
@@ -250,7 +275,7 @@ def media_status(record: Record, base) -> list[dict]:
 
     The same question ``required_media`` answers, in the shape a page renders
     rather than the shape a finding takes. Deliberately derived from the same
-    ``REQUIRED_MEDIA`` table: a strip that could disagree with the finding
+    catalog table: a strip that could disagree with the finding
     beside it would be a second opinion about what this product needs.
 
     A detail shot is listed and never required, so that "has imagery" and "has
@@ -262,7 +287,7 @@ def media_status(record: Record, base) -> list[dict]:
     for, and the page reports it as missing whichever way it is missing.
     """
     required: tuple[MediaRole, ...] = ()
-    for prefix, roles in REQUIRED_MEDIA.items():
+    for prefix, roles in required_media_for(base).items():
         if record.category.startswith(prefix):
             required = roles
             break
@@ -343,9 +368,38 @@ def forbidden_content(record: Record, base) -> list[Finding]:
     return findings
 
 
-#: The six, in the order a reviewer reads them: what is missing, then what is
-#: wrong, then what may not be there at all.
+def sale_permitted(record: Record, base) -> list[Finding]:
+    """Has an authority ordered this product down?
+
+    The one blocking finding that needs no reading. ``saleability`` in
+    ``reading.py`` asks a model whether a mandate *covers* this product, which
+    is a question about a regulation's scope and genuinely needs judgement.
+    This asks whether a withdrawal notice has already been served on it, which
+    is a fact in the record, and putting it behind a gateway would mean a
+    withdrawn product read as merely incomplete whenever the gateway was down.
+
+    Only an explicit denial blocks. A missing value is a gap
+    ``applicable_attributes`` already reports; reading "we were never told" as
+    "not permitted" would hold the whole catalogue the first time a supplier
+    left the field empty.
+    """
+    if record.values.get(SALE_PERMITTED) is not False:
+        return []
+    return [Finding(
+        check="sale_permitted", subject=SALE_PERMITTED,
+        detail="a withdrawal notice is in force against this product; it may "
+               "not be offered for sale on any channel, and no correction to "
+               "its content changes that",
+        severity=BLOCKING,
+        system=record.system_for(SALE_PERMITTED),
+        basis="REG-003")]
+
+
+#: The seven, in the order a reviewer reads them: what is missing, then what is
+#: wrong, then what may not be there at all - and, before any of it, whether
+#: this may be sold.
 DETERMINISTIC = (
+    sale_permitted,
     applicable_attributes,
     mandatory_information,
     declared_types,

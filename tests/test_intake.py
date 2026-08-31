@@ -335,7 +335,7 @@ def test_a_draft_says_plainly_that_it_is_not_in_the_catalog():
     that pack does not name, so a draft claiming otherwise is a claim the very
     next screen disproves."""
     result = intake.create_product_draft(
-        supplier=SUPPLIER, system_id=PORTAL, name="Orchard Valley Oat Bites",
+        supplier=SUPPLIER, system_id=PORTAL, name="Harrowfield Oat Bites",
         category="food.snacks.bars", note="New line for spring.")
     assert result["accepted"] is True
     assert result["in_catalog"] is False

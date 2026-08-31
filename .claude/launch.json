@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "platform",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["run.py", "--no-gateway"],
+      "port": 8000
+    }
+  ]
+}

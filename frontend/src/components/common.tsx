@@ -749,7 +749,7 @@ export function describeAction(action: AnyAction, name?: NameLookup): string {
   const p = action as unknown as Record<string, unknown>;
   const raw = (k: string) => (p[k] === undefined || p[k] === null ? "" : String(p[k]));
 
-  /** "AeroPure 300 Max (VAR-01B)" where a name is known, "VAR-01B" where not. */
+  /** "Northaven AP300 Max (VAR-01B)" where a name is known, "VAR-01B" where not. */
   const named = (k: string) => {
     const id = raw(k);
     if (!id) return "";

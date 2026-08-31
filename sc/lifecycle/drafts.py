@@ -109,7 +109,7 @@ def accept(submission_id: str, *, actor: str, sku: str = "",
         "products": list(held.get("products", [])) + [{
             "id": product_id, "name": product_name,
             "category": product_category, "supplier": row["supplier_id"],
-            "regulated": product_category.startswith("food."),
+            "regulated": baseline_mod.regulated_category(product_category),
         }],
         "variants": list(held.get("variants", [])) + [{
             "id": variant_id, "product_id": product_id,
@@ -121,7 +121,7 @@ def accept(submission_id: str, *, actor: str, sku: str = "",
         "nodes": list(held.get("nodes", [])) + [
             {"id": product_id, "kind": "PRODUCT", "name": product_name,
              "group": product_category.split(".")[0],
-             "regulated": product_category.startswith("food.")},
+             "regulated": baseline_mod.regulated_category(product_category)},
             {"id": variant_id, "kind": "VARIANT", "name": product_name,
              "group": product_category.split(".")[0]},
         ],

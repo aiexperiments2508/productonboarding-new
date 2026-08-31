@@ -103,7 +103,7 @@ function buildIndex(catalog: CatalogState | null): Index {
   };
 }
 
-/** "AeroPure 300 Max" where the catalog is loaded, "VAR-01B" where it is not.
+/** "Northaven AP300 Max" where the catalog is loaded, "VAR-01B" where it is not.
  *  Never a bare enum, never a lost id - the id rides alongside in the markup. */
 const label = (index: Index, id: string) => index.name(id) ?? id;
 

@@ -20,7 +20,7 @@ import type { NameLookup } from "./common";
 /* Readings of the correction.
  *
  * A supplier correction says a number is wrong. It rarely says *whose* number:
- * the AeroPure document names the product and not the variant. So the question
+ * the Northaven AP300 document names the product and not the variant. So the question
  * this view answers is not "which resolution is cheapest" but "who does
  * this correction apply to" - and the candidates are competing readings of one
  * document, each validated deterministically against the same channel rules.

@@ -38,8 +38,23 @@ Required by category, not by taste:
 - `food.` - a pack front, plus a legible image of the ingredient panel. The
   panel image is not decoration: it is what a shopper with an allergy reads
   when they do not trust the transcription.
-- `audio.` - a hero shot. In-ear products photograph poorly in situ and the
+- `apparel.` - a hero shot and a detail shot. Fabric does not photograph from
+  three metres, and returns on garments bought without one run high enough
+  that the detail shot pays for itself.
+- `electronics.` - a hero shot. Boxed goods photograph poorly in situ and the
   category has never required it.
+- `hpc.` and `health.` - a pack front and a detail shot of the back-of-pack
+  panel, for the same reason food needs its ingredient panel: the shopper
+  checking an ingredient is checking the pack, not our transcription of it.
+- `baby.` - a pack front and a detail shot. Note that for first-stage infant
+  formula the imagery is constrained as well as required: `REG-009` forbids an
+  image idealising use, so a lifestyle shot is a compliance failure and not a
+  better photograph.
+- `general.` - a hero shot.
+
+The table lives in the retailer profile and is written into the catalog, which
+is what lets a retailer that does not sell clothing have no opinion about a
+detail shot. The list above is this retailer's answer, not the system's.
 
 ## Returning a product to its source
 

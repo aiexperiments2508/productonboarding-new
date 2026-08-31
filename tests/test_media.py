@@ -160,8 +160,14 @@ def test_a_category_that_needs_no_imagery_is_not_reported_as_missing_it():
         for slot in checks_mod.media_status(record, base):
             if not slot["required"]:
                 continue
+            # The effective table, not the module fallback: which imagery a
+            # category needs comes from the catalog's own profile, and a test
+            # grading against the fallback would pass on a pack whose branches
+            # the checks had never heard of.
+            required = checks_mod.required_media_for(base)
             prefix_matches = any(record.category.startswith(prefix)
-                                 for prefix in checks_mod.REQUIRED_MEDIA)
+                                 for prefix in required)
             assert prefix_matches, (
-                f"{entity_id} is {record.category}, which no rule in "
-                f"REQUIRED_MEDIA covers, yet {slot['role']} is marked required")
+                f"{entity_id} is {record.category}, which no rule in the "
+                f"catalog's required-media table covers, yet {slot['role']} "
+                f"is marked required")

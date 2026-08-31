@@ -99,7 +99,7 @@ prompt.** A prompt saying "no medical claims" is a preference. The check runs on
 whatever came back.
 
 **Search is not the retrieval index.** An exact and prefix match over a few dozen
-rows. Fusing BM25 with embeddings to answer "which variant is AER-300-MAX" would
+rows. Fusing BM25 with embeddings to answer "which variant is NAV-AP300-MAX" would
 be a slower way to get a worse answer, and an identifier query that sometimes
 ranks second is worse than useless.
 

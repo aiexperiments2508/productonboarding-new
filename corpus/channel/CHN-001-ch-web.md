@@ -57,7 +57,7 @@ correction has to walk that list rather than re-render a template.
 VAR-01A's CH-WEB listing carries a `comparison_table` asset whose
 `derived_from` names **both** `VAR-01A:specs.power_w` and
 `VAR-01B:specs.power_w`. It exists to let a customer choose between the
-AeroPure 300 and the AeroPure 300 Max, so it necessarily quotes both.
+Northaven AP300 and the Northaven AP300 Max, so it necessarily quotes both.
 
 The consequence is the one people get wrong: **a correction scoped to VAR-01B
 changes content on VAR-01A's page.** Impact must be computed from

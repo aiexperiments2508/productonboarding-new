@@ -177,7 +177,7 @@ def test_the_correction_reaches_every_channel_that_used_the_old_value(base):
 
 def test_a_variant_correction_reaches_the_base_page_through_the_comparison_table():
     """The deliberate cross-variant edge. A correction scoped to the Max lands
-    on the AeroPure 300's own PDP because the table there quotes both models."""
+    on the Northaven AP300's own PDP because the table there quotes both models."""
     trace = network.trace_dependencies(POWER)
 
     assert "AST-004" in trace["affected"]["assets"]
@@ -227,11 +227,17 @@ def test_totals_agree_with_the_affected_lists(base):
 
 
 def test_a_regulated_product_is_counted_as_one():
-    """Both allergen paths on both variants are safety-class, and the trail mix
-    bar is regulated - the two numbers a reviewer reads first."""
+    """The two numbers a reviewer reads first.
+
+    Six safety flags, not four: both allergen paths on both variants, plus
+    `compliance.sale_permitted` on each. That attribute is safety-class on
+    purpose - it is what a withdrawal notice moves, and marking it so is what
+    buys forced escalation and a fail-closed publish without new rule code.
+
+    `regulated` stays one, because it counts products and not attributes."""
     totals = network.trace_dependencies("PRD-02")["totals"]
     assert totals["regulated"] == 1
-    assert totals["safety_flags"] == 4
+    assert totals["safety_flags"] == 6
 
 
 def test_depth_bounds_the_walk():

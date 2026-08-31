@@ -1,7 +1,7 @@
 ---
 id: INC-2025-041
 type: POSTMORTEM
-title: Cascade Rapid Kettle wattage mislabel - a product-level correction applied to the wrong variant
+title: Stonebridge Rapid Kettle wattage mislabel - a product-level correction applied to the wrong variant
 owner: Product Data Governance
 occurred: 2025-08-19
 closed: 2025-09-11
@@ -10,12 +10,12 @@ entities: [PRD-04, VAR-04A, SUP-04, DOC-06, CH-WEB, CH-MKT-A, CH-PRINT, CH-SHELF
 tags: [correction, scope, variant, wattage, unclear, mka-4102, supplier-query, recurrence]
 ---
 
-# INC-2025-041 - Cascade Rapid Kettle wattage mislabel
+# INC-2025-041 - Stonebridge Rapid Kettle wattage mislabel
 
 ## Summary
 
 SUP-04 sent a spec sheet correction (DOC-06) stating that the rated power of
-"the Cascade Rapid Kettle" was 3000 W and not the 2200 W we held. PRD-04 was at
+"the Stonebridge Rapid Kettle" was 3000 W and not the 2200 W we held. PRD-04 was at
 that time listed as two variants: VAR-04A, the base kettle, and a
 higher-capacity variant since delisted. The document named the product and not
 the variant.
@@ -34,7 +34,7 @@ one.
 
 | Date | Event |
 |---|---|
-| 19 Aug, 09:40 | DOC-06 v2 received. Names "the Cascade Rapid Kettle", no variant. |
+| 19 Aug, 09:40 | DOC-06 v2 received. Names "the Stonebridge Rapid Kettle", no variant. |
 | 19 Aug, 11:05 | Applied at PRODUCT scope. Both variants set to 3000 W. |
 | 19 Aug, 11:30 | CH-WEB, CH-MKT-A, CH-SHELF republished. CH-PRINT inside its freeze window; escalated and re-plated. |
 | 21 Aug | CH-MKT-A rejections begin - MKA-4102 on `wattage`, from a downstream normalisation that sent `"3000 W"` as text. |
@@ -127,11 +127,11 @@ evidence, not as an instruction, until the supplier resolves it.
 The exposure is structural: it exists on any product with more than one variant
 where a specification-bearing attribute differs between them.
 
-**PRD-01 AeroPure 300 is the highest-risk listing in the catalogue on this
-pattern.** VAR-01A "AeroPure 300" and VAR-01B "AeroPure 300 Max" differ in
+**PRD-01 Northaven AP300 is the highest-risk listing in the catalogue on this
+pattern.** VAR-01A "Northaven AP300" and VAR-01B "Northaven AP300 Max" differ in
 `specs.coverage_m2`, share a supplier (SUP-01) and share a spec document
 (DOC-01) whose earlier version mixed the two models together. A SUP-01
-correction naming "the AeroPure 300" is ambiguous by construction, because that
+correction naming "the Northaven AP300" is ambiguous by construction, because that
 string is both the product name and the base variant's name - and a reader who
 takes it as the variant name will not notice they have made a choice.
 

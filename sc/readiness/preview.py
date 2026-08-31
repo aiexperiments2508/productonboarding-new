@@ -37,6 +37,11 @@ from sc.readiness.checks import FORBIDDEN_PHRASES, Record
 #: Attributes worth leading with, by category prefix. Drawn from MKT-002, which
 #: records what shoppers actually ask in store - not from what happens to be
 #: numerically largest.
+#:
+#: The entries here are the *finer* than-branch ones, which a profile does not
+#: express: an air purifier leads on coverage and an oven does not, and both
+#: are `home.`. The branch-level answers come from the catalog's own profile
+#: and are merged underneath these, longest prefix winning.
 SALIENT: dict[str, tuple[str, ...]] = {
     "home.air-treatment": ("specs.noise_db", "specs.coverage_m2",
                            "specs.power_w", "specs.filter_type"),
@@ -58,10 +63,28 @@ DIFFERENTIATOR_SYSTEM = (
 )
 
 
-def _salient_paths(category: str) -> tuple[str, ...]:
-    for prefix in sorted(SALIENT, key=len, reverse=True):
+def _salient_table(base) -> dict[str, tuple[str, ...]]:
+    """Branch defaults from the catalog, with the finer rules layered on top.
+
+    A profile knows that clothing leads on fibre composition. It does not know
+    that air purifiers lead on coverage area while kettles lead on wattage,
+    because that is a distinction inside one branch. So the two compose rather
+    than one replacing the other, and the longest prefix wins either way.
+    """
+    branches = (getattr(base.catalog, "profile", None) or {}).get("branches")
+    if not branches:
+        return SALIENT
+    table = {f"{key}.": tuple(spec.get("salient", ()))
+             for key, spec in branches.items()}
+    table.update(SALIENT)
+    return table
+
+
+def _salient_paths(category: str, base=None) -> tuple[str, ...]:
+    table = SALIENT if base is None else _salient_table(base)
+    for prefix in sorted(table, key=len, reverse=True):
         if category.startswith(prefix):
-            return SALIENT[prefix]
+            return table[prefix]
     return ()
 
 
@@ -72,7 +95,7 @@ def salient(record: Record, base) -> list[dict]:
     because a page that leads with the GTIN is a page written for a database.
     """
     rows = []
-    for path in _salient_paths(record.category):
+    for path in _salient_paths(record.category, base):
         if path not in record.values:
             continue
         definition = base.attr_defs.get(path)

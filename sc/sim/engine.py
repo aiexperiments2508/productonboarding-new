@@ -58,7 +58,17 @@ SAFETY_CONFIDENCE = 0.9
 # only ones the ``safety_flags`` KPI counts on their own. ``tools.planning``
 # imports this as its publish gate, so the number a reviewer reads and the rule
 # that refuses the commit cannot drift apart.
-SAFETY_CONSTRAINTS = ("allergen_declaration", "safety_confidence")
+SAFETY_CONSTRAINTS = ("allergen_declaration", "safety_confidence",
+                      "sale_prohibited")
+
+#: The attribute that says whether the product may be sold at all.
+#:
+#: Everything else this validator checks asks whether a *listing* is fit to
+#: publish. This one asks whether the product is lawful to sell, which is a
+#: different question with a different answer when the record is perfect and an
+#: authority has ordered it down anyway. Correcting copy cannot clear it and
+#: nothing a supplier sends can either.
+SALE_PERMITTED = "compliance.sale_permitted"
 
 HARD = ViolationSeverity.HARD
 SOFT = ViolationSeverity.SOFT
@@ -126,6 +136,13 @@ CLAIM_RULES: dict[str, ClaimRule] = {
 
 # Allergen names as the channels' controlled vocabularies code them. Keyed by
 # substring so "roasted almonds" and "almond" both land on AL-NUT.
+#
+# The catalog carries the map for the assortment it describes, and
+# ``allergen_codes_for`` reads it from there - an assortment that sells fish
+# and shellfish has to be able to code them, and the marketplace's own ENUM
+# allowlist is built from the same map, so the two cannot disagree about what
+# a declaration renders as. This table is the fallback for a pack generated
+# before the profile existed.
 ALLERGEN_CODES: dict[str, str] = {
     "almond": "AL-NUT",
     "egg": "AL-EGG",
@@ -138,6 +155,13 @@ ALLERGEN_CODES: dict[str, str] = {
     "walnut": "AL-NUT",
     "wheat": "AL-GLUTEN",
 }
+
+
+def allergen_codes_for(base) -> dict[str, str]:
+    """The word-to-code map this catalog declares."""
+    codes = (getattr(getattr(base, "catalog", None), "profile", None)
+             or {}).get("allergen_codes")
+    return dict(codes) if codes else ALLERGEN_CODES
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +292,7 @@ def _quantity(value: object, unit: str | None) -> str:
     return f"{value} {unit}" if unit else str(value)
 
 
-def _allergen_statement(contains: list, may_contain: list) -> str:
+def _allergen_statement(contains: list, may_contain: list, base=None) -> str:
     parts = []
     if contains:
         parts.append("Contains: " + ", ".join(str(a) for a in contains) + ".")
@@ -277,11 +301,13 @@ def _allergen_statement(contains: list, may_contain: list) -> str:
     return " ".join(parts)
 
 
-def _allergen_code_list(contains: list, may_contain: list) -> list[str]:
+def _allergen_code_list(contains: list, may_contain: list,
+                        base=None) -> list[str]:
+    table = ALLERGEN_CODES if base is None else allergen_codes_for(base)
     codes = set()
     for item in list(contains) + list(may_contain):
         text = str(item).lower()
-        for needle, code in ALLERGEN_CODES.items():
+        for needle, code in table.items():
             if needle in text:
                 codes.add(code)
     return sorted(codes)
@@ -290,7 +316,10 @@ def _allergen_code_list(contains: list, may_contain: list) -> list[str]:
 # The channel field name is what says which rendering a channel wants; the
 # mapping lives in the channel's own attribute_map, so a new channel needs no
 # code here beyond the format it names.
-ALLERGEN_FORMATS: dict[str, Callable[[list, list], object]] = {
+# Both take the baseline as an optional third argument so a caller with one
+# can be rendered against this catalog's own code map, and a caller without
+# one still gets the regulated default.
+ALLERGEN_FORMATS: dict[str, Callable[..., object]] = {
     "allergen_statement": _allergen_statement,
     "allergenCodes": _allergen_code_list,
 }
@@ -401,7 +430,7 @@ def _listings_for(base: Baseline, entity_id: str) -> list[str]:
     ``base.listings_of`` is keyed by variant, but a fact is recorded against
     whichever entity the evidence named: ``replay.ingest.record_attribute`` and
     the extraction node both write product ids, and a supplier document saying
-    "the AeroPure 300" names a product. Resolving through this rather than
+    "the Northaven AP300" names a product. Resolving through this rather than
     through ``listings_of`` directly is what stops a rule going quiet on the
     level it was not written for - the fail-closed safety gate above all.
     """
@@ -746,7 +775,7 @@ def _check_allergens(base: Baseline, listing: Listing, table: dict,
     field_name = base.channel_field(listing.channel_id, "food.allergens.contains")
     formatter = ALLERGEN_FORMATS.get(field_name)
     if formatter is not None:
-        want = formatter(contains, may)
+        want = formatter(contains, may, base)
         got = published.get(field_name)
         if got != want:
             out.append(Violation(
@@ -829,6 +858,48 @@ def _check_safety(base: Baseline, table: dict, decided: set,
                         f"{confidence if confidence is not None else 0.0:.2f}, "
                         f"below the {SAFETY_CONFIDENCE:.2f} safety threshold, "
                         f"with no human decision on file; {listing_id} withheld"),
+            ))
+
+
+def _check_sale_permitted(base: Baseline, table: dict,
+                          listings: list[str], out: list[Violation]) -> None:
+    """A product an authority has ordered down may not be published.
+
+    Kept apart from ``_check_safety`` on purpose, though both fail closed. That
+    one is about *confidence* - a value the model is not sure enough about -
+    and it only ever fires on an inference. This one fires on a fact, recorded
+    with certainty by somebody with the power to stop a sale, and the remedy is
+    not a better reading.
+
+    Named as its own constraint rather than folded into the safety gate so the
+    reason survives to the reviewer. "Withheld: safety confidence" and
+    "withheld: a withdrawal notice" are the same outcome and different
+    sentences, and the second is the one somebody has to act on.
+    """
+    in_scope = set(listings)
+    for key in sorted(table):
+        entity_id, path = key
+        if path != SALE_PERMITTED:
+            continue
+        state = table[key]
+        # Only an explicit denial blocks. A missing value is a gap the
+        # readiness checks report; treating "we were never told" as "not
+        # permitted" would hold the whole catalog the first time a supplier
+        # left the field empty.
+        if state.value is not False:
+            continue
+
+        for listing_id in _listings_for(base, entity_id):
+            if listing_id not in in_scope:
+                continue
+            out.append(Violation(
+                constraint="sale_prohibited", severity=HARD,
+                entity_id=f"{entity_id}:{path}",
+                channel_id=base.listings[listing_id].channel_id,
+                required=1.0, available=0.0,
+                detail=(f"{entity_id} is not permitted for sale; "
+                        f"{listing_id} may not be published, and no correction "
+                        f"to its content changes that"),
             ))
 
 
@@ -1043,6 +1114,7 @@ def simulate(base: Baseline, delta: ChangeSet,
         _check_allergens(base, listing, table, published, texts, raw)
 
     _check_safety(base, table, decided, listings, raw)
+    _check_sale_permitted(base, table, listings, raw)
     _check_version_currency(base, table, overlay, raw)
     _check_citations(actions, raw)
 

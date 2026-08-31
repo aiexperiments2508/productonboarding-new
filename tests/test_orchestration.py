@@ -33,7 +33,7 @@ BATCH_DATE = "2026-09-29"
 RESOURCE = "CH-MKT-A:PRD-01"
 
 DOC01_V2 = {"doc_id": "DOC-01", "version": "v2",
-            "excerpt": "The rated power of the AeroPure 300 is 65 W."}
+            "excerpt": "The rated power of the Northaven AP300 is 65 W."}
 DOC04_V2 = {"doc_id": "DOC-04", "version": "v2",
             "excerpt": "Shared line: may contain peanuts."}
 

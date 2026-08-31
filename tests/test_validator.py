@@ -35,7 +35,7 @@ from sc.sim.engine import (  # noqa: E402
 from sc.state import baseline as baseline_mod  # noqa: E402
 
 DOC01_V2 = SourceRef(doc_id="DOC-01", version="v2",
-                     excerpt="The rated power of the AeroPure 300 is 65 W.")
+                     excerpt="The rated power of the Northaven AP300 is 65 W.")
 DOC01_V3 = SourceRef(doc_id="DOC-01", version="v3",
                      excerpt="The Max is measured at 44 dB.")
 DOC04_V2 = SourceRef(doc_id="DOC-04", version="v2",
@@ -85,7 +85,7 @@ def test_action_order_does_not_change_the_result(base):
     unstable and the reviewer sees a different winner each refresh."""
     regenerate = RegenerateCopyAction(
         id="a2", listing_id="LST-06", asset_id="AST-020", field="title",
-        proposed_text="Voltaic AeroPure 300 Max Air Purifier — HEPA H13, 65 m², 65W",
+        proposed_text="Northaven AP300 Max Air Purifier — HEPA H13, 65 m², 65W",
         source=DOC01_V2)
 
     forward = simulate(base, ChangeSet(id="X", actions=[power(), regenerate]))
@@ -153,7 +153,7 @@ def test_corrected_attribute_marks_every_derived_asset_stale(base):
 
 
 def test_correction_reaches_the_base_variant_comparison_table(base):
-    """The deliberate cross-variant edge: the AeroPure 300's own page carries a
+    """The deliberate cross-variant edge: the Northaven AP300's own page carries a
     table quoting the Max's wattage, so a correction scoped to the Max still
     lands on the base variant's listing."""
     result = simulate(base, ChangeSet(id="D", actions=[power()]))
@@ -167,7 +167,7 @@ def test_regenerating_the_copy_clears_the_stale_asset(base):
         power(),
         RegenerateCopyAction(
             id="a2", listing_id="LST-08", asset_id="AST-031", field="shelf_text",
-            proposed_text="AeroPure 300 Max · 65W · HEPA H13", source=DOC01_V2),
+            proposed_text="Northaven AP300 Max · 65W · HEPA H13", source=DOC01_V2),
     ]))
     assert "AST-031" not in {v.entity_id for v in fixed.violations}
 
@@ -192,7 +192,7 @@ def test_stale_literal_does_not_match_inside_a_longer_number():
     """``45`` must not be found inside ``145``, or every dimension and price on
     the page becomes a false positive."""
     fresh = baseline_mod.load()
-    fresh.assets["AST-031"].text = "AeroPure 300 Max · 145 W · HEPA H13"
+    fresh.assets["AST-031"].text = "Northaven AP300 Max · 145 W · HEPA H13"
 
     result = simulate(fresh, ChangeSet(id="D", actions=[power()]))
     literals = {v.entity_id for v in constraints(result, "stale_literal")}
@@ -216,7 +216,7 @@ def test_scope_stays_inside_the_corrected_product(base):
 
 
 def test_max_len_reports_the_budget_and_the_overrun(base):
-    over = "Voltaic AeroPure 300 Max Air Purifier with True HEPA H13 " \
+    over = "Northaven AP300 Max Air Purifier with True HEPA H13 " \
            "Filtration for Open-Plan Rooms up to 65 Square Metres, 65W"
     result = simulate(base, ChangeSet(id="D", actions=[RegenerateCopyAction(
         id="a1", listing_id="LST-06", asset_id="AST-020", field="title",
@@ -266,14 +266,19 @@ def test_format_rejects_a_malformed_allergen_statement(base):
 
 
 def test_enum_rejects_a_code_outside_the_channel_vocabulary(base):
-    row = json.loads(base.assets["AST-042"].text) | {"allergenCodes": ["AL-SESAME"]}
+    """AL-KIWI is not one of the regulated allergens, so no assortment can
+    declare it and no marketplace vocabulary contains it. Deliberately not a
+    code that merely happens to be unused today - the allowlist is built from
+    the catalog's own map, so a code this test relied on being absent could
+    become valid the moment a retailer started selling sesame."""
+    row = json.loads(base.assets["AST-042"].text) | {"allergenCodes": ["AL-KIWI"]}
     result = simulate(base, ChangeSet(id="D", actions=[RegenerateCopyAction(
         id="a1", listing_id="LST-11", asset_id="AST-042", field="feed_row",
         proposed_text=json.dumps(row, sort_keys=True), source=DOC04_V2)]))
 
     breach = [v for v in constraints(result, "channel_schema")
               if v.entity_id == "LST-11:allergenCodes"][0]
-    assert "RUL-B03" in breach.detail and "AL-SESAME" in breach.detail
+    assert "RUL-B03" in breach.detail and "AL-KIWI" in breach.detail
 
 
 def test_ordered_match_rejects_a_reordered_ingredient_list(base):
@@ -460,6 +465,78 @@ def test_the_gate_ignores_attributes_that_are_not_safety_class(base):
 
 
 # ---------------------------------------------------------------------------
+# The sale gate
+#
+# A different question from every other check here. The rest ask whether a
+# listing is fit to publish; this asks whether the product may be sold at all,
+# and the answer can be no while the record is perfect.
+# ---------------------------------------------------------------------------
+
+
+def _withdrawn(entity_id: str = "VAR-01B", kind: str = "RECORDED") -> Overlay:
+    return Overlay(attr_values={
+        (entity_id, "compliance.sale_permitted"): AttrState(
+            False, "v2", "F-9", None, kind, 1.0)})
+
+
+@pytest.mark.parametrize("entity_id", ["VAR-01B", "PRD-01"])
+def test_a_withdrawal_blocks_every_listing_the_product_reaches(base, entity_id):
+    """An authority has said no. Recorded with full confidence, and blocking.
+
+    The safety gate would not fire on this: it only ever looks at inferences
+    below the threshold, and a withdrawal notice is a fact somebody recorded,
+    not a reading somebody was unsure about. Without its own constraint a
+    takedown would escalate loudly and publish anyway.
+    """
+    result = simulate(base, ChangeSet(id="D"), _withdrawn(entity_id))
+    gate = constraints(result, "sale_prohibited")
+
+    assert gate, "a withdrawn product published"
+    assert all(v.severity == ViolationSeverity.HARD for v in gate)
+    assert all(v.entity_id == f"{entity_id}:compliance.sale_permitted"
+               for v in gate)
+    assert not result.feasible
+    assert result.kpis.listings_ready_pct == 0.0
+
+
+def test_the_sale_gate_is_part_of_the_publish_refusal(base):
+    """It is in ``SAFETY_CONSTRAINTS``, which ``planning`` imports as its gate.
+
+    That one tuple is what makes a violation refuse the commit rather than
+    merely be reported, so membership is the whole mechanism and worth
+    asserting rather than assuming.
+    """
+    from sc.tools import planning
+
+    assert "sale_prohibited" in planning.SAFETY_GATE
+
+
+def test_a_product_still_permitted_is_not_gated(base):
+    """Only an explicit denial blocks.
+
+    A missing value is a gap the readiness checks report. Reading "we were
+    never told" as "not permitted" would hold the entire catalog the first
+    time a supplier left the field empty, which is a fail-closed rule doing
+    more harm than the thing it guards against.
+    """
+    permitted = Overlay(attr_values={
+        ("VAR-01B", "compliance.sale_permitted"): AttrState(
+            True, "v2", "F-9", None, "RECORDED", 1.0)})
+    assert not constraints(simulate(base, ChangeSet(id="D"), permitted),
+                           "sale_prohibited")
+    assert not constraints(baseline_readiness(base), "sale_prohibited")
+
+
+def test_a_withdrawal_is_not_something_copy_can_fix(base):
+    """The leg must not spend a model call rewording a listing coming down."""
+    from sc.graph import nodes
+    from sc.graph import branches
+
+    assert "sale_prohibited" in nodes.UNFIXABLE_BY_COPY
+    assert "sale_prohibited" in branches.BEYOND_CONTENT
+
+
+# ---------------------------------------------------------------------------
 # The republish gate
 #
 # Two rules raise ``stale_version``, so both are selected by the entity they
@@ -519,7 +596,7 @@ def test_regenerating_the_copy_does_not_clear_the_freeze_window(base):
         RegenerateCopyAction(
             id="a2", listing_id="LST-07", asset_id="AST-027",
             field="catalogue_copy",
-            proposed_text="AeroPure 300 Max — HEPA H13, 65 m², 65 W",
+            proposed_text="Northaven AP300 Max — HEPA H13, 65 m², 65 W",
             source=DOC01_V2),
     ]))
     assert "AST-027" not in {v.entity_id for v in constraints(result, "stale_asset")}
@@ -581,7 +658,7 @@ def test_an_uncited_change_is_not_publishable(base):
 def test_an_uncited_regeneration_is_not_publishable(base):
     result = simulate(base, ChangeSet(id="D", actions=[RegenerateCopyAction(
         id="a1", listing_id="LST-08", asset_id="AST-031", field="shelf_text",
-        proposed_text="AeroPure 300 Max · 65W · HEPA H13")]))
+        proposed_text="Northaven AP300 Max · 65W · HEPA H13")]))
     assert [v.entity_id for v in constraints(result, "citation_missing")] \
         == ["AST-031"]
 

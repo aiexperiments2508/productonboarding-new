@@ -60,7 +60,7 @@ export function ProductFilters({
         <input
           value={filters.q}
           onChange={(e) => set({ q: e.target.value })}
-          placeholder="AER-300-MAX, VAR-01B, or purifier"
+          placeholder="NAV-AP300-MAX, VAR-01B, or purifier"
           aria-label="Search products"
           className={cn(
             "min-w-0 flex-1 bg-transparent py-1.5 font-mono text-xs",

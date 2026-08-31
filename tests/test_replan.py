@@ -280,7 +280,7 @@ def test_a_reading_re_proposed_under_a_new_name_is_not_carried_twice():
     it twice would put two identical rows on the comparison table."""
     actions = [_set_power("VAR-01B")]
     previous = [_reading("Max only", actions)]
-    fresh = [_reading("Apply to AeroPure 300 Max", list(actions))]
+    fresh = [_reading("Apply to Northaven AP300 Max", list(actions))]
 
     assert _carry_forward(previous, fresh) == []
 

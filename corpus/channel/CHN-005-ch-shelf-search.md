@@ -44,7 +44,7 @@ soft because the wattage is optional when it exists.
 The rule has a second effect that matters more than the first: **it guarantees
 the wattage appears as a literal in shelf copy**, so any wattage correction
 reaches CH-SHELF as a `stale_literal` and never as a silent no-op. VAR-01B's
-label moving from `AeroPure 300 Max 45W` to `AeroPure 300 Max 65W` is a content
+label moving from `Northaven AP300 Max 45W` to `Northaven AP300 Max 65W` is a content
 change on a channel that would otherwise look untouched by a spec correction.
 
 Labels are truncated at composition, not at print. A label composed to 44

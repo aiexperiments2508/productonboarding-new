@@ -42,6 +42,13 @@ yarn-error.log*
 # ---------------------------------------------------------------------------
 # The seed pack is reproducible from scripts/generate_data.py, so it is built
 # rather than carried. Everything below is an output of running the system.
+#
+# `data/profiles/` is the exception and is deliberately NOT ignored: a retailer
+# profile is the *input* the pack is generated from - the assortment, the
+# supplier roster, which branches are regulated - and losing it would mean the
+# generator had nothing to build. The pattern below is `data/*.json`, which
+# matches the generated catalog at the top level and not the profiles beneath
+# it; do not widen it to `data/**/*.json`.
 data/*.json
 data/*.jsonl
 data/*.npy

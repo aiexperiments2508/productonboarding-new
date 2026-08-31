@@ -198,6 +198,13 @@ SYSTEMS: tuple[System, ...] = (
             "one feed where being late is worse than being wrong - so it "
             "delivers in ones and twos rather than waiting to fill a batch.",
         emits=("SPEC_DOC", "COMMS"),
+        # Emit-only, deliberately. `accepts` is what puts a system behind the
+        # vendor intake, and a door a supplier can push a withdrawal notice
+        # through would make "an authority ordered this down" a claim anybody
+        # could make. Notices arrive as SPEC_DOC events on this feed and are
+        # read like any other document - what makes them outrank the estate is
+        # this system's precedence, not a privileged way in.
+        accepts=(),
         defects=(),
         defect_rate=0.0,
         batch_size=(1, 2),

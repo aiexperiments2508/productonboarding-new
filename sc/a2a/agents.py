@@ -188,7 +188,7 @@ def _resolutions(payload: dict) -> dict:
     """Which readings of a correction the catalog can actually support.
 
     The ambiguity is real and it is the whole of scenario one: a spec sheet says
-    the AeroPure 300 draws 65 W without saying whether it means the base model,
+    the Northaven AP300 draws 65 W without saying whether it means the base model,
     the Max, or both. This enumerates the readings and attaches the evidence for
     each; it does not choose. Choosing is the validator's job, and the reason it
     can be done by measurement is that every candidate here is a change set the
@@ -679,7 +679,7 @@ AGENTS: tuple[PeerAgent, ...] = (
             "return the candidate scopes - base only, one named variant, or "
             "every variant - each with the source documents that support it."),
         examples=(
-            "The spec sheet says the AeroPure 300 is 65 W - which variants does that mean?",
+            "The spec sheet says the Northaven AP300 is 65 W - which variants does that mean?",
             "Does this allergen change apply to the multipack as well as the single bar?",
         ),
         handler=_resolutions,
@@ -726,7 +726,7 @@ AGENTS: tuple[PeerAgent, ...] = (
             "fit, the claims now at risk, and whatever could not be resolved "
             "deterministically."),
         examples=(
-            "Rewrite the AeroPure 300 Max copy for a corrected 65 W rating.",
+            "Rewrite the Northaven AP300 Max copy for a corrected 65 W rating.",
             "Rebuild the Marketplace B feed row after the ingredient reorder.",
         ),
         handler=_copy,

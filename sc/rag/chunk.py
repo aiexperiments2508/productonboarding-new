@@ -268,7 +268,12 @@ def chunk_records(base) -> list[DocChunk]:
         if not lines:
             continue
 
-        title = f"{product.name} - {variant.name}"
+        # The identifiers belong in the title. A reviewer searching an id is
+        # searching for exactly this passage, and a record whose title never
+        # says which variant it describes loses that search to whichever
+        # standards document happens to quote the id twice - which is what a
+        # wider catalog, with more attributes per record, made happen.
+        title = f"{variant.name} ({variant_id} / {variant.sku}) - held values"
         body = "\n".join([
             f"Product {product.id}, variant {variant_id}, "
             f"supplier {product.supplier}.",

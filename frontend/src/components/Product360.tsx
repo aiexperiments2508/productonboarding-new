@@ -3,8 +3,10 @@ import { api } from "../api";
 import type { Facets, Preview, ProductHit, ProductRollup, Readiness } from "../api";
 import { IconCheck, IconSpark } from "../icons";
 import {
-  Badge, Button, Code, Panel, Skeleton, SkeletonTable, Tooltip, cn, useToast,
+  Badge, Button, Code, Panel, SegmentedControl, Skeleton, SkeletonTable,
+  Table, Td, Th, Tooltip, cn, useToast,
 } from "../ui";
+import { RegulatedTag } from "./common";
 import { PageHeader } from "../app/shell/PageHeader";
 import { MediaStrip } from "./MediaStrip";
 import { ProductFilters, ProductRollupStrip } from "./ProductFilters";
@@ -48,6 +50,17 @@ import { NARROW_NOTE, tallyVerdicts, verdictBadge } from "./verdict";
  *  eleven, short enough that it still feels like typing. Same value the
  *  command palette uses. */
 const SEARCH_DEBOUNCE_MS = 220;
+
+/** The four things a record is made of, in the order somebody reads them:
+ *  what is wrong, why, what we hold, what we are missing a picture of. */
+type SectionKey = "findings" | "cause" | "record" | "media";
+
+const SECTIONS: { value: SectionKey; label: string; title: string }[] = [
+  { value: "findings", label: "Findings", title: "What has to move before this launches" },
+  { value: "cause", label: "Root cause", title: "Why it happened, and who has to fix it" },
+  { value: "record", label: "The record", title: "What the estate has said, and who said it" },
+  { value: "media", label: "Imagery", title: "What this category cannot launch without" },
+];
 
 export function Product360() {
   const toast = useToast();
@@ -199,6 +212,41 @@ export function Product360() {
   // the regulation. So it is offered only once the assessment is complete.
   const canStage = Boolean(readiness?.ready && readiness?.checks_complete);
 
+  /* --- moving around one record ------------------------------------------ */
+
+  // A record is now four sections deep - what is wrong with it, why, what the
+  // estate holds, and what imagery it needs - and the demo script used to say
+  // "scroll down to THE RECORD". An instruction to scroll is a control the
+  // page did not have, so here it is.
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const sectionRefs = {
+    findings: useRef<HTMLDivElement | null>(null),
+    cause: useRef<HTMLDivElement | null>(null),
+    record: useRef<HTMLDivElement | null>(null),
+    media: useRef<HTMLDivElement | null>(null),
+  };
+  const [section, setSection] = useState<SectionKey>("findings");
+
+  const jumpTo = useCallback((next: SectionKey) => {
+    setSection(next);
+    sectionRefs[next].current?.scrollIntoView({
+      // Follows the viewer's own motion setting, because a page that animates
+      // for somebody who asked it not to is worse than one that jumps.
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto" : "smooth",
+      block: "start",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Back to the top of the record whenever a different product is chosen -
+  // otherwise the pane keeps the last one's scroll position and opens
+  // halfway down a record nobody has read the top of yet.
+  useEffect(() => {
+    paneRef.current?.scrollTo({ top: 0 });
+    setSection("findings");
+  }, [selected]);
+
   return (
     <>
       <PageHeader
@@ -214,7 +262,21 @@ export function Product360() {
         }
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(340px,1fr)_minmax(0,2fr)]">
+      {/* Two panes, and three widths rather than one.
+       *
+       * There used to be a single `xl:` rule, which meant that below 1280px
+       * the two columns stacked inside a shell that does not scroll and then
+       * fought each other for one viewport of height. `lg:` splits them a
+       * breakpoint earlier, and `2xl:` gives the reading pane the extra room
+       * on a wide monitor instead of growing the list - a list is scanned and
+       * a record is read, and only one of them benefits from being wider. */}
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 gap-3",
+          "lg:grid-cols-[minmax(300px,1fr)_minmax(0,2fr)]",
+          "2xl:grid-cols-[minmax(340px,1fr)_minmax(0,2.6fr)]",
+        )}
+      >
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
           <ProductRollupStrip rollup={rollup} loading={countingBusy} />
 
@@ -282,96 +344,172 @@ export function Product360() {
           </Panel>
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
-          <Panel
-            title={readiness?.record?.name ?? "Readiness"}
-            subtitle={
-              readiness
-                ? `${readiness.findings.length} finding(s) · ${badge.label}`
-                : "Select a product"
-            }
-            actions={
-              readiness ? (
-                <div className="flex items-center gap-1.5">
-                  {canStage ? (
-                    <>
-                      <input
-                        value={actor}
-                        onChange={(e) => setActor(e.target.value)}
-                        aria-label="Who is viewing this unpublished content"
-                        placeholder="your name"
-                        className={cn(
-                          "w-28 rounded-sm border border-line bg-canvas px-2 py-1",
-                          "text-xs text-fg placeholder:text-faint",
-                          "focus:outline-none focus:ring-2 focus:ring-focus",
-                        )}
-                      />
-                      <Button size="sm" tone="primary" onClick={openPreview}
-                              loading={previewBusy}>
+
+        {/* The reading pane. One scroller, and the two things a reviewer needs
+         *  at all times - what the verdict is, and what they can do about it -
+         *  pinned to the top of it rather than scrolling away with the
+         *  evidence they belong to. */}
+        <div
+          ref={paneRef}
+          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0"
+        >
+          {!readiness && !busy ? (
+            <Panel title="Readiness" subtitle="Select a product">
+              <p className="py-10 text-center text-sm text-muted">
+                Choose a product on the left to see what every system has said
+                about it.
+              </p>
+            </Panel>
+          ) : busy || !readiness ? (
+            <Panel title="Readiness" subtitle="assessing">
+              <Skeleton className="h-40" />
+            </Panel>
+          ) : (
+            <>
+              {/* --- the header bar, sticky ------------------------------ */}
+              <div
+                className={cn(
+                  "sticky top-0 z-10 -mx-px rounded-md border border-subtle",
+                  "bg-raised px-3 py-2.5 shadow-e1",
+                )}
+              >
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+                  <div className="min-w-0 flex-1">
+                    <h2 className="truncate text-md font-semibold text-fg">
+                      {readiness.record?.name ?? selected}
+                    </h2>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Badge tone={badge.tone} dot>{badge.label}</Badge>
+                      <Code>{readiness.record?.sku}</Code>
+                      {readiness.record?.product.regulated && <RegulatedTag />}
+                      <span className="truncate text-xs text-faint">
+                        {readiness.findings.length === 0
+                          ? "nothing open"
+                          : `${readiness.findings.length} open finding${
+                              readiness.findings.length === 1 ? "" : "s"}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Every primary action, in one place, always on screen.
+                   *  These used to live in a panel header beside a title that
+                   *  truncated, and below a scroll position - so the demo
+                   *  script had to tell a presenter where to find the button
+                   *  and warn them about the field next to it. */}
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      {narrow && (
+                        <Button
+                          size="sm"
+                          tone="primary"
+                          onClick={deepen}
+                          loading={deepening}
+                          icon={<IconSpark size={13} />}
+                        >
+                          Run the reading checks
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        tone={canStage ? "primary" : "default"}
+                        onClick={openPreview}
+                        loading={previewBusy}
+                        disabled={!canStage}
+                      >
                         Open staging page
                       </Button>
-                    </>
-                  ) : readiness.ready && narrow ? (
-                    <Tooltip content="A staging page cleared by six checks of nine is a narrower clearance, not a clean one. Run the reading checks first.">
-                      <span>
-                        <Button size="sm" disabled>Open staging page</Button>
+                    </div>
+
+                    {/* The name, with a label on it. Unpublished commercial
+                     *  content is shown against a name in the ledger, and the
+                     *  field that collects it was a 112px box with a
+                     *  placeholder - which is why the demo guide had to carry
+                     *  a line about forgetting to type one. */}
+                    {canStage && (
+                      <label className="flex items-center gap-1.5 text-xs text-faint">
+                        Viewing as
+                        <input
+                          value={actor}
+                          onChange={(e) => setActor(e.target.value)}
+                          aria-label="Who is viewing this unpublished content"
+                          placeholder="your name"
+                          className={cn(
+                            "w-32 rounded-sm border px-2 py-1 text-xs",
+                            "bg-canvas text-fg placeholder:text-faint",
+                            "focus:outline-none focus:ring-2 focus:ring-focus",
+                            actor.trim() ? "border-line" : "border-warn-border",
+                          )}
+                        />
+                      </label>
+                    )}
+                    {!canStage && (
+                      <span className="max-w-[15rem] text-right text-xs text-faint">
+                        {readiness.ready && narrow
+                          ? "Six checks of nine is a narrower clearance, not a clean one."
+                          : "A staging page is offered once the record is ready to launch."}
                       </span>
-                    </Tooltip>
-                  ) : undefined}
-                </div>
-              ) : undefined
-            }
-          >
-            {busy || !readiness ? (
-              <Skeleton className="h-40" />
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={badge.tone} dot>{badge.label}</Badge>
-                  <Code>{readiness.record?.sku}</Code>
-                  {readiness.record?.product.regulated && (
-                    <Badge tone="warn">regulated</Badge>
-                  )}
+                    )}
+                  </div>
                 </div>
 
-                {/* The admission of narrowness, and the control that ends it,
-                    in the same box. An assessment that has found fewer things
-                    is narrower rather than cleaner, and the button is the
-                    answer to the sentence rather than a feature elsewhere. */}
+                {/* Jump to a section. On a screen a presenter has to drive,
+                 *  "scroll down to the record" is an instruction; this is a
+                 *  control. */}
+                <div className="mt-2.5 flex items-center gap-2 border-t border-subtle pt-2">
+                  <SegmentedControl
+                    ariaLabel="Jump to a section of this record"
+                    value={section}
+                    onChange={jumpTo}
+                    // Every section, always. A record with nothing open still
+                    // has a Findings panel saying so, and a nav that dropped
+                    // the entry would leave the panel below it unreachable by
+                    // the control that exists to reach it.
+                    options={SECTIONS}
+                  />
+                </div>
+              </div>
+
+              {/* --- what is wrong with it ------------------------------- */}
+              <div ref={sectionRefs.findings} className="scroll-mt-[9.5rem]">
+              <Panel
+                title="Findings"
+                subtitle={
+                  readiness.findings.length === 0
+                    ? "nothing open"
+                    : "what has to move before this launches"
+                }
+                tone={readiness.findings.length > 0 ? "warn" : undefined}
+              >
                 {narrow && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-sm border border-warn-border bg-warn-soft px-2 py-1.5">
-                    <p className="min-w-0 flex-1 text-xs text-warn-text">
+                  <div
+                    className={cn(
+                      "mb-3 flex flex-wrap items-center gap-2 rounded-sm",
+                      "border border-warn-border bg-warn-soft px-2.5 py-2",
+                    )}
+                  >
+                    <p className="min-w-0 flex-1 text-sm leading-relaxed text-warn-text">
                       {NARROW_NOTE}
                     </p>
-                    <Button size="xs" tone="primary" onClick={deepen}
-                            loading={deepening} icon={<IconSpark size={12} />}>
-                      Run the reading checks
-                    </Button>
                   </div>
                 )}
 
-                {/* What imagery this category needs, and what turned up. */}
-                <div className="mt-3">
-                  <MediaStrip media={readiness.media} compact />
-                </div>
-
                 {readiness.findings.length === 0 ? (
-                  <p className="mt-3 flex items-center gap-2 text-sm text-muted">
-                    <IconCheck size={14} className="text-ok-text" />
+                  <p className="flex items-start gap-2 text-sm leading-relaxed text-muted">
+                    <IconCheck size={15} className="mt-0.5 shrink-0 text-ok-text" />
                     {narrow
-                      ? "No rule check found anything. The three that read "
-                        + "prose have not run."
+                      ? "No rule check found anything. The three that read prose "
+                        + "have not run."
                       : "Nothing open. Every applicable attribute is held, the "
                         + "imagery this category needs is present, and no claim "
                         + "outruns the record."}
                   </p>
                 ) : (
-                  <ul className="mt-3 flex flex-col gap-1.5">
+                  <ul className="flex flex-col gap-2">
                     {readiness.findings.map((finding) => (
                       <li
                         key={`${finding.check}-${finding.subject}`}
                         className={cn(
-                          "rounded-sm border-l-2 bg-sunken px-2 py-1.5",
+                          "rounded-sm border-l-2 bg-sunken px-3 py-2",
                           finding.severity === "BLOCKING"
                             ? "border-danger"
                             : "border-warn",
@@ -379,7 +517,7 @@ export function Product360() {
                       >
                         <div className="flex flex-wrap items-baseline gap-2">
                           <Code>{finding.check}</Code>
-                          <span className="font-mono text-2xs text-faint">
+                          <span className="font-mono text-xs text-faint">
                             {finding.subject}
                           </span>
                           {/* Who has to fix it. A return that names nobody is
@@ -388,83 +526,129 @@ export function Product360() {
                             <Badge tone="info">{finding.system}</Badge>
                           )}
                           <Tooltip content="The rule or passage this rests on">
-                            <span className="ml-auto shrink-0 font-mono text-2xs text-faint">
+                            <span className="ml-auto shrink-0 font-mono text-xs text-faint">
                               {finding.basis}
                             </span>
                           </Tooltip>
                         </div>
-                        <p className="mt-0.5 text-xs text-muted">
+                        <p className="mt-1 max-w-prose text-sm leading-relaxed text-muted">
                           {finding.detail}
                         </p>
                       </li>
                     ))}
                   </ul>
                 )}
+              </Panel>
+              </div>
 
-                {selected && (
+              {/* --- why it happened, and whose it is --------------------- */}
+              {selected && (
+                <div ref={sectionRefs.cause} className="scroll-mt-[9.5rem]">
                   <RootCausePanel
                     key={selected}
                     entityId={selected}
                     findings={readiness.findings.length}
                   />
-                )}
-              </>
-            )}
-          </Panel>
+                </div>
+              )}
 
-          {readiness?.record && (
-            <Panel
-              title="The record"
-              subtitle="What the estate has said, and who said it"
-              flush
-              scroll
-              className="max-h-[46vh]"
-            >
-              <table className="w-full text-xs">
-                <tbody>
-                  {readiness.record.attributes.map((row) => (
-                    <tr key={row.path} className="border-b border-subtle">
-                      <td className="px-3 py-1.5 text-muted">{row.label}</td>
-                      <td className="px-3 py-1.5 font-mono text-fg">
-                        {String(row.value)}
-                        {row.unit ? ` ${row.unit}` : ""}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        {row.system ? (
-                          <Badge tone="neutral">{row.system}</Badge>
-                        ) : (
-                          <span className="text-faint">carrier unknown</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5 font-mono text-2xs text-faint">
-                        {row.source ?? ""}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        {/* A disagreement precedence settled is settled, not
-                            absent. Hiding the loser would make the record look
-                            like everybody agreed. */}
-                        {row.superseded.length > 0 && (
-                          <Tooltip
-                            content={row.superseded
-                              .map((s) => `${s.system ?? "unknown"} said ${String(s.value)}`)
-                              .join("; ")}
-                          >
-                            <span>
-                              <Badge tone="warn">
-                                {row.superseded.length} superseded
-                              </Badge>
+              {/* --- what the estate has said ---------------------------- */}
+              {readiness.record && (
+                <div ref={sectionRefs.record} className="scroll-mt-[9.5rem]">
+                <Panel
+                  title="The record"
+                  subtitle="What the estate has said, and who said it"
+                  flush
+                >
+                  {/* `Table scroll` rather than a bare `w-full`: a dense table
+                   *  with `w-full` and no minimum compresses its columns to
+                   *  fit rather than overflowing, which silently squeezes the
+                   *  rightmost ones instead of handing them to a scroller.
+                   *  With the compliance attributes this record is now twelve
+                   *  to eighteen rows across five columns and it shows. */}
+                  <Table scroll>
+                    <thead>
+                      <tr>
+                        <Th>Attribute</Th>
+                        <Th>Value</Th>
+                        <Th>Carried by</Th>
+                        <Th>Document</Th>
+                        <Th>Notes</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {readiness.record.attributes.map((row) => (
+                        <tr key={row.path} className="border-b border-subtle">
+                          <Td>
+                            <span className="text-fg">{row.label}</span>
+                            <span className="mt-0.5 block font-mono text-xs text-faint">
+                              {row.path}
                             </span>
-                          </Tooltip>
-                        )}
-                        {row.defects.map((d) => (
-                          <Badge key={d} tone="danger">{d}</Badge>
-                        ))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Panel>
+                          </Td>
+                          <Td>
+                            <span className="font-mono text-fg">
+                              {String(row.value)}
+                              {row.unit ? ` ${row.unit}` : ""}
+                            </span>
+                          </Td>
+                          <Td>
+                            {row.system ? (
+                              <Badge tone="neutral">{row.system}</Badge>
+                            ) : (
+                              <span className="text-faint">carrier unknown</span>
+                            )}
+                          </Td>
+                          <Td>
+                            <span className="font-mono text-xs text-faint">
+                              {row.source ?? ""}
+                            </span>
+                          </Td>
+                          <Td>
+                            {/* A disagreement precedence settled is settled,
+                                not absent. This used to be a hover tooltip,
+                                which meant the half of the record this page
+                                was built to show was the half nobody saw. */}
+                            {row.superseded.length > 0 && (
+                              <div className="flex flex-col gap-0.5">
+                                {row.superseded.map((s, i) => (
+                                  <span
+                                    key={`${row.path}-superseded-${i}`}
+                                    className="whitespace-nowrap text-xs text-warn-text"
+                                  >
+                                    {s.system ?? "unknown"} said{" "}
+                                    <span className="font-mono">
+                                      {String(s.value)}
+                                    </span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {row.defects.length > 0 && (
+                              <div className="mt-0.5 flex flex-wrap gap-1">
+                                {row.defects.map((d) => (
+                                  <Badge key={d} tone="danger">{d}</Badge>
+                                ))}
+                              </div>
+                            )}
+                          </Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </Panel>
+                </div>
+              )}
+
+              {/* --- what the category needs to show ---------------------- */}
+              <div ref={sectionRefs.media} className="scroll-mt-[9.5rem]">
+              <Panel
+                title="Imagery"
+                subtitle="What this category cannot launch without"
+              >
+                <MediaStrip media={readiness.media} />
+              </Panel>
+              </div>
+            </>
           )}
         </div>
       </div>

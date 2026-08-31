@@ -19,20 +19,50 @@ listing.
 
 ## The internal tree
 
+The tree has eight branches, one per trading area:
+
+| branch | trading area | regulated |
+|---|---|---|
+| `food.` | Grocery | yes |
+| `home.` | Home & Kitchen | no |
+| `apparel.` | Clothing & Footwear | no |
+| `electronics.` | Electricals | no |
+| `hpc.` | Household & Personal Care | no |
+| `baby.` | Baby & Child | yes |
+| `health.` | Health & Pharmacy | yes |
+| `general.` | General Merchandise | no |
+
+The branches, their labels, the imagery each needs and which of them are
+regulated come from the retailer profile and are written into the catalog, so
+a different retailer is a different assortment and the same rules.
+
+The six products the correction story runs on sit in nodes the assortment
+already declares rather than in nodes of their own:
+
 | category | products |
 |---|---|
-| `home.air-treatment.purifiers` | PRD-01 AeroPure 300 Air Purifier |
-| `home.air-treatment.fans` | PRD-06 Voltaic Desk Fan V2 |
-| `home.kitchen.kettles` | PRD-04 Cascade Rapid Kettle |
-| `audio.headphones.earbuds` | PRD-03 Brightline BT-200 Earbuds |
-| `food.snacks.bars` | PRD-02 Orchard Valley Trail Mix Bar |
-| `food.snacks.granola` | PRD-05 Orchard Valley Granola Clusters |
+| `home.air-treatment.purifiers` | PRD-01 Northaven AP300 Air Purifier |
+| `home.air-treatment.fans` | PRD-06 Northaven Desk Fan V2 |
+| `home.kitchen.kettles` | PRD-04 Stonebridge Rapid Kettle |
+| `electronics.audio.earbuds` | PRD-03 Calverton BT-200 Earbuds |
+| `food.snacks.bars` | PRD-02 Harrowfield Trail Mix Bar |
+| `food.snacks.granola` | PRD-05 Harrowfield Granola Clusters |
 
 Prefixes are load-bearing. An attribute definition's `applies_to` is a prefix
-match: `home.` picks up purifiers, fans and kettles; `home.air-treatment` picks
-up purifiers and fans but not kettles; `food.` picks up bars and granola and
-carries the allergen paths with it, which is what makes PRD-02 and PRD-05
-regulated and PRD-01 not.
+match: `food.` picks up every grocery leaf and carries the allergen paths with
+it, which is what makes the grocery branch regulated; `home.air-treatment`
+picks up purifiers and fans but not kettles.
+
+**A prefix is not always a branch, and this is where the tree earns its
+keep.** `specs.power_w` is required by four channels wherever it applies, so
+its `applies_to` names mains-powered leaves one by one - `home.kitchen.`,
+`home.laundry.`, `electronics.vision.` - rather than `home.`. A saucepan and a
+duvet are `home.` and neither has a wattage, and a branch-wide prefix would
+make four channels demand one and the untouched catalogue unpublishable.
+
+The same care applies in `baby.`: infant formula and weaning foods carry the
+food particulars and bottles and teats do not, so the food attributes name
+`baby.feeding.formula` and `baby.feeding.weaning` and not `baby.feeding.`.
 
 Never deepen the tree to solve a channel's problem. If a marketplace wants a
 distinction the internal tree does not make, the distinction belongs in that
@@ -70,7 +100,7 @@ the internal path - it is never approximated to the nearest parent.
 | `home.air-treatment.purifiers` | Home > Air Quality > Purifiers | HOME_AIR_PURIFIER |
 | `home.air-treatment.fans` | Home > Air Quality > Fans | HOME_AIR_FAN |
 | `home.kitchen.kettles` | Home > Kitchen > Kettles | HOME_KITCHEN_KETTLE |
-| `audio.headphones.earbuds` | Electronics > Audio > Earbuds | AUDIO_EARBUD |
+| `electronics.audio.earbuds` | Electronics > Audio > Earbuds | AUDIO_EARBUD |
 | `food.snacks.bars` | Grocery > Snacks > Bars | FOOD_SNACK_BAR |
 | `food.snacks.granola` | Grocery > Snacks > Cereal | FOOD_SNACK_CEREAL |
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -141,6 +142,38 @@ def test_key_agrees_with_the_fallback_on_correction_kind(key, events):
         fallback = nodes._extraction_from_payload(events[g["event_id"]])
         assert fallback["kind"] == g["kind"], g["event_id"]
         assert str(CorrectionKind(g["kind"])) == g["kind"]
+
+
+def test_the_two_kind_tables_are_the_same_table():
+    """The generator classifies a document; so does the deterministic fallback.
+
+    They are written twice on purpose - the generator does not import ``sc``,
+    and a key that read its answers out of the implementation it grades would
+    measure nothing. The cost of that is a pair that can drift, and the drift
+    would be silent: a document classified one way in the key and another way
+    by the fallback scores as a model error.
+
+    So the two tables are compared directly, in order, because the order *is*
+    the precedence: which kind a document carrying two of them is named by.
+    """
+    assert GEN.GOLDEN_KIND_BY_PATH == nodes.KIND_BY_PATH
+
+
+def test_every_kind_the_prompt_offers_is_a_kind_that_exists():
+    """A kind in the prompt and not in the enum is dropped in silence.
+
+    ``_extracted_kind`` builds ``CorrectionKind(named)`` inside a try/except,
+    so a classification the enum has never heard of does not raise - it falls
+    back to a spec correction and the model is marked wrong for being right.
+    """
+    from sc.graph import prompts
+
+    offered = set(re.findall(r'"([A-Z][A-Z_]+)"', prompts.EXTRACT_SYSTEM))
+    known = {str(k) for k in CorrectionKind}
+    # The prompt names other things in capitals - BASE, VARIANT, UNCLEAR - so
+    # only the intersection with kind-shaped names is asserted, and every kind
+    # the enum holds has to appear.
+    assert known <= offered, f"kinds absent from the prompt: {known - offered}"
 
 
 @needs_key

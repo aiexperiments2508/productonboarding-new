@@ -1,7 +1,7 @@
 ---
 id: INC-2025-058
 type: POSTMORTEM
-title: Orchard Valley Granola Clusters - peanut-free claim left standing after a shared-line change
+title: Harrowfield Granola Clusters - peanut-free claim left standing after a shared-line change
 owner: Regulatory Affairs
 occurred: 2025-10-07
 closed: 2025-10-24
@@ -15,7 +15,7 @@ tags: [allergen, peanut-free, claim, near-miss, fail-closed, facets, may-contain
 ## Summary
 
 SUP-02 notified a shared-line change at its Hallow Lane site: the line
-producing PRD-05 Orchard Valley Granola Clusters would also run a peanut
+producing PRD-05 Harrowfield Granola Clusters would also run a peanut
 product, requiring "may contain peanuts" on every format.
 
 The allergen attribute was updated correctly. `food.allergens.may_contain` on
@@ -116,7 +116,7 @@ propagation, and it needs to be computed rather than remembered.
 ## Recurrence watch
 
 Action 5 remains open, so a shared-line notice naming one SUP-02 product still
-cannot be checked against the other automatically. **PRD-02 Orchard Valley Trail
+cannot be checked against the other automatically. **PRD-02 Harrowfield Trail
 Mix Bar carries `peanut-free` on both VAR-02A and VAR-02B and is produced by the
 same supplier.** Any SUP-02 shared-line notice should be assumed to reach both
 products until the supplier confirms otherwise, and the trail mix bar's

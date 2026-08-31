@@ -42,7 +42,7 @@ interpretation being held open, and asks a closed question.
 
 | condition | example | ask |
 |---|---|---|
-| Correction names a product with several variants and does not say which | "the rated power of the AeroPure 300 is 65 W" against VAR-01A and VAR-01B | which variant, or both |
+| Correction names a product with several variants and does not say which | "the rated power of the Northaven AP300 is 65 W" against VAR-01A and VAR-01B | which variant, or both |
 | A value arrives as a range or a qualified figure | `60-70 W`, "typical", "in boost mode" | the single rated figure |
 | Allergen change announced without the resulting declaration | "shared line now handles peanuts" | the full contains and may-contain lists per format |
 | Two equal-precedence documents disagree | two SPEC_SHEET versions from one supplier | which document is current |

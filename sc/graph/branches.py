@@ -35,7 +35,7 @@ from sc.state import baseline as baseline_mod
 
 # Below this, the readings of a correction that the record supports are not
 # actually separated by the evidence behind them. That is not a failure of the
-# resolver - "the AeroPure 300 draws 65 W" genuinely does not say which model
+# resolver - "the Northaven AP300 draws 65 W" genuinely does not say which model
 # it means - and the honest answer is to say so and ask, rather than to publish
 # the widest reading and call the ambiguity resolved. The gateway-down fallback
 # deliberately reports 0.3, so a run with no model available lands here too.
@@ -51,7 +51,8 @@ SCOPE_CONFIDENCE_FLOOR = 0.55
 # than a failure. Written as the exception rather than the allowlist, because a
 # new constraint name should default to "the leg has a go at it" rather than to
 # "hand it straight to a human".
-BEYOND_CONTENT = frozenset({"stale_version", "publish_conflict"})
+BEYOND_CONTENT = frozenset({"stale_version", "publish_conflict",
+                            "sale_prohibited"})
 
 # Publish refusals another pass could clear. Both are races rather than
 # verdicts: another run took the batch, or the supplier sent a newer version

@@ -185,6 +185,28 @@ class Baseline:
         return sorted(named) or family
 
 
+def regulated_category(category: str, base: Baseline | None = None) -> bool:
+    """Is a product in this category regulated?
+
+    ``regulated`` is one of the two switches every escalation path keys off, so
+    which branches carry it is a decision about a retailer's assortment and its
+    risk appetite - a pharmacy counter and an infant-formula aisle are
+    regulated for the same reason a grocery aisle is, and a retailer that
+    trades neither has no opinion about either.
+
+    Read from the catalog's profile, so a new branch declares itself regulated
+    in one file. Falls back to food for a pack generated before profiles
+    existed, which is what that pack meant.
+    """
+    if base is None:
+        base = get()
+    branches = (getattr(base.catalog, "profile", None) or {}).get("branches")
+    if not branches:
+        return category.startswith("food.")
+    return any(category.startswith(f"{key}.")
+               for key, spec in branches.items() if spec.get("regulated"))
+
+
 def precedence(base: Baseline, doc_id: str) -> int:
     """How much authority a document carries, per POL-002.
 

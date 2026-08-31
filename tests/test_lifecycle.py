@@ -233,7 +233,7 @@ def test_a_submission_names_the_system_that_carried_it():
 # ---------------------------------------------------------------------------
 
 
-def _propose(name: str = "Orchard Valley Oat Bites",
+def _propose(name: str = "Harrowfield Oat Bites",
              category: str = "food.snacks.bars") -> dict:
     return intake.create_product_draft(
         supplier=SUPPLIER, system_id="supplier-portal", name=name,
@@ -247,7 +247,7 @@ def test_a_proposed_line_is_on_the_board_before_anybody_has_decided():
     built = board.build(limit=400)
     lane = next(l for l in built["lanes"] if l["stage"] == stages.DRAFT)
     assert lane["count"] == 1
-    assert lane["products"][0]["name"] == "Orchard Valley Oat Bites"
+    assert lane["products"][0]["name"] == "Harrowfield Oat Bites"
     assert lane["products"][0]["supplier"] == SUPPLIER
 
 
@@ -272,7 +272,7 @@ def test_accepting_a_line_puts_it_in_the_catalog():
     base = baseline_mod.get()
     assert len(base.products) == before + 1
     product = base.products[accepted["product_id"]]
-    assert product.name == "Orchard Valley Oat Bites"
+    assert product.name == "Harrowfield Oat Bites"
     assert product.supplier == SUPPLIER
     assert product.regulated is True, "a food line is regulated"
 

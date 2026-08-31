@@ -28,7 +28,8 @@ BLOCKED = "BLOCKED"
 #: saying it would be a poor listing. Only these can block, and only ever
 #: individually: blocking is a statement about legality, and reaching it by
 #: accumulating quality findings would make it a judgement.
-SALEABILITY_CHECKS = frozenset({"saleability", "forbidden_content"})
+SALEABILITY_CHECKS = frozenset({"saleability", "forbidden_content",
+                                "sale_permitted"})
 
 
 def decide(findings: list[Finding]) -> str:

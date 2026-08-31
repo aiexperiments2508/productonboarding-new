@@ -13,7 +13,7 @@ corpus/ and the supplier documents in data/docs/ can name PRD-01, VAR-01B and
 CH-MKT-A literally and stay in sync with what the loader sees.
 
 The catalog is shaped around the inject rather than being uniformly random.
-DOC-01 v1 folded a measurement sheet for one AeroPure model into the summary
+DOC-01 v1 folded a measurement sheet for one Northaven AP300 model into the summary
 table for the range, so the baseline genuinely carries 45 W on the Max and is
 nonetheless internally consistent - the validator finds nothing wrong with it
 until the correction lands. Every prepared PRD-01 asset that quotes wattage
@@ -41,6 +41,16 @@ GOLDEN = DATA / "golden"
 CORPUS = ROOT / "corpus"
 
 SEED = int(os.environ.get("DATA_SEED", "20802"))
+
+# The retailer this pack is for. Loaded first, because the assortment decides
+# what the constants below can say - which branches exist, which imagery each
+# needs, which of them are regulated. `RETAILER_PROFILE` picks the file, the
+# same way `DATA_SEED` picks the draw.
+_retailer_spec = importlib.util.spec_from_file_location(
+    "seed_retailer", Path(__file__).resolve().parent / "retailer.py")
+retailer = importlib.util.module_from_spec(_retailer_spec)  # type: ignore[arg-type]
+_retailer_spec.loader.exec_module(retailer)  # type: ignore[union-attr]
+PROFILE = retailer.PROFILE
 # The recorded flight: 1 July to 31 August 2026 inclusive. Two calendar months
 # rather than eight arbitrary weeks, because this is a backup snapshot being
 # replayed and a snapshot has a period somebody can name.
@@ -134,32 +144,39 @@ def dw(offset: int) -> str:
 
 SUPPLIERS = [
     # id,       name,                     family
-    ("SUP-01", "Voltaic Home",           "home"),
-    ("SUP-02", "Orchard Valley Foods",   "food"),
-    ("SUP-03", "Brightline Electronics", "audio"),
-    ("SUP-04", "Cascade Housewares",     "home"),
+    ("SUP-01", "Northaven Home",           "home"),
+    ("SUP-02", "Harrowfield Foods",   "food"),
+    ("SUP-03", "Calverton Electronics", "audio"),
+    ("SUP-04", "Stonebridge Housewares",     "home"),
+    # Not a supplier, and recorded here because the field this fills is "who
+    # asserted this document" rather than "who do we buy from". A withdrawal
+    # notice has an issuer, that issuer is not the supplier of the thing being
+    # withdrawn, and a document with no attributable issuer is not evidence.
+    # Its `regulatory` family matches no category, so nothing is ever sourced
+    # from it.
+    ("SUP-90", "Market Surveillance Authority", "regulatory"),
 ]
 
 PRODUCTS = [
     # id,       name,                              category,                      supplier,  regulated
-    ("PRD-01", "AeroPure 300 Air Purifier",       "home.air-treatment.purifiers", "SUP-01", False),
-    ("PRD-02", "Orchard Valley Trail Mix Bar",    "food.snacks.bars",             "SUP-02", True),
-    ("PRD-03", "Brightline BT-200 Earbuds",       "audio.headphones.earbuds",     "SUP-03", False),
-    ("PRD-04", "Cascade Rapid Kettle",            "home.kitchen.kettles",         "SUP-04", False),
-    ("PRD-05", "Orchard Valley Granola Clusters", "food.snacks.granola",          "SUP-02", True),
-    ("PRD-06", "Voltaic Desk Fan V2",             "home.air-treatment.fans",      "SUP-01", False),
+    ("PRD-01", "Northaven AP300 Air Purifier",       "home.air-treatment.purifiers", "SUP-01", False),
+    ("PRD-02", "Harrowfield Trail Mix Bar",    "food.snacks.bars",             "SUP-02", True),
+    ("PRD-03", "Calverton BT-200 Earbuds",       "electronics.audio.earbuds",    "SUP-03", False),
+    ("PRD-04", "Stonebridge Rapid Kettle",            "home.kitchen.kettles",         "SUP-04", False),
+    ("PRD-05", "Harrowfield Granola Clusters", "food.snacks.granola",          "SUP-02", True),
+    ("PRD-06", "Northaven Desk Fan V2",             "home.air-treatment.fans",      "SUP-01", False),
 ]
 
 VARIANTS = [
     # id,        product,  name,                            is_base
-    ("VAR-01A", "PRD-01", "AeroPure 300",                   True),
-    ("VAR-01B", "PRD-01", "AeroPure 300 Max",               False),
+    ("VAR-01A", "PRD-01", "Northaven AP300",                   True),
+    ("VAR-01B", "PRD-01", "Northaven AP300 Max",               False),
     ("VAR-02A", "PRD-02", "Trail Mix Bar 40g",              True),
     ("VAR-02B", "PRD-02", "Trail Mix Bar Multipack 6x40g",  False),
-    ("VAR-03A", "PRD-03", "Brightline BT-200 Earbuds",      True),
-    ("VAR-04A", "PRD-04", "Cascade Rapid Kettle 1.7L",      True),
+    ("VAR-03A", "PRD-03", "Calverton BT-200 Earbuds",      True),
+    ("VAR-04A", "PRD-04", "Stonebridge Rapid Kettle 1.7L",      True),
     ("VAR-05A", "PRD-05", "Granola Clusters 300g",          True),
-    ("VAR-06A", "PRD-06", "Voltaic Desk Fan V2",            True),
+    ("VAR-06A", "PRD-06", "Northaven Desk Fan V2",            True),
 ]
 
 # What everybody outside this system calls each variant. Hand-authored rather
@@ -167,24 +184,23 @@ VARIANTS = [
 # recognises and "VAR-01B" with a prefix bolted on is not one. Distinct by
 # construction; a test asserts it stays that way.
 SKUS = {
-    "VAR-01A": "AER-300-STD",
-    "VAR-01B": "AER-300-MAX",
-    "VAR-02A": "OVF-TMB-40",
-    "VAR-02B": "OVF-TMB-6PK",
-    "VAR-03A": "BRL-BT200",
-    "VAR-04A": "CAS-KET-17",
-    "VAR-05A": "OVF-GRC-300",
-    "VAR-06A": "VLT-FAN-V2",
+    "VAR-01A": "NAV-AP300-STD",
+    "VAR-01B": "NAV-AP300-MAX",
+    "VAR-02A": "HRF-TMB-40",
+    "VAR-02B": "HRF-TMB-6PK",
+    "VAR-03A": "CAL-BT200",
+    "VAR-04A": "STB-KET-17",
+    "VAR-05A": "HRF-GRC-300",
+    "VAR-06A": "NAV-FAN-V2",
 }
 
 # Which image roles a category cannot launch without, mirroring INT-001 rather
 # than inventing a second rule. Appliances are bought on how they look in a
-# room; a food pack needs the panel a shopper with an allergy actually reads.
-REQUIRED_MEDIA = {
-    "home.": ("HERO", "IN_SITU"),
-    "food.": ("PACK_FRONT", "INGREDIENT_PANEL"),
-    "audio.": ("HERO",),
-}
+# room; a food pack needs the panel a shopper with an allergy actually reads;
+# a garment needs a detail shot because fabric does not photograph from three
+# metres. Which is which is the retailer's own standard, so it comes from the
+# profile and is written into catalog.json for the running system to read.
+REQUIRED_MEDIA = retailer.required_media()
 
 # Media that never arrived. Deliberate, and named here rather than sprinkled by
 # the PRNG: the readiness check needs something to find, and a demo whose only
@@ -199,21 +215,13 @@ MISSING_MEDIA = {
     ("VAR-06A", "IN_SITU"),
 }
 
-TAXONOMY = {
-    "home": "Home",
-    "home.air-treatment": "Home > Air Treatment",
-    "home.air-treatment.purifiers": "Home > Air Treatment > Air Purifiers",
-    "home.air-treatment.fans": "Home > Air Treatment > Fans",
-    "home.kitchen": "Home > Kitchen",
-    "home.kitchen.kettles": "Home > Kitchen > Kettles",
-    "food": "Food",
-    "food.snacks": "Food > Snacks",
-    "food.snacks.bars": "Food > Snacks > Cereal & Snack Bars",
-    "food.snacks.granola": "Food > Snacks > Granola",
-    "audio": "Audio",
-    "audio.headphones": "Audio > Headphones",
-    "audio.headphones.earbuds": "Audio > Headphones > Earbuds",
-}
+# The whole tree comes from the profile - the six hero products sit in nodes
+# the assortment already declares rather than in six of their own, which is
+# what stops the demo's products being visibly special before anybody clicks
+# one. Left as an empty dict, and merged with the profile's below, so a
+# retailer that genuinely needs a node no background product occupies still
+# has somewhere to put it.
+TAXONOMY: dict[str, str] = {}
 
 MKT_A_MAP = {
     "specs.power_w": "wattage",
@@ -231,11 +239,14 @@ MKT_B_MAP = {
     "food.ingredients": "ingredientList",
 }
 
+# The hero products' own mappings. The background derives the rest from the
+# profile, but these five leaves are where the demo happens and their codes are
+# quoted in CHN-002 and CHN-003, so they stay hand-written and stable.
 MKT_A_CATS = {
     "home.air-treatment.purifiers": "1043/2210 Air Purifiers",
     "food.snacks.bars": "3120/4415 Cereal Bars",
     "food.snacks.granola": "3120/4460 Granola & Muesli",
-    "audio.headphones.earbuds": "2255/6610 In-Ear Headphones",
+    "electronics.audio.earbuds": "2255/6610 In-Ear Headphones",
 }
 
 MKT_B_CATS = {
@@ -256,25 +267,98 @@ CHANNELS = [
 
 ATTR_DEFS = [
     # path, label, dtype, unit, safety, ordered, required_for, applies_to
+    # Mains appliances only, and named leaf by leaf rather than by branch. A
+    # rated power is a declaration about something that plugs in; a saucepan
+    # and a duvet are in `home.` and neither has one, and four channels
+    # *require* this field wherever it applies - so a prefix that swept them
+    # in would make the untouched catalog unpublishable.
     ("specs.power_w", "Rated power", "int", "W", False, False,
-     ["CH-MKT-A", "CH-MKT-B", "CH-PRINT", "CH-SHELF"], ["home."]),
-    ("specs.noise_db", "Sound level", "int", "dB", False, False, [], ["home."]),
+     ["CH-MKT-A", "CH-MKT-B", "CH-PRINT", "CH-SHELF"],
+     ["home.kitchen.", "home.laundry.", "home.floorcare.",
+      "home.air-treatment.", "electronics.vision.", "electronics.computing.",
+      "electronics.audio.soundbars"]),
+    ("specs.noise_db", "Sound level", "int", "dB", False, False, [],
+     ["home.kitchen.", "home.laundry.", "home.floorcare.",
+      "home.air-treatment."]),
     ("specs.coverage_m2", "Coverage area", "int", "m²", False, False,
      [], ["home.air-treatment"]),
     ("specs.filter_type", "Filter type", "str", None, False, False,
      [], ["home.air-treatment"]),
-    ("energy.class", "Energy class", "str", None, False, False, [], ["home."]),
+    ("energy.class", "Energy class", "str", None, False, False, [],
+     ["home.kitchen.", "home.laundry.", "home.floorcare.",
+      "home.air-treatment.", "electronics.vision.", "electronics.computing."]),
+    # `baby.feeding.` is here on purpose. Infant formula and weaning foods are
+    # shelved in Baby because that is where a parent looks for them, and the
+    # labelling regime does not care where a retailer shelves things.
     ("food.ingredients", "Ingredients", "list[str]", None, False, True,
-     ["CH-WEB", "CH-MKT-A", "CH-MKT-B", "CH-PRINT"], ["food."]),
+     ["CH-WEB", "CH-MKT-A", "CH-MKT-B", "CH-PRINT"], ["food.", "baby.feeding.formula", "baby.feeding.weaning"]),
     ("food.allergens.contains", "Allergens - contains", "list[str]", None, True, False,
-     ["CH-WEB", "CH-MKT-A", "CH-MKT-B", "CH-PRINT"], ["food."]),
+     ["CH-WEB", "CH-MKT-A", "CH-MKT-B", "CH-PRINT"], ["food.", "baby.feeding.formula", "baby.feeding.weaning"]),
     ("food.allergens.may_contain", "Allergens - may contain", "list[str]", None, True, False,
-     ["CH-WEB", "CH-MKT-A", "CH-MKT-B", "CH-PRINT"], ["food."]),
+     ["CH-WEB", "CH-MKT-A", "CH-MKT-B", "CH-PRINT"], ["food.", "baby.feeding.formula", "baby.feeding.weaning"]),
     ("food.net_weight_g", "Net weight", "int", "g", False, False, [], ["food."]),
     ("food.fibre_g", "Fibre", "float", "g", False, False, [], ["food."]),
     # No applies_to prefix means every category.
     ("identifiers.gtin", "GTIN", "str", None, False, False, ["CH-MKT-A", "CH-MKT-B"], []),
     ("claims", "Claims", "list[str]", None, False, False, [], []),
+
+    # ---------------------------------------------------------------------
+    # Compliance
+    # ---------------------------------------------------------------------
+    # These are the cheapest correct way to make a takedown, an age bar or an
+    # export restriction behave properly. `safety_class` is one of the two
+    # switches every escalation path keys off, so an attribute marked here
+    # inherits forced escalation, mandatory review, the fail-closed confidence
+    # floor, withholding rather than copy-rewriting, and the per-channel
+    # redaction path - without a line of new rule code.
+    ("compliance.sale_permitted", "Permitted for sale", "bool", None, True, False,
+     [], []),
+    ("compliance.min_age", "Minimum age", "int", "years", True, False,
+     [], ["food.alcohol.", "home.cookware.knives", "general.diy.handtools",
+          "hpc.cleaning.bleach"]),
+    ("compliance.export_control", "Export control classification", "str", None,
+     True, False, [], ["electronics.personal."]),
+    ("compliance.certificate_ref", "Conformity certificate", "str", None,
+     False, False, [],
+     ["electronics.", "home.kitchen.", "home.laundry.", "home.floorcare.",
+      "home.air-treatment.", "general.toys.", "general.garden.", "general.diy.",
+      "baby.toys.", "baby.feeding.bottles", "health.devices."]),
+
+    # ---------------------------------------------------------------------
+    # Identity and pack
+    # ---------------------------------------------------------------------
+    ("origin.country", "Country of origin", "str", None, False, False, [], []),
+    ("pack.net_quantity", "Net quantity", "float", None, False, False, [],
+     ["food.", "hpc.", "baby.feeding.", "baby.nappies.", "health.",
+      "general.pet.", "general.diy.paint"]),
+    ("pack.unit", "Net quantity unit", "str", None, False, False, [],
+     ["food.", "hpc.", "baby.feeding.", "baby.nappies.", "health.",
+      "general.pet.", "general.diy.paint"]),
+    ("packaging.recyclable_pct", "Recyclable packaging", "int", "%", False,
+     False, [], ["food.", "hpc.", "baby."]),
+
+    # ---------------------------------------------------------------------
+    # Category-specific labelling
+    # ---------------------------------------------------------------------
+    # A fibre label and an ingredient list are the same kind of object: an
+    # ordered declaration whose order is part of its meaning. Marking it
+    # `ordered` reuses the ORDERED_MATCH machinery rather than growing a
+    # second one for textiles.
+    ("textile.fibre_composition", "Fibre composition", "list[str]", None,
+     False, True, [], ["apparel.", "home.textiles."]),
+    ("textile.care_code", "Care instructions", "str", None, False, False, [],
+     ["apparel.", "home.textiles."]),
+    ("cosmetic.inci", "Ingredients (INCI)", "list[str]", None, True, True, [],
+     ["hpc.toiletries.", "hpc.cosmetics."]),
+    ("health.active_ingredient", "Active ingredients", "list[str]", None, True,
+     False, [], ["health.medicines.", "health.supplements."]),
+    ("specs.plug_type", "Plug and supply", "str", None, True, False, [],
+     ["home.kitchen.", "home.laundry.", "home.floorcare.",
+      "home.air-treatment.", "electronics.vision.", "electronics.computing.",
+      "electronics.audio.soundbars"]),
+    ("specs.battery_type", "Cell type", "str", None, True, False, [],
+     ["electronics.mobile.", "electronics.personal.", "electronics.audio.",
+      "general.toys.", "baby.toys.", "health.devices."]),
 ]
 
 RULES = [
@@ -291,8 +375,12 @@ RULES = [
      "internal taxonomy node must map to a Marketplace A node"),
     ("RUL-B01", "CH-MKT-B", "title", "MAX_LEN", None, 120, "HARD", ""),
     ("RUL-B02", "CH-MKT-B", "powerConsumption", "REQUIRED", "specs.power_w", None, "HARD", ""),
+    # The allowlist is the profile's code set, sorted, rather than six codes
+    # written out here. An assortment that adds fish or sulphites adds them to
+    # one file, and the marketplace's schema follows - which is the point of
+    # rules being data.
     ("RUL-B03", "CH-MKT-B", "allergenCodes", "ENUM", "food.allergens.contains",
-     ["AL-PEANUT", "AL-NUT", "AL-MILK", "AL-GLUTEN", "AL-SOY", "AL-EGG"], "HARD",
+     sorted(set(retailer.allergen_codes().values())), "HARD",
      "rejection code MKB-2201"),
     ("RUL-B04", "CH-MKT-B", "ingredientList", "ORDERED_MATCH", "food.ingredients",
      "food.ingredients", "HARD", "rejection code MKB-2208"),
@@ -317,15 +405,33 @@ CLAIM_RULES = {
     "peanut-free": lambda a: not _has_allergen(a, ("peanut", "peanuts")),
     "gluten-free": lambda a: not _has_allergen(a, ("gluten", "wheat")),
     "high-fibre": lambda a: a.get("food.fibre_g") is not None and a["food.fibre_g"] >= 6,
+    # Two claims the wider assortment makes. Both are "restricted, permitted
+    # only with substantiation" under INT-002, and both now have a predicate
+    # rather than an opinion - which is what moves them from something only a
+    # model could notice to something the validator refuses.
+    "made-in-britain": lambda a: a.get("origin.country") == "United Kingdom",
+    "recyclable-packaging": lambda a: (
+        a.get("packaging.recyclable_pct") is not None
+        and _as_number(a["packaging.recyclable_pct"]) is not None
+        and _as_number(a["packaging.recyclable_pct"]) >= 90),
 }
 
-ALLERGEN_CODES = {
-    "almonds": "AL-NUT", "hazelnuts": "AL-NUT", "nuts": "AL-NUT",
-    "peanut": "AL-PEANUT", "peanuts": "AL-PEANUT",
-    "milk": "AL-MILK", "gluten": "AL-GLUTEN", "wheat": "AL-GLUTEN",
-    "barley": "AL-GLUTEN", "soy": "AL-SOY", "soya": "AL-SOY",
-    "egg": "AL-EGG", "eggs": "AL-EGG",
-}
+
+def _as_number(value):
+    """A figure, or None if the supplier sent something that is not one.
+
+    A claim is evaluated against whatever is in force, and what is in force is
+    sometimes "90%" typed into a cell. That is a defect the readiness checks
+    report; it is not a reason for a claim rule to raise.
+    """
+    try:
+        return float(str(value).rstrip("%").strip())
+    except (TypeError, ValueError):
+        return None
+
+# Word to code, from the profile - the assortment decides which of the
+# regulated allergens it can actually declare.
+ALLERGEN_CODES = retailer.allergen_codes()
 
 
 def _has_allergen(attrs: dict, words: tuple[str, ...]) -> bool:
@@ -405,27 +511,81 @@ ATTR_ROWS = [
     ("VAR-06A", "energy.class", "A", "DOC-02", "v1"),
     ("VAR-06A", "identifiers.gtin", "05012345600032", "DOC-02", "v1"),
     ("VAR-06A", "claims", [], "DOC-02", "v1"),
+
+    # ---------------------------------------------------------------------
+    # Compliance and pack, for the six the demo talks about
+    # ---------------------------------------------------------------------
+    # Every product is permitted for sale until something says otherwise, and
+    # the value is RECORDED rather than inferred - so the baseline is
+    # publishable and a later withdrawal notice reads as a change rather than
+    # as a catalog that was always broken. `origin.country` is here for the
+    # same reason: an origin nobody stated and an origin stated as the United
+    # Kingdom are different facts, and only one of them supports a claim.
+    ("VAR-01A", "compliance.sale_permitted", True, "DOC-08", "v1"),
+    ("VAR-01B", "compliance.sale_permitted", True, "DOC-08", "v1"),
+    ("VAR-02A", "compliance.sale_permitted", True, "DOC-03", "v1"),
+    ("VAR-02B", "compliance.sale_permitted", True, "DOC-03", "v1"),
+    ("VAR-03A", "compliance.sale_permitted", True, "DOC-07", "v1"),
+    ("VAR-04A", "compliance.sale_permitted", True, "DOC-06", "v1"),
+    ("VAR-05A", "compliance.sale_permitted", True, "DOC-05", "v1"),
+    ("VAR-06A", "compliance.sale_permitted", True, "DOC-02", "v1"),
+
+    ("VAR-01A", "origin.country", "United Kingdom", "DOC-08", "v1"),
+    ("VAR-01B", "origin.country", "United Kingdom", "DOC-08", "v1"),
+    ("VAR-02A", "origin.country", "United Kingdom", "DOC-03", "v1"),
+    ("VAR-02B", "origin.country", "United Kingdom", "DOC-03", "v1"),
+    ("VAR-03A", "origin.country", "Viet Nam", "DOC-07", "v1"),
+    ("VAR-04A", "origin.country", "Poland", "DOC-06", "v1"),
+    ("VAR-05A", "origin.country", "United Kingdom", "DOC-05", "v1"),
+    ("VAR-06A", "origin.country", "China", "DOC-02", "v1"),
+
+    # Mains appliances declare a supply; the earbuds declare a cell.
+    ("VAR-01A", "specs.plug_type", "BS 1363 Type G", "DOC-08", "v1"),
+    ("VAR-01B", "specs.plug_type", "BS 1363 Type G", "DOC-08", "v1"),
+    ("VAR-04A", "specs.plug_type", "BS 1363 Type G (fused 13 A)", "DOC-06", "v1"),
+    ("VAR-06A", "specs.plug_type", "BS 1363 Type G", "DOC-02", "v1"),
+    ("VAR-03A", "specs.battery_type", "Lithium polymer 3.8 V", "DOC-07", "v1"),
+
+    ("VAR-01A", "compliance.certificate_ref", "UKCA-2411", "DOC-08", "v1"),
+    ("VAR-01B", "compliance.certificate_ref", "UKCA-2411", "DOC-08", "v1"),
+    ("VAR-03A", "compliance.certificate_ref", "UKCA-2478", "DOC-07", "v1"),
+    ("VAR-04A", "compliance.certificate_ref", "UKCA-2503", "DOC-06", "v1"),
+    ("VAR-06A", "compliance.certificate_ref", "UKCA-2419", "DOC-02", "v1"),
+
+    # The two food products declare a pack net quantity as well as the grocery
+    # net weight. They are not the same statement: one is the mandatory
+    # particular under REG-001 and the other is what the range card carries.
+    ("VAR-02A", "pack.net_quantity", 40.0, "DOC-03", "v1"),
+    ("VAR-02A", "pack.unit", "g", "DOC-03", "v1"),
+    ("VAR-02B", "pack.net_quantity", 240.0, "DOC-03", "v1"),
+    ("VAR-02B", "pack.unit", "g", "DOC-03", "v1"),
+    ("VAR-05A", "pack.net_quantity", 300.0, "DOC-05", "v1"),
+    ("VAR-05A", "pack.unit", "g", "DOC-05", "v1"),
+
+    ("VAR-02A", "packaging.recyclable_pct", 85, "DOC-03", "v1"),
+    ("VAR-02B", "packaging.recyclable_pct", 85, "DOC-03", "v1"),
+    ("VAR-05A", "packaging.recyclable_pct", 90, "DOC-05", "v1"),
 ]
 
 SOURCE_DOCS = [
     # id, supplier, kind, version, title, received (day offset from 2026-08-01),
     # precedence, has prose body
     ("DOC-01", "SUP-01", "SPEC_SHEET", "v1",
-     "AeroPure 300 range technical specification", d(-20).isoformat(), 30, True),
+     "Northaven AP300 range technical specification", d(-20).isoformat(), 30, True),
     ("DOC-02", "SUP-01", "PORTAL_FEED", "v1",
-     "Voltaic Home portal attribute feed", d(-18).isoformat(), 20, False),
+     "Northaven Home portal attribute feed", d(-18).isoformat(), 20, False),
     ("DOC-03", "SUP-02", "LABEL_ARTWORK", "v1",
      "Trail Mix Bar pack label artwork", d(-16).isoformat(), 40, True),
     ("DOC-04", "SUP-02", "SPEC_SHEET", "v1",
-     "Orchard Valley allergen and ingredient notice", d(-16).isoformat(), 30, True),
+     "Harrowfield allergen and ingredient notice", d(-16).isoformat(), 30, True),
     ("DOC-05", "SUP-02", "SPREADSHEET", "v1",
-     "Orchard Valley portal spreadsheet export", d(-15).isoformat(), 15, False),
+     "Harrowfield portal spreadsheet export", d(-15).isoformat(), 15, False),
     ("DOC-06", "SUP-04", "SPEC_SHEET", "v1",
-     "Cascade Rapid Kettle dimensional drawing", d(-14).isoformat(), 30, True),
+     "Stonebridge Rapid Kettle dimensional drawing", d(-14).isoformat(), 30, True),
     ("DOC-07", "SUP-03", "PORTAL_FEED", "v1",
-     "Brightline portal attribute feed", d(-13).isoformat(), 20, False),
+     "Calverton portal attribute feed", d(-13).isoformat(), 20, False),
     ("DOC-08", "SUP-01", "CERTIFICATE", "v1",
-     "Voltaic Home declaration of conformity", d(-12).isoformat(), 35, True),
+     "Northaven Home declaration of conformity", d(-12).isoformat(), 35, True),
 ]
 
 LISTING_CHANNELS = {
@@ -490,10 +650,10 @@ BAR_PATHS = ["food.ingredients", "food.allergens.contains",
 COPY = {
     "VAR-01A": {
         "web_title": (
-            "AeroPure 300 Air Purifier — HEPA H13 filtration for rooms up to 40 m²",
+            "Northaven AP300 Air Purifier — HEPA H13 filtration for rooms up to 40 m²",
             ["specs.coverage_m2", "specs.filter_type"], []),
         "mkt_title": (
-            "Voltaic AeroPure 300 Air Purifier — HEPA H13, 40 m², 45W",
+            "Northaven AP300 Air Purifier — HEPA H13, 40 m², 45W",
             ["specs.power_w", "specs.coverage_m2", "specs.filter_type"], []),
         "bullets": ([
             "Ultra-quiet 45W operation for bedrooms and studies",
@@ -502,26 +662,26 @@ COPY = {
             "Energy class A, with a filter-life indicator and a sleep mode",
         ], SPECS_ALL, AIR_CLAIMS),
         "description": (
-            "The AeroPure 300 is a compact air purifier for bedrooms, studies and "
+            "The Northaven AP300 is a compact air purifier for bedrooms, studies and "
             "home offices of up to 40 m². A sealed True HEPA H13 filter removes "
             "99.95% of airborne particles down to 0.1 micron, including pollen, pet "
             "dander and smoke. At 45 W and 38 dB on the sleep setting it can be left "
             "running overnight without disturbing sleep. Energy class A.",
             SPECS_ALL, AIR_CLAIMS),
-        "shelf_text": ("AeroPure 300 · 45W · HEPA H13",
+        "shelf_text": ("Northaven AP300 · 45W · HEPA H13",
                        ["specs.power_w", "specs.filter_type"], []),
         "catalogue_copy": (
-            "AeroPure 300 Air Purifier. True HEPA H13 filtration for rooms up to "
+            "Northaven AP300 Air Purifier. True HEPA H13 filtration for rooms up to "
             "40 m², a full air change every 18 minutes, ultra-quiet 45 W operation "
             "at 38 dB on the sleep setting, energy class A and a filter-life "
             "indicator.", SPECS_ALL, AIR_CLAIMS),
     },
     "VAR-01B": {
         "web_title": (
-            "AeroPure 300 Max Air Purifier — HEPA H13 filtration for rooms up to 65 m²",
+            "Northaven AP300 Max Air Purifier — HEPA H13 filtration for rooms up to 65 m²",
             ["specs.coverage_m2", "specs.filter_type"], []),
         "mkt_title": (
-            "Voltaic AeroPure 300 Max Air Purifier — HEPA H13, 65 m², 45W",
+            "Northaven AP300 Max Air Purifier — HEPA H13, 65 m², 45W",
             ["specs.power_w", "specs.coverage_m2", "specs.filter_type"], []),
         "bullets": ([
             "Ultra-quiet 45W operation for bedrooms and studies",
@@ -530,25 +690,25 @@ COPY = {
             "Energy class A, with a filter-life indicator and a sleep mode",
         ], SPECS_ALL, AIR_CLAIMS),
         "description": (
-            "The AeroPure 300 Max is the larger model in the AeroPure 300 range, "
+            "The Northaven AP300 Max is the larger model in the Northaven AP300 range, "
             "sized for living rooms and open-plan spaces of up to 65 m². The sealed "
             "True HEPA H13 filter is the same grade as the standard model and removes "
             "99.95% of airborne particles down to 0.1 micron. At 45 W and 38 dB on the "
             "sleep setting it is quiet enough to leave running overnight. "
             "Energy class A.", SPECS_ALL, AIR_CLAIMS),
-        "shelf_text": ("AeroPure 300 Max · 45W · HEPA H13",
+        "shelf_text": ("Northaven AP300 Max · 45W · HEPA H13",
                        ["specs.power_w", "specs.filter_type"], []),
         "catalogue_copy": (
-            "AeroPure 300 Max Air Purifier. True HEPA H13 filtration for open-plan "
+            "Northaven AP300 Max Air Purifier. True HEPA H13 filtration for open-plan "
             "rooms up to 65 m², a full air change every 20 minutes, ultra-quiet 45 W "
             "operation at 38 dB on the sleep setting, energy class A and a "
             "filter-life indicator.", SPECS_ALL, AIR_CLAIMS),
     },
     "VAR-02A": {
-        "web_title": ("Orchard Valley Trail Mix Bar 40g — oats, honey and almonds",
+        "web_title": ("Harrowfield Trail Mix Bar 40g — oats, honey and almonds",
                       ["food.net_weight_g", "food.ingredients"], []),
         "mkt_title": (
-            "Orchard Valley Trail Mix Bar 40g — Oats, Honey & Almonds, High Fibre",
+            "Harrowfield Trail Mix Bar 40g — Oats, Honey & Almonds, High Fibre",
             ["food.net_weight_g", "food.ingredients", "food.fibre_g"], ["high-fibre"]),
         "bullets": ([
             "Peanut-free recipe, made on a dedicated line",
@@ -567,9 +727,9 @@ COPY = {
     },
     "VAR-02B": {
         "web_title": (
-            "Orchard Valley Trail Mix Bar Multipack — 6 x 40g, oats, honey and almonds",
+            "Harrowfield Trail Mix Bar Multipack — 6 x 40g, oats, honey and almonds",
             ["food.net_weight_g", "food.ingredients"], []),
-        "mkt_title": ("Orchard Valley Trail Mix Bar Multipack 6 x 40g — High Fibre",
+        "mkt_title": ("Harrowfield Trail Mix Bar Multipack 6 x 40g — High Fibre",
                       ["food.fibre_g"], ["high-fibre"]),
         "bullets": ([
             "Six 40 g bars in one 240 g pack",
@@ -588,8 +748,8 @@ COPY = {
     },
     "VAR-03A": {
         "web_title": (
-            "Brightline BT-200 True Wireless Earbuds — 24 hours of playback", [], []),
-        "mkt_title": ("Brightline BT-200 True Wireless Earbuds — 24h Battery, USB-C",
+            "Calverton BT-200 True Wireless Earbuds — 24 hours of playback", [], []),
+        "mkt_title": ("Calverton BT-200 True Wireless Earbuds — 24h Battery, USB-C",
                       [], []),
         "bullets": ([
             "Six hours of playback, 24 hours with the charging case",
@@ -604,9 +764,9 @@ COPY = {
             "charging, IPX4 splash resistance and touch controls.", [], []),
     },
     "VAR-04A": {
-        "web_title": ("Cascade Rapid Kettle 1.7L — 3000W rapid boil, brushed steel",
+        "web_title": ("Stonebridge Rapid Kettle 1.7L — 3000W rapid boil, brushed steel",
                       ["specs.power_w"], []),
-        "mkt_title": ("Cascade Rapid Kettle 1.7L — 3000W Rapid Boil, Brushed Steel",
+        "mkt_title": ("Stonebridge Rapid Kettle 1.7L — 3000W Rapid Boil, Brushed Steel",
                       ["specs.power_w"], []),
         "bullets": ([
             "Boils a single cup in 45 seconds",
@@ -619,14 +779,14 @@ COPY = {
             "cup to the boil in 45 seconds. Brushed stainless steel body, washable "
             "limescale filter, a 360° base and cord storage underneath.",
             ["specs.power_w"], []),
-        "shelf_text": ("Cascade Rapid Kettle 1.7L · 3000W",
+        "shelf_text": ("Stonebridge Rapid Kettle 1.7L · 3000W",
                        ["specs.power_w"], []),
     },
     "VAR-05A": {
-        "web_title": ("Orchard Valley Granola Clusters 300g — honey and almond",
+        "web_title": ("Harrowfield Granola Clusters 300g — honey and almond",
                       ["food.net_weight_g"], []),
         "mkt_title": (
-            "Orchard Valley Granola Clusters 300g — Honey & Almond, High Fibre",
+            "Harrowfield Granola Clusters 300g — Honey & Almond, High Fibre",
             ["food.net_weight_g", "food.fibre_g"], ["high-fibre"]),
         "bullets": ([
             "High fibre: 7.2 g of fibre per 100 g",
@@ -651,16 +811,16 @@ COPY = {
         # correction to that line reaches a printed page - which is the whole
         # argument for an erratum being a different outcome from a redaction.
         "catalogue_copy": (
-            "Orchard Valley Granola Clusters 300 g. Baked oat clusters with honey, "
+            "Harrowfield Granola Clusters 300 g. Baked oat clusters with honey, "
             "whole almonds and dried cranberries, 7.2 g of fibre per 100 g. "
             "Contains almonds. May contain milk.",
             ["food.net_weight_g", "food.fibre_g", "food.allergens.contains",
              "food.allergens.may_contain"], ["high-fibre"]),
     },
     "VAR-06A": {
-        "web_title": ("Voltaic Desk Fan V2 — 28W three-speed fan for desks and rooms",
+        "web_title": ("Northaven Desk Fan V2 — 28W three-speed fan for desks and rooms",
                       ["specs.power_w"], []),
-        "mkt_title": ("Voltaic Desk Fan V2 — 28W, 3 Speeds, Quiet Night Mode",
+        "mkt_title": ("Northaven Desk Fan V2 — 28W, 3 Speeds, Quiet Night Mode",
                       ["specs.power_w"], []),
         "bullets": ([
             "28W three-speed motor",
@@ -705,6 +865,18 @@ TAXONOMY.update(_background.TAXONOMY)
 MKT_A_CATS.update(_background.MKT_A_CATS)
 MKT_B_CATS.update(_background.MKT_B_CATS)
 
+#: The six the demo talks about, captured before the background is spliced in.
+#:
+#: This used to be inferred as "the ids that do not start with VAR-1", which
+#: was true when the background stopped at VAR-199 and quietly stopped being
+#: true when it reached VAR-200. Background variants numbered from 200 were
+#: being treated as hero products - given the story's routine traffic and
+#: excluded from the population's - which is the kind of bug that produces no
+#: error and a slightly wrong screen. Membership is now recorded rather than
+#: pattern-matched, so it cannot come untrue by the catalog growing.
+HERO_PRODUCTS = frozenset(p[0] for p in PRODUCTS)
+HERO_VARIANTS = frozenset(v[0] for v in VARIANTS)
+
 PRODUCTS += _BG["products"]
 VARIANTS += _BG["variants"]
 SKUS.update(_BG["skus"])
@@ -721,6 +893,27 @@ SOURCE_DOCS += [
     for doc, sup, kind, ver, title, offset, prec, body in _BG["source_docs"]
 ]
 
+#: The documents the seven wider arcs arrive on.
+#:
+#: `NOTICE` sits at precedence 50, above label artwork's 40, and it is the only
+#: kind that does. Artwork is the legal source for what a pack *says*; a notice
+#: is the legal source for whether it may be sold at all, and nothing a
+#: supplier can send outranks it. POL-002 carries the same table in prose.
+ARC_SOURCE_DOCS = [
+    ("DOC-20", "", "SPEC_SHEET", "v2", "Revised pack specification", -6, 30, True),
+    ("DOC-21", "", "CERTIFICATE", "v2", "Declaration of conformity - withdrawn",
+     -5, 35, True),
+    ("DOC-22", "", "SPEC_SHEET", "v2", "Sourcing change notification", -4, 30, True),
+    ("DOC-23", "SUP-90", "NOTICE", "v1",
+     "Withdrawal notice MSN-2026-0418", -3, 50, True),
+    ("DOC-24", "SUP-90", "NOTICE", "v1",
+     "Export control classification", -3, 50, True),
+    ("DOC-25", "", "LABEL_ARTWORK", "v2", "Revised fibre composition label",
+     -2, 40, True),
+    ("DOC-26", "SUP-90", "NOTICE", "v1",
+     "Amendment to mandatory particulars", -2, 50, True),
+]
+
 #: What the background was asked to get wrong, by entity. Read back by
 #: `check_seeded` so the pack can assert it contains exactly the damage it
 #: declared - the same property the extraction answer key has, extended to the
@@ -730,8 +923,8 @@ SEEDED_DEFECTS = _background.SEEDED_DEFECTS
 
 COMPARISON_TABLE = (
     "Model | Rated power | Coverage | Filter | Sound level\n"
-    "AeroPure 300 | 45 W | 40 m² | HEPA H13 | 38 dB\n"
-    "AeroPure 300 Max | 45 W | 65 m² | HEPA H13 | 38 dB"
+    "Northaven AP300 | 45 W | 40 m² | HEPA H13 | 38 dB\n"
+    "Northaven AP300 Max | 45 W | 65 m² | HEPA H13 | 38 dB"
 )
 
 
@@ -739,7 +932,7 @@ COMPARISON_TABLE = (
 # Supplier documents
 #
 # Extracted text, as the ingestion pipeline would hold it. DOC-01 v2 is the
-# whole problem: it corrects the rated power of "the AeroPure 300" and admits
+# whole problem: it corrects the rated power of "the Northaven AP300" and admits
 # that one model's measurement sheet was folded into v1, without ever saying
 # which model the corrected figure belongs to. v3 is the answer.
 # ---------------------------------------------------------------------------
@@ -751,20 +944,20 @@ TECHNICAL SPECIFICATION - AEROPURE 300 AIR PURIFIER RANGE
 Document reference: DOC-01
 Revision: v1
 Issued: {dw(-20)}
-Prepared by: Specification Control, Voltaic Home
+Prepared by: Specification Control, Northaven Home
 
 1. MODELS COVERED
 
-  AeroPure 300       (VAR-01A)
-  AeroPure 300 Max   (VAR-01B)
+  Northaven AP300       (VAR-01A)
+  Northaven AP300 Max   (VAR-01B)
 
 2. SUMMARY SPECIFICATION
 
   Rated power                 45 W
   Sound level, sleep setting  38 dB(A)
   Filter                      True HEPA H13
-  Coverage, AeroPure 300      40 m²
-  Coverage, AeroPure 300 Max  65 m²
+  Coverage, Northaven AP300      40 m²
+  Coverage, Northaven AP300 Max  65 m²
   Energy class                A
 
 3. NOTES
@@ -781,11 +974,11 @@ Document reference: DOC-01
 Revision: v2
 Supersedes: v1 (issued {dw(-20)})
 Issued: {dw(INJECT_DAY)}
-Prepared by: Specification Control, Voltaic Home
+Prepared by: Specification Control, Northaven Home
 
 1. SCOPE
 
-This revision corrects the rated power figure published for the AeroPure 300
+This revision corrects the rated power figure published for the Northaven AP300
 air purifier. It supersedes revision v1 in full.
 
 2. CORRECTION
@@ -798,7 +991,7 @@ customer-facing material issued after the date of this document.
 3. REASON FOR CORRECTION
 
 While revision v1 was being compiled, a measurement sheet belonging to one
-model in the AeroPure 300 range was transcribed into the summary table for the
+model in the Northaven AP300 range was transcribed into the summary table for the
 range as a whole. The 45 W entry originates from that sheet. The rating stated
 in section 2 is the correct rated power and should be applied to the published
 specification.
@@ -821,30 +1014,30 @@ Document reference: DOC-01
 Revision: v3
 Supersedes: v2 (issued {dw(INJECT_DAY)})
 Issued: {dw(FINALE_DAY)}
-Prepared by: Specification Control, Voltaic Home
+Prepared by: Specification Control, Northaven Home
 
 1. SCOPE
 
-Revision v2 corrected the rated power published for the AeroPure 300 to 65 W
+Revision v2 corrected the rated power published for the Northaven AP300 to 65 W
 but did not identify the model to which the corrected figure applies. This
 revision resolves that ambiguity and supersedes v2 in full.
 
 2. RATED POWER BY MODEL
 
-  AeroPure 300       (VAR-01A)    45 W
-  AeroPure 300 Max   (VAR-01B)    65 W
+  Northaven AP300       (VAR-01A)    45 W
+  Northaven AP300 Max   (VAR-01B)    65 W
 
-The 65 W figure introduced in revision v2 applies to the AeroPure 300 Max
-only. The rated power of the base AeroPure 300 is unchanged at 45 W, and the
+The 65 W figure introduced in revision v2 applies to the Northaven AP300 Max
+only. The rated power of the base Northaven AP300 is unchanged at 45 W, and the
 figure published for it in revision v1 was correct.
 
 3. MEASURED SOUND LEVEL - AEROPURE 300 MAX
 
-  AeroPure 300 Max   (VAR-01B)    44 dB(A), maximum fan setting
-  AeroPure 300       (VAR-01A)    38 dB(A), unchanged
+  Northaven AP300 Max   (VAR-01B)    44 dB(A), maximum fan setting
+  Northaven AP300       (VAR-01A)    38 dB(A), unchanged
 
 The 44 dB(A) figure is issued for the first time in this revision. The
-38 dB(A) published for the AeroPure 300 Max in revisions v1 and v2 was carried
+38 dB(A) published for the Northaven AP300 Max in revisions v1 and v2 was carried
 across from the base model in error and is withdrawn.
 
 4. UNCHANGED
@@ -860,7 +1053,7 @@ Issued: {dw(-16)}
 Product: Trail Mix Bar (PRD-02)
 
 FRONT OF PACK
-  Orchard Valley Trail Mix Bar
+  Harrowfield Trail Mix Bar
   Oats, honey and almonds
   NET WEIGHT 40 g
 
@@ -886,7 +1079,7 @@ CHANGE NOTE
   unaffected pending its own artwork cycle.
 
 FRONT OF PACK
-  Orchard Valley Trail Mix Bar
+  Harrowfield Trail Mix Bar
   Oats, honey and almonds
   NET WEIGHT 38 g
 
@@ -969,7 +1162,7 @@ DIMENSIONAL DRAWING - RAPID KETTLE 1.7L
 Document reference: DOC-06
 Revision: v1
 Issued: {dw(-14)}
-Product: Cascade Rapid Kettle (PRD-04)
+Product: Stonebridge Rapid Kettle (PRD-04)
 
   Capacity          1.7 L
   Rated power       3000 W
@@ -987,7 +1180,7 @@ DIMENSIONAL DRAWING - RAPID KETTLE 1.7L
 Document reference: DOC-06
 Revision: v2 - PROVISIONAL, NOT FOR PUBLICATION
 Issued: {dw(10)}
-Product: Cascade Rapid Kettle (PRD-04)
+Product: Stonebridge Rapid Kettle (PRD-04)
 
 This revision is issued for review only, while a tooling audit is open. The
 base diameter is under query. Every other figure is carried forward from v1
@@ -1009,9 +1202,9 @@ PORTAL ATTRIBUTE FEED - CHANGE REPORT
 Document reference: DOC-07
 Revision: v2
 Issued: {dw(22)}
-Supplier: Brightline Electronics (SUP-03)
+Supplier: Calverton Electronics (SUP-03)
 
-Scheduled quarterly republication of the attribute feed for all Brightline
+Scheduled quarterly republication of the attribute feed for all Calverton
 lines, including the BT-200 Earbuds (PRD-03).
 
 CHANGES IN THIS REVISION
@@ -1027,12 +1220,12 @@ DECLARATION OF CONFORMITY
 Document reference: DOC-08
 Revision: v1
 Issued: {dw(-12)}
-Manufacturer: Voltaic Home Limited (SUP-01)
+Manufacturer: Northaven Home Limited (SUP-01)
 
 Products covered:
-  AeroPure 300       (VAR-01A)
-  AeroPure 300 Max   (VAR-01B)
-  Voltaic Desk Fan V2 (VAR-06A)
+  Northaven AP300       (VAR-01A)
+  Northaven AP300 Max   (VAR-01B)
+  Northaven Desk Fan V2 (VAR-06A)
 
 The products above conform to the applicable electrical safety and
 electromagnetic compatibility requirements. Energy class A is declared for
@@ -1076,6 +1269,109 @@ def applicable_paths(variant_id: str) -> list[str]:
     return sorted(p for p in attrs_for(variant_id) if applies(p, category))
 
 
+# ---------------------------------------------------------------------------
+# What the wider arcs happen to
+# ---------------------------------------------------------------------------
+# The six hand-authored arcs happen to the six hand-authored products, because
+# a story needs somewhere to be. The seven that follow are about the *rest* of
+# the assortment - a takedown on a toy, an export restriction on a drone, a
+# fibre label revised on a jumper - and those products are generated.
+#
+# So the target is selected rather than named: the first background variant in
+# the right category that actually holds the attribute the arc moves. Selected
+# from a sorted list, so it is the same variant on every run at this seed, and
+# the arc can be written against a value the catalog genuinely has rather than
+# against one it might.
+#
+# The alternative - hand-picking ids like VAR-137B - would tie the story to a
+# draw, and the first person to add a product line would silently repoint an
+# arc at a different product.
+
+
+def pick_variant(prefix: str, path: str, *, skip: int = 0,
+                 exclude: set[str] | None = None) -> str | None:
+    """A background variant under ``prefix`` that holds ``path``.
+
+    ``skip`` takes the next one along, so two arcs wanting the same kind of
+    product do not land on the same row and make one of them invisible.
+    """
+    exclude = exclude or set()
+    found = [vid for vid in sorted(VARIANT_BY_ID)
+             if vid not in HERO_VARIANTS
+             and vid not in exclude
+             and category_of(vid).startswith(prefix)
+             and (vid, path) in ATTR_VALUES]
+    # Undamaged first. An arc landing on a variant the background already
+    # broke would put the thing the arc is about third in a list of findings
+    # about something else - a withdrawal notice reading as the least of a
+    # product's problems, which is the opposite of the point.
+    clean = [vid for vid in found if vid not in SEEDED_DEFECTS]
+    ordered = clean + [vid for vid in found if vid in SEEDED_DEFECTS]
+    return ordered[skip] if len(ordered) > skip else None
+
+
+#: The seven wider arcs, and what each happens to. Selected once, here, so
+#: `FROZEN_BY_ARC`, the documents, the events and the self-checks are all
+#: talking about the same rows.
+#:
+#: Each entry is (day, key, category prefix, attribute path). The days sit in
+#: the gaps the hero arcs leave - 13, 18, 33, 35, 36, 37 - so the demo script's
+#: spine is untouched and a presenter who only wants the original story never
+#: has to skip one of these.
+WIDER_ARCS: tuple[tuple[int, str, str, str], ...] = (
+    (8,  "net_quantity",   "food.",                 "pack.net_quantity"),
+    (22, "certification",  "home.kitchen.",         "compliance.certificate_ref"),
+    (27, "origin",         "apparel.",              "origin.country"),
+    (44, "takedown",       "general.toys.",         "compliance.sale_permitted"),
+    (48, "export",         "electronics.personal.", "compliance.export_control"),
+    (52, "composition",    "apparel.",              "textile.fibre_composition"),
+    (56, "rule_change",    "hpc.cosmetics.",        "cosmetic.inci"),
+)
+
+
+def _select_arc_targets() -> dict[str, str]:
+    """One variant per wider arc, and no two arcs on the same product.
+
+    Excluded by *product*, not by variant. Two arcs on two variants of one
+    jumper would both be correct and would read, on the lifecycle board, as one
+    product having a terrible month - which is a story the data is not telling.
+    """
+    chosen: dict[str, str] = {}
+    used_products: set[str] = set()
+    for _day, key, prefix, path in WIDER_ARCS:
+        vid = None
+        for skip in range(24):
+            candidate = pick_variant(prefix, path, skip=skip)
+            if candidate is None:
+                break
+            if VARIANT_BY_ID[candidate][1] not in used_products:
+                vid = candidate
+                break
+        if vid is None:
+            # A profile that does not trade this branch simply does not get
+            # this arc. Silently skipping is right: the alternative is a pack
+            # that refuses to build for a retailer with no cosmetics counter.
+            continue
+        chosen[key] = vid
+        used_products.add(VARIANT_BY_ID[vid][1])
+    return chosen
+
+
+ARC_TARGET = _select_arc_targets()
+
+# The arc documents, with the blanks filled in. A supplier document is issued
+# by whoever supplies the product it describes, and that is only knowable once
+# the arc knows which product it happens to. A notice already names its issuer.
+SOURCE_DOCS += [
+    (doc,
+     supplier or PRODUCT_BY_ID[VARIANT_BY_ID[ARC_TARGET[key]][1]][3],
+     kind, ver, title, d(offset).isoformat(), prec, body)
+    for (doc, supplier, kind, ver, title, offset, prec, body), key
+    in zip(ARC_SOURCE_DOCS, [k for _d, k, _p, _a in WIDER_ARCS])
+    if key in ARC_TARGET
+]
+
+
 def docs_defining(variant_id: str) -> set[str]:
     return {doc for (eid, _), (doc, _) in ATTR_SOURCE.items() if eid == variant_id}
 
@@ -1117,7 +1413,10 @@ def build_media() -> list[dict]:
 
 #: Hue per taxonomy root, so a food pack and a home appliance are
 #: distinguishable at thumbnail size without anybody reading the caption.
-FAMILY_HUE = {"home": 205, "food": 96, "audio": 276}
+# One hue per branch, from the profile. Generated imagery is not
+# decoration - a reviewer scanning a grid should be able to tell a
+# grocery pack from a garment without reading the caption.
+FAMILY_HUE = retailer.hues()
 
 
 def _hue(vid: str, category: str) -> int:
@@ -1547,7 +1846,7 @@ def build_events(listings: list[dict]) -> list[dict]:
     # hero products would go quiet on a screen whose whole subject is which
     # products are moving. The rest of the catalog has its own traffic, emitted
     # above from its own stream.
-    hero = {v for v, _p, _n, _b in VARIANTS if not v.startswith("VAR-1")}
+    hero = set(HERO_VARIANTS)
     confirmable = sorted(
         (vid, path) for (vid, path) in ATTR_VALUES
         if vid in hero and (vid, path) not in FROZEN_BY_ARC
@@ -1562,7 +1861,7 @@ def build_events(listings: list[dict]) -> list[dict]:
     # own and touching only background entities, so every draw the six arcs
     # below make is the draw they made before any of this existed - the volume
     # grew and the story did not move.
-    _hero_variants = {v for v, _p, _n, _b in VARIANTS if not v.startswith("VAR-1")}
+    _hero_variants = set(HERO_VARIANTS)
     _background.traffic(
         Rng(SEED ^ 0xBACC), add, email, days=HORIZON_DAYS,
         variants=[v for v in VARIANTS if v[0] not in _hero_variants],
@@ -1634,7 +1933,7 @@ def build_events(listings: list[dict]) -> list[dict]:
           "marketing@internal",
           f"Team,\n\nThe {d(20):%B} newsletter goes out on Friday. The featured lines "
           f"are "
-          "the AeroPure 300 range and the Trail Mix Bar multipack. Copy is already "
+          "the Northaven AP300 range and the Trail Mix Bar multipack. Copy is already "
           "signed off and we are not asking for any change to product data here - "
           "this note is for visibility only.\n\nMarketing",
           {"material_hint": False})
@@ -1655,10 +1954,10 @@ def build_events(listings: list[dict]) -> list[dict]:
     }, DOC_BODIES["DOC-07-v2"])
 
     # --- arc 1: warm-up. A provisional revision, withdrawn three days later ---
-    arc1 = email(10, 8, 45, "Cascade Rapid Kettle - dimensions under review",
+    arc1 = email(10, 8, 45, "Stonebridge Rapid Kettle - dimensions under review",
                  "product@sup-04.example",
                  "Dear Content Team,\n\n"
-                 "Please treat the dimensional figures for the Cascade Rapid Kettle "
+                 "Please treat the dimensional figures for the Stonebridge Rapid Kettle "
                  "(PRD-04) as provisional for the next few days. Our tooling supplier "
                  "has flagged a possible discrepancy on the base diameter and we have "
                  "opened a tooling audit to settle it.\n\n"
@@ -1668,7 +1967,7 @@ def build_events(listings: list[dict]) -> list[dict]:
                  "days.\n\n"
                  "Kind regards,\n"
                  "Priya Raman\n"
-                 "Product Data Manager, Cascade Housewares (SUP-04)",
+                 "Product Data Manager, Stonebridge Housewares (SUP-04)",
                  {"product": "PRD-04", "entities": ["VAR-04A"], "doc_id": "DOC-06",
                   "doc_version": "v2", "supplier": "SUP-04", "provisional": True,
                   "is_correction": False, "applies_to": "PRODUCT",
@@ -1684,7 +1983,7 @@ def build_events(listings: list[dict]) -> list[dict]:
         "summary": "provisional revision, base diameter under query",
     }, DOC_BODIES["DOC-06-v2"])
 
-    email(13, 10, 5, "RE: Cascade Rapid Kettle - dimensions confirmed unchanged",
+    email(13, 10, 5, "RE: Stonebridge Rapid Kettle - dimensions confirmed unchanged",
           "product@sup-04.example",
           "Dear Content Team,\n\n"
           "The tooling audit closed this morning. The base diameter measured within "
@@ -1694,7 +1993,7 @@ def build_events(listings: list[dict]) -> list[dict]:
           "Apologies for the interruption.\n\n"
           "Kind regards,\n"
           "Priya Raman\n"
-          "Product Data Manager, Cascade Housewares (SUP-04)",
+          "Product Data Manager, Stonebridge Housewares (SUP-04)",
           {"product": "PRD-04", "entities": ["VAR-04A"], "doc_id": "DOC-06",
            "doc_version": "v2", "supplier": "SUP-04", "resolves_issue": True,
            "is_correction": False, "corrects": arc1, "withdraws": "DOC-06:v2",
@@ -1718,7 +2017,7 @@ def build_events(listings: list[dict]) -> list[dict]:
     # --- arc 0 anchor, restated on the range's own document ------------------
     # The portal's certification above is corroboration, and it must not by
     # itself separate the two models. Before the clarification the record has
-    # to be genuinely ambiguous about which AeroPure the 65 W applies to - that
+    # to be genuinely ambiguous about which Northaven AP300 the 65 W applies to - that
     # ambiguity is the whole scenario - and a base model whose wattage stands
     # on a different document from the Max's is a record that has quietly
     # resolved it. So the spec sheet restates the base model's 45 W after the
@@ -1762,7 +2061,7 @@ def build_events(listings: list[dict]) -> list[dict]:
           "often behind.\n\n"
           "Best regards,\n"
           "Tom Wheeler\n"
-          "National Account Manager, Orchard Valley Foods (SUP-02)",
+          "National Account Manager, Harrowfield Foods (SUP-02)",
           {"product": "PRD-02", "entities": ["VAR-02A"], "supplier": "SUP-02",
            "attribute_path": "food.net_weight_g", "new_value": 40, "unit": "g",
            "applies_to": "VARIANT", "is_correction": False,
@@ -1779,12 +2078,12 @@ def build_events(listings: list[dict]) -> list[dict]:
     }, DOC_BODIES["DOC-01-v2"], ref="arc3-doc01-v2")
 
     email(INJECT_DAY, 7, 20,
-          "AeroPure 300 - corrected rated power (DOC-01 rev v2)",
+          "Northaven AP300 - corrected rated power (DOC-01 rev v2)",
           "specs@sup-01.example",
           "Dear Content Team,\n\n"
-          "Attached is revision v2 of the AeroPure 300 technical specification, "
+          "Attached is revision v2 of the Northaven AP300 technical specification, "
           "issued this morning.\n\n"
-          "The correction is to the rated power. The AeroPure 300 draws 65 W, not "
+          "The correction is to the rated power. The Northaven AP300 draws 65 W, not "
           "the 45 W we published in revision v1. The 45 W figure came off a "
           "measurement sheet for one of the models in the range that was folded into "
           "the summary table by mistake when v1 was compiled, and it should never "
@@ -1795,7 +2094,7 @@ def build_events(listings: list[dict]) -> list[dict]:
           "let me know what you need from us to get it corrected.\n\n"
           "Kind regards,\n"
           "Martin Ellery\n"
-          "Quality Manager, Voltaic Home (SUP-01)",
+          "Quality Manager, Northaven Home (SUP-01)",
           {"product": "PRD-01", "attribute_path": "specs.power_w", "new_value": 65,
            "unit": "W", "applies_to": "UNCLEAR", "is_correction": True,
            "old_value": 45, "doc_id": "DOC-01", "doc_version": "v2",
@@ -1846,7 +2145,7 @@ def build_events(listings: list[dict]) -> list[dict]:
           "this out on our side.\n\n"
           "Kind regards,\n"
           "Dr Helen Ashworth\n"
-          "Supplier Quality Manager, Orchard Valley Foods (SUP-02)",
+          "Supplier Quality Manager, Harrowfield Foods (SUP-02)",
           arc4_payload)
 
     # --- arc 5: the marketplace bounces the republished food listings -------
@@ -1883,13 +2182,13 @@ def build_events(listings: list[dict]) -> list[dict]:
         DOC_BODIES["DOC-01-v3"])
 
     email(FINALE_DAY, 9, 10,
-          "AeroPure 300 - rev v3, the 65 W applies to the Max only",
+          "Northaven AP300 - rev v3, the 65 W applies to the Max only",
           "specs@sup-01.example",
           "Dear Content Team,\n\n"
           f"Following your question on my note of {dw(INJECT_DAY)}: I am sorry, "
           f"revision "
           "v2 was not clear and I should have said which model it referred to.\n\n"
-          "The 65 W rating is the AeroPure 300 Max. The standard AeroPure 300 draws "
+          "The 65 W rating is the Northaven AP300 Max. The standard Northaven AP300 draws "
           "45 W and always has - the figure in revision v1 was right for that model "
           "and nothing needs to change on it.\n\n"
           "While we were checking, our test house also flagged that the sound "
@@ -1901,8 +2200,304 @@ def build_events(listings: list[dict]) -> list[dict]:
           "Again, my apologies for the churn.\n\n"
           "Kind regards,\n"
           "Martin Ellery\n"
-          "Quality Manager, Voltaic Home (SUP-01)",
+          "Quality Manager, Northaven Home (SUP-01)",
           finale_payload)
+
+    # ------------------------------------------------------------------
+    # The wider arcs: seven things that happen to the rest of the catalog
+    # ------------------------------------------------------------------
+    # The six above are the story, and they happen to six hand-authored
+    # products. These are the same machinery exercised on the assortment - a
+    # withdrawal notice on a toy, an export restriction on a camera, a fibre
+    # label revised on a jumper - and they exist because a demo that can only
+    # show one kind of correction has not shown that the system handles a
+    # correction, only that it handles *that* correction.
+    #
+    # They sit in the gaps the story leaves, so a presenter running the
+    # original six never has to skip one.
+    _wider_days = {key: day for day, key, _pre, _path in WIDER_ARCS}
+
+    def _wider(key: str, hour: int, minute: int, payload: dict,
+               doc_kind: str, precedence: int, body: str,
+               subject: str = "", sender: str = "", email_body: str = "") -> None:
+        """One wider arc, if the assortment gave it somewhere to happen."""
+        vid = ARC_TARGET.get(key)
+        if vid is None:
+            return
+        day = _wider_days[key]
+        product = VARIANT_BY_ID[vid][1]
+        full = {
+            "product": product, "entities": [vid], "applies_to": "VARIANT",
+            "is_correction": True, "material_hint": True,
+            "supplier": PRODUCT_BY_ID[product][3],
+            **payload,
+        }
+        # Registered as a document body as well as carried on the event. The
+        # event body is what the extractor reads; the file is what a reviewer
+        # opens when the finding cites it, and a notice nobody can read is a
+        # citation that has to be taken on trust.
+        DOC_BODIES[f'{full["doc_id"]}-{full["doc_version"]}'] = body
+        add(day, hour, minute, "SPEC_DOC",
+            "SUPPLIER_PORTAL" if doc_kind != "NOTICE" else "PIM",
+            {**full, "kind": doc_kind, "precedence": precedence},
+            body, ref=f"wider-{key}")
+        if subject:
+            # Twenty minutes behind the document, wrapping the hour rather than
+            # running off the end of it - somebody reads the notice and then
+            # writes to the content team, which is the order these actually
+            # happen in.
+            later = hour * 60 + minute + 20
+            email(day, (later // 60) % 24, later % 60,
+                  subject, sender, email_body, full)
+
+    # --- day 8: a pack gets smaller ------------------------------------
+    # Ordinary commercially and never immaterial. It is a mandatory particular
+    # under REG-007, it is printed on the shelf edge, and the price per unit a
+    # shopper compares on is computed from it.
+    if (_nq := ARC_TARGET.get("net_quantity")):
+        _old = ATTR_VALUES[(_nq, "pack.net_quantity")]
+        _new = round(_old * 0.9, 1)
+        _name = VARIANT_BY_ID[_nq][2]
+        _wider(
+            "net_quantity", 9, 5,
+            {"attribute_path": "pack.net_quantity", "old_value": _old,
+             "new_value": _new, "unit": ATTR_VALUES.get((_nq, "pack.unit"), "g"),
+             "doc_id": "DOC-20", "doc_version": "v2", "supersedes_version": "v1",
+             "changes": [{"entity_id": _nq, "attribute_path": "pack.net_quantity",
+                          "old_value": _old, "new_value": _new}]},
+            "SPEC_SHEET", 30,
+            f"{_name}\n\nRevision v2. The declared net quantity for this line "
+            f"changes from {_old:g} to {_new:g} with effect from the next "
+            f"production run. The recipe is unchanged; the pack is not.\n\n"
+            f"The shelf-edge label and the price-per-unit calculation both "
+            f"quote this figure and both need reissuing.",
+            f"{_name} - net quantity revised to {_new:g}",
+            "technical@supplier.example",
+            f"Please note a pack change on {_name}.\n\n"
+            f"The declared net quantity moves from {_old:g} to {_new:g}. Nothing "
+            f"else about the product changes - same recipe, same ingredients, "
+            f"same allergens.\n\n"
+            f"I am flagging it because the shelf edge prints the weight and the "
+            f"price per unit is worked out from it, so both need to move on the "
+            f"same day the new pack lands.\n\n"
+            f"Regards,\nTechnical Services")
+
+    # --- day 22: the evidence behind a claim expires -------------------
+    # Nothing about the product changed. What changed is that the certificate
+    # supporting it stopped existing, which is a different conversation to have
+    # with a supplier and a different thing to explain to a reviewer.
+    if (_ce := ARC_TARGET.get("certification")):
+        _old_ref = ATTR_VALUES[(_ce, "compliance.certificate_ref")]
+        _name = VARIANT_BY_ID[_ce][2]
+        _wider(
+            "certification", 11, 40,
+            {"attribute_path": "compliance.certificate_ref",
+             "old_value": _old_ref, "new_value": "",
+             "doc_id": "DOC-21", "doc_version": "v2", "supersedes_version": "v1",
+             "changes": [{"entity_id": _ce,
+                          "attribute_path": "compliance.certificate_ref",
+                          "old_value": _old_ref, "new_value": ""}]},
+            "CERTIFICATE", 35,
+            f"Declaration of conformity - {_name}\n\n"
+            f"Certificate {_old_ref} has lapsed and is withdrawn. The product "
+            f"is unchanged and remains on sale; what has expired is the "
+            f"declaration on file, and no claim resting on it is substantiated "
+            f"until a replacement is issued.\n\n"
+            f"A retest has been booked. We will issue the replacement "
+            f"reference when it completes.",
+            f"{_name} - conformity declaration {_old_ref} has lapsed",
+            "compliance@supplier.example",
+            f"Our declaration of conformity {_old_ref} for {_name} expired and "
+            f"has not yet been renewed.\n\n"
+            f"To be clear about what this is and is not: the product has not "
+            f"changed and we are not asking you to stop selling it. What we no "
+            f"longer have is the paperwork behind it, so anything on the "
+            f"listing that leans on that certificate is currently unsupported.\n\n"
+            f"Retest is booked. I will send the new reference the day it lands.\n\n"
+            f"Regards,\nCompliance")
+
+    # --- day 27: where it was made changes -----------------------------
+    if (_or := ARC_TARGET.get("origin")):
+        _old_origin = ATTR_VALUES[(_or, "origin.country")]
+        _name = VARIANT_BY_ID[_or][2]
+        _wider(
+            "origin", 10, 15,
+            {"attribute_path": "origin.country", "old_value": _old_origin,
+             "new_value": "Portugal",
+             "doc_id": "DOC-22", "doc_version": "v2", "supersedes_version": "v1",
+             "changes": [{"entity_id": _or, "attribute_path": "origin.country",
+                          "old_value": _old_origin, "new_value": "Portugal"}]},
+            "SPEC_SHEET", 30,
+            f"{_name}\n\nProduction for this line moves from {_old_origin} to "
+            f"Portugal from the next buy. The specification, the fibre "
+            f"composition and the care instructions are unchanged.\n\n"
+            f"Country of origin is a labelling particular and appears on the "
+            f"listing, the swing ticket and the customs declaration.",
+            f"{_name} - country of origin now Portugal",
+            "sourcing@supplier.example",
+            f"We are moving production of {_name} from {_old_origin} to "
+            f"Portugal with effect from the next buy.\n\n"
+            f"Same fabric, same construction, same care code. The only thing "
+            f"that changes is the origin, and that is on the label and on the "
+            f"website.\n\n"
+            f"Regards,\nSourcing")
+
+    # --- day 44: a market authority orders the listing down ------------
+    # The one arc that is not a correction to anything. Every value in the
+    # record may be accurate and the product still may not be sold - which is
+    # why it needed a constraint of its own rather than riding the safety gate.
+    if (_td := ARC_TARGET.get("takedown")):
+        _name = VARIANT_BY_ID[_td][2]
+        _wider(
+            "takedown", 7, 30,
+            {"attribute_path": "compliance.sale_permitted",
+             "old_value": True, "new_value": False, "takedown": True,
+             "safety": True, "applies_to": "ALL",
+             "doc_id": "DOC-23", "doc_version": "v1",
+             "changes": [{"entity_id": _td,
+                          "attribute_path": "compliance.sale_permitted",
+                          "old_value": True, "new_value": False}]},
+            "NOTICE", 50,
+            f"WITHDRAWAL NOTICE\n\n"
+            f"Reference MSN-2026-0418\n"
+            f"Issued to: the retailer named below\n"
+            f"Product: {_name}\n\n"
+            f"Market surveillance has identified a risk of small parts "
+            f"detaching from this product in normal use. You are directed to "
+            f"withdraw it from sale on every channel with immediate effect and "
+            f"to cease supply.\n\n"
+            f"This notice is effective on receipt. It is not conditional on "
+            f"your own assessment and it does not await a corrected "
+            f"specification from the supplier.\n\n"
+            f"Where the product has been listed in print, an erratum is owed. "
+            f"Where a search facet directs shoppers to it, that facet is to be "
+            f"withdrawn.",
+            f"URGENT: withdrawal notice MSN-2026-0418 - {_name}",
+            "regulatory.affairs@internal",
+            f"A withdrawal notice has been served on {_name}.\n\n"
+            f"Reference MSN-2026-0418. It takes effect on receipt, which was "
+            f"this morning. Every channel comes down now - this is not a "
+            f"content fix and there is no wording that makes it publishable.\n\n"
+            f"The print catalogue carries it, so an erratum is owed rather "
+            f"than a redaction. The search facet needs withdrawing.\n\n"
+            f"I have logged it against the product record. Please do not wait "
+            f"for the supplier's response before acting.\n\n"
+            f"Regulatory Affairs")
+
+    # --- day 48: a destination restriction, not a safety one -----------
+    # Lawful here, restricted elsewhere. The remedy is withholding a channel
+    # rather than correcting a word, which is exactly what the propagation
+    # step does when a constraint is marked unfixable by copy.
+    if (_ex := ARC_TARGET.get("export")):
+        _name = VARIANT_BY_ID[_ex][2]
+        _wider(
+            "export", 8, 50,
+            {"attribute_path": "compliance.export_control",
+             "old_value": "NONE", "new_value": "DUAL-USE 6A003",
+             "export_restricted": True, "applies_to": "ALL",
+             "doc_id": "DOC-24", "doc_version": "v1",
+             "changes": [{"entity_id": _ex,
+                          "attribute_path": "compliance.export_control",
+                          "old_value": "NONE", "new_value": "DUAL-USE 6A003"}]},
+            "NOTICE", 50,
+            f"EXPORT CONTROL CLASSIFICATION\n\n"
+            f"Product: {_name}\n"
+            f"Classification: DUAL-USE 6A003\n\n"
+            f"The imaging sensor in this product falls within the dual-use "
+            f"control list. The product remains lawful to sell in the domestic "
+            f"market and may not be shipped to a controlled destination "
+            f"without a licence.\n\n"
+            f"Marketplace listings that offer international delivery are to be "
+            f"withheld until destination filtering is in place. The domestic "
+            f"product page is unaffected.\n\n"
+            f"This is a shipping restriction and not a safety finding. No "
+            f"statement about product safety is to be made or implied.",
+            f"{_name} classified DUAL-USE 6A003 - marketplace listings withheld",
+            "regulatory.affairs@internal",
+            f"{_name} has been classified DUAL-USE 6A003 on the strength of its "
+            f"imaging sensor.\n\n"
+            f"What this means in practice: we can still sell it here, and we "
+            f"cannot ship it everywhere. The marketplaces offer international "
+            f"delivery and cannot filter by destination on our behalf, so "
+            f"those listings come down until they can.\n\n"
+            f"Please do not describe this as a safety issue anywhere. It is "
+            f"not one, and saying so would be its own problem.\n\n"
+            f"Regulatory Affairs")
+
+    # --- day 52: a fibre label is revised ------------------------------
+    # The same act as an ingredient reorder, outside food. The declaration is
+    # ordered and the order is part of its meaning, so this is a change and
+    # not a rewording - which is the point of marking the attribute ordered.
+    if (_co := ARC_TARGET.get("composition")):
+        _old_fibre = ATTR_VALUES[(_co, "textile.fibre_composition")]
+        _new_fibre = ["60% Cotton", "40% Polyester"]
+        _name = VARIANT_BY_ID[_co][2]
+        _wider(
+            "composition", 13, 25,
+            {"attribute_path": "textile.fibre_composition",
+             "old_value": list(_old_fibre), "new_value": _new_fibre,
+             "doc_id": "DOC-25", "doc_version": "v2", "supersedes_version": "v1",
+             "changes": [{"entity_id": _co,
+                          "attribute_path": "textile.fibre_composition",
+                          "old_value": list(_old_fibre),
+                          "new_value": _new_fibre}]},
+            "LABEL_ARTWORK", 40,
+            f"{_name} - revised fibre composition\n\n"
+            f"The mill has changed the yarn blend. The declared composition "
+            f"changes from {', '.join(_old_fibre)} to "
+            f"{', '.join(_new_fibre)}.\n\n"
+            f"Fibre composition is declared in descending percentage order and "
+            f"that order is part of the declaration. The care code is "
+            f"unchanged.",
+            f"{_name} - fibre composition revised",
+            "technical@supplier.example",
+            f"The mill supplying {_name} has changed the blend.\n\n"
+            f"Declared composition moves from {', '.join(_old_fibre)} to "
+            f"{', '.join(_new_fibre)}. It goes on the label in that order, "
+            f"descending by percentage - please do not let anyone tidy it "
+            f"alphabetically, it is a declaration and not a list.\n\n"
+            f"Care code is unchanged.\n\n"
+            f"Regards,\nTechnical Services")
+
+    # --- day 56: the rule moves, not the record ------------------------
+    # Nobody did anything wrong. Copy that was compliant when it was written is
+    # not compliant now, which is a correction with no supplier to return it to
+    # - and the only arc here whose cause is a document version rather than a
+    # product.
+    if (_rc := ARC_TARGET.get("rule_change")):
+        _old_inci = ATTR_VALUES[(_rc, "cosmetic.inci")]
+        _new_inci = list(_old_inci) + ["Tocopherol"]
+        _name = VARIANT_BY_ID[_rc][2]
+        _wider(
+            "rule_change", 9, 45,
+            {"attribute_path": "cosmetic.inci",
+             "old_value": list(_old_inci), "new_value": _new_inci,
+             "rule_change": True, "applies_to": "ALL",
+             "doc_id": "DOC-26", "doc_version": "v1",
+             "changes": [{"entity_id": _rc, "attribute_path": "cosmetic.inci",
+                          "old_value": list(_old_inci),
+                          "new_value": _new_inci}]},
+            "NOTICE", 50,
+            f"AMENDMENT TO MANDATORY PARTICULARS\n\n"
+            f"Effective from the date of this notice, the ingredient "
+            f"declaration for leave-on cosmetic products must name every "
+            f"antioxidant present, whether or not it exceeds the previous "
+            f"threshold.\n\n"
+            f"Affected in this catalogue: {_name}.\n\n"
+            f"Listings prepared before this notice are not withdrawn and are "
+            f"not defective. They are non-compliant from today, and the "
+            f"declaration is to be completed at the next content release.",
+            f"Ingredient declaration rules change - {_name} affected",
+            "regulatory.affairs@internal",
+            f"The mandatory particulars for leave-on cosmetics have changed.\n\n"
+            f"Antioxidants now have to be named in the ingredient declaration "
+            f"regardless of concentration. Our declaration for {_name} was "
+            f"correct when it was written and is short by one line as of "
+            f"today.\n\n"
+            f"No supplier is at fault here and there is nothing to return. "
+            f"This is ours to fix at the next release.\n\n"
+            f"Regulatory Affairs")
+
 
     return _number(recs)
 
@@ -2039,24 +2634,66 @@ def _applies_to_truth(payload: dict,
     return canonical, sorted(acceptable)
 
 
+#: Attribute path prefix to correction kind, most consequential first.
+#:
+#: This is the answer key's copy of `sc.graph.nodes.KIND_BY_PATH`, and
+#: `tests/test_golden.py` asserts the two are identical. They cannot simply
+#: share one definition: the generator does not import `sc`, and it must not -
+#: a key that read its answers out of the implementation it grades would
+#: measure nothing. So they are written twice and checked for agreement, which
+#: is the only arrangement where a divergence is a test failure rather than a
+#: quietly wrong score.
+GOLDEN_KIND_BY_PATH = (
+    ("compliance.sale_permitted", "REGULATORY_ORDER"),
+    ("compliance.export_control", "EXPORT_RESTRICTION"),
+    ("food.allergens", "ALLERGEN_CHANGE"),
+    ("food.ingredients", "INGREDIENT_CHANGE"),
+    ("cosmetic.inci", "COMPOSITION_CHANGE"),
+    ("health.active_ingredient", "COMPOSITION_CHANGE"),
+    ("textile.fibre_composition", "COMPOSITION_CHANGE"),
+    ("compliance.certificate_ref", "CERTIFICATION_LAPSE"),
+    ("compliance.min_age", "LEGAL_REQUIREMENT_CHANGE"),
+    ("pack.net_quantity", "NET_QUANTITY_CHANGE"),
+    ("food.net_weight_g", "NET_QUANTITY_CHANGE"),
+    ("origin.country", "ORIGIN_CHANGE"),
+)
+
+
+def _kind_of_path(path: str) -> str:
+    for prefix, kind in GOLDEN_KIND_BY_PATH:
+        if path == prefix or path.startswith(f"{prefix}."):
+            return kind
+    return "SPEC_CORRECTION"
+
+
 def _golden_kind(payload: dict) -> str:
     """Which class of correction the document asserts.
 
     The same order of precedence the extractor is given: a withdrawal outranks
-    what it withdraws, a contradiction outranks the value it contradicts, and
-    an allergen outranks everything it arrives with.
+    what it withdraws, a contradiction outranks the value it contradicts, an
+    order not to sell outranks any value it arrives with, and an allergen
+    outranks everything a supplier can say.
     """
     if payload.get("withdraws") or payload.get("resolves_issue"):
         return "DOC_WITHDRAWN"
     if payload.get("conflicts_with"):
         return "SOURCE_CONFLICT"
+    if payload.get("takedown"):
+        return "REGULATORY_ORDER"
+    if payload.get("recall"):
+        return "SAFETY_RECALL"
+    if payload.get("export_restricted"):
+        return "EXPORT_RESTRICTION"
+    if payload.get("rule_change"):
+        return "LEGAL_REQUIREMENT_CHANGE"
     paths = [str(c["attribute_path"]) for c in _moved_by(payload)]
-    kinds = [("ALLERGEN_CHANGE" if p.startswith("food.allergens")
-              else "INGREDIENT_CHANGE" if p == "food.ingredients"
-              else "SPEC_CORRECTION") for p in paths]
-    if "ALLERGEN_CHANGE" in kinds:
-        return "ALLERGEN_CHANGE"
-    return kinds[0] if kinds else "SPEC_CORRECTION"
+    if not paths:
+        return "SPEC_CORRECTION"
+    ranked = sorted(
+        (next((i for i, (_p, k) in enumerate(GOLDEN_KIND_BY_PATH)
+               if k == _kind_of_path(p)), len(GOLDEN_KIND_BY_PATH)), n)
+        for n, p in enumerate(paths))
+    return _kind_of_path(paths[ranked[0][1]])
 
 
 def _golden_label(payload: dict, material: bool) -> str:
@@ -2201,6 +2838,11 @@ def build_pack(seed: int) -> tuple[dict[str, str], dict]:
                         "applies_to": at}
                        for p, lb, dt, u, sc, o, rf, at in ATTR_DEFS],
         "taxonomy": {"internal": TAXONOMY},
+        # Which branches exist, what each is called, which imagery it cannot
+        # launch without and which of them are regulated. Written here so the
+        # running system reads one answer from the baseline rather than holding
+        # a second copy in `sc/` that drifts from the assortment it describes.
+        "profile": retailer.as_catalog_block(),
         "horizon_start": HORIZON_START.isoformat(),
         "horizon_days": HORIZON_DAYS,
         "inject": {
@@ -2559,13 +3201,28 @@ def check_seeded(media: list[dict], assets: list[dict],
                     problems.append(
                         f"{entity_id} declares forbidden copy and none of its "
                         f"assets carries any")
+            elif kind == "declared_types":
+                # The supplier answered, in the wrong shape. Present and
+                # unparseable is the assertion; a value that still parses as
+                # its declared type would mean the spoiling silently stopped
+                # working and the check list would look complete when it is not.
+                value = ATTR_VALUES.get((entity_id, subject))
+                if value is None:
+                    problems.append(
+                        f"{entity_id} declares {subject} mistyped and the "
+                        f"catalog holds no value for it")
+                elif _parses_as(value, _DTYPE_OF.get(subject, "str")):
+                    problems.append(
+                        f"{entity_id} declares {subject} mistyped and "
+                        f"{value!r} is a valid "
+                        f"{_DTYPE_OF.get(subject, 'str')}")
             else:
                 problems.append(f"{entity_id} declares unknown defect {kind!r}")
 
     # Contrast, not just presence. An estate where three products are wrong
     # measures nothing, and one where all of them are measures nothing either.
     for kind, least in (("applicable_attributes", 20), ("required_media", 20),
-                        ("forbidden_content", 5)):
+                        ("forbidden_content", 5), ("declared_types", 10)):
         if counts.get(kind, 0) < least:
             problems.append(f"only {counts.get(kind, 0)} seeded {kind} "
                             f"defect(s), wanted at least {least}")
@@ -2575,6 +3232,31 @@ def check_seeded(media: list[dict], assets: list[dict],
             f"{seeded} of {len(VARIANTS)} variants carry a seeded defect, "
             f"which is either too few to find or too many to contrast against")
     return problems
+
+
+#: Declared type per attribute, read off the definitions rather than repeated,
+#: so an attribute whose dtype changes cannot leave this check grading against
+#: the old one.
+_DTYPE_OF = {row[0]: row[2] for row in ATTR_DEFS}
+
+
+def _parses_as(value: object, dtype: str) -> bool:
+    """Would the readiness check accept this value as its declared type?
+
+    Mirrors `sc.readiness.checks._is_dtype` rather than approximating it: a
+    generator that graded mistyping more leniently than the check does would
+    seed defects the check then failed to find, which is the one thing the
+    answer key exists to prevent.
+    """
+    if dtype == "int":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if dtype == "float":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if dtype == "bool":
+        return isinstance(value, bool)
+    if dtype == "list[str]":
+        return isinstance(value, list)
+    return isinstance(value, str)
 
 
 #: The phrases the readiness check refuses, mirrored here so the generator can
@@ -2621,6 +3303,42 @@ def check_tape(events: list[dict]) -> list[str]:
     ):
         if not any(matcher(e) for e in events):
             problems.append(f"{arc} is missing from the tape")
+
+    # The seven wider arcs, matched on the document each arrives on. An arc
+    # whose target the assortment does not contain is skipped rather than
+    # missing - a retailer with no cosmetics counter cannot have the cosmetics
+    # arc, and failing the build over it would be the profile seam refusing to
+    # be used. What is checked is that an arc with a target actually landed.
+    for (_day, key, _prefix, path), (doc, *_rest) in zip(
+            WIDER_ARCS, ARC_SOURCE_DOCS):
+        if key not in ARC_TARGET:
+            continue
+        carried = [e for e in events if e["payload"].get("doc_id") == doc]
+        if not carried:
+            problems.append(f"wider arc {key!r} is missing from the tape")
+            continue
+        target = ARC_TARGET[key]
+        if not any(target in (e["payload"].get("entities") or [])
+                   for e in carried):
+            problems.append(
+                f"wider arc {key!r} does not name {target}, the variant it "
+                f"was selected for")
+        if not any(e["payload"].get("attribute_path") == path
+                   for e in carried):
+            problems.append(
+                f"wider arc {key!r} does not move {path}, which is the whole "
+                f"reason it exists")
+
+    # The three that are orders rather than corrections have to say so in the
+    # payload, because that flag is what the deterministic fallback reads to
+    # classify them - and a takedown misread as a spec correction publishes.
+    for key, flag in (("takedown", "takedown"),
+                      ("export", "export_restricted"),
+                      ("rule_change", "rule_change")):
+        if key not in ARC_TARGET:
+            continue
+        if not any(e["payload"].get(flag) for e in events):
+            problems.append(f"wider arc {key!r} carries no {flag!r} flag")
 
     finale = [e for e in events if e["payload"].get("doc_version") == "v3"]
     inject = {e["id"] for e in events if e["payload"].get("doc_id") == "DOC-01"

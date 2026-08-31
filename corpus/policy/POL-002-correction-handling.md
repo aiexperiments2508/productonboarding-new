@@ -26,6 +26,7 @@ entity, the higher precedence wins.
 
 | source kind | precedence |
 |---|---|
+| `NOTICE` | 50 |
 | `LABEL_ARTWORK` | 40 |
 | `CERTIFICATE` | 35 |
 | `SPEC_SHEET` | 30 |
@@ -39,6 +40,19 @@ sheet describing the same pack. A spreadsheet emailed by an account manager and
 the account manager's covering note are the two weakest sources in the system,
 and they are weak regardless of how recently they were sent or how confidently
 they are written.
+
+`NOTICE` sits above all of them and is the only kind no supplier can issue. The
+rest of this table ranks accounts of what a product *is*, and artwork wins
+those because it is what a customer holds. A notice is not an account of the
+product at all: it is an instruction from somebody with the power to stop the
+sale, and it is not weighed against a specification because the two are not
+answering the same question. A supplier insisting the product is fine does not
+contradict a withdrawal notice; it is simply not a reply to one.
+
+A notice arrives on `regulatory-feed`, which is the only system in the estate
+that carries them and accepts nothing from outside. That matters: a door a
+supplier could push a withdrawal notice through would make "an authority
+ordered this down" a claim anybody could make.
 
 **Recency does not override precedence.** A newer version of a lower-precedence
 document does not displace a higher-precedence one; it only displaces earlier

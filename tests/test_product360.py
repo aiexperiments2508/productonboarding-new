@@ -2,7 +2,7 @@
 
 Two things are under test. The first is search, which is small and exact and
 deliberately not the retrieval index - fusing BM25 with embeddings to answer
-"which variant is AER-300-MAX" would be a slower way to get a worse answer.
+"which variant is NAV-AP300-MAX" would be a slower way to get a worse answer.
 
 The second is the record, and specifically the half that would be easy to leave
 out: the values that *lost*. A disagreement precedence settled is settled, not

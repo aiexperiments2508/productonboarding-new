@@ -310,7 +310,7 @@ Rules:
 - applies_to: "BASE" when the document names the base model, "VARIANT" when it
   names a particular variant, "UNCLEAR" when it names the product and leaves
   the variant open. UNCLEAR is the honest answer and the useful one. A document
-  saying "the AeroPure 300 is rated at 65 W" for a product that ships in two
+  saying "the Northaven AP300 is rated at 65 W" for a product that ships in two
   models has not told you which one, and guessing puts a wrong number on a real
   page. Report the ambiguity; something downstream resolves it against the
   catalog.
@@ -324,19 +324,38 @@ Rules:
   becomes the citation carried by every change this correction produces, so a
   paraphrase there is a broken audit trail.
 
-Choosing kind: ALLERGEN_CHANGE for anything touching declared or possible
-allergens; INGREDIENT_CHANGE for the ingredient declaration or its order;
-SPEC_CORRECTION for a revised specification value; DOC_WITHDRAWN when a
-document or an earlier notice is withdrawn; SOURCE_CONFLICT when this document
-contradicts another current source without superseding it; CHANNEL_REJECTION
-when a channel has refused content; DATA_GAP when a required value is stated to
-be missing or still coming. Where a document does two things at once, pick the
-one carrying the most consequence - allergens outrank everything.
+Choosing kind, most consequential first. Where a document does two things at
+once, pick the one carrying the most consequence: an order not to sell outranks
+any change to a value, and allergens outrank everything a supplier can say.
+
+- REGULATORY_ORDER: an authority has ordered the product withdrawn, suspended
+  or delisted. The values in the record may be perfectly correct; what has
+  changed is that it may not be sold.
+- SAFETY_RECALL: stock already with customers has to be returned.
+- EXPORT_RESTRICTION: a destination or dual-use restriction. Lawful here,
+  restricted elsewhere.
+- ALLERGEN_CHANGE: anything touching declared or possible allergens.
+- INGREDIENT_CHANGE: the ingredient declaration or its order.
+- COMPOSITION_CHANGE: the same act outside food - a fibre label, a cosmetic
+  INCI list, an active ingredient, a material or coating.
+- NET_QUANTITY_CHANGE: the pack got bigger or smaller.
+- ORIGIN_CHANGE: where it was made.
+- CERTIFICATION_LAPSE: a certificate, test report or conformity declaration
+  has expired or been withdrawn. The product is unchanged; the evidence
+  behind a claim is gone.
+- LEGAL_REQUIREMENT_CHANGE: the rule moved, not the record. Copy that was
+  compliant when written no longer is, and no supplier did anything wrong.
+- SPEC_CORRECTION: a revised specification value.
+- DOC_WITHDRAWN: a document or an earlier notice is withdrawn.
+- SOURCE_CONFLICT: this document contradicts another current source without
+  superseding it.
+- CHANNEL_REJECTION: a channel has refused content.
+- DATA_GAP: a required value is stated to be missing or still coming.
 
 Reply with JSON only:
 {
   "material": true|false,
-  "kind": "SPEC_CORRECTION"|"ALLERGEN_CHANGE"|"INGREDIENT_CHANGE"|"SOURCE_CONFLICT"|"CHANNEL_REJECTION"|"DOC_WITHDRAWN"|"DATA_GAP"|null,
+  "kind": "REGULATORY_ORDER"|"SAFETY_RECALL"|"EXPORT_RESTRICTION"|"ALLERGEN_CHANGE"|"INGREDIENT_CHANGE"|"COMPOSITION_CHANGE"|"NET_QUANTITY_CHANGE"|"ORIGIN_CHANGE"|"CERTIFICATION_LAPSE"|"LEGAL_REQUIREMENT_CHANGE"|"SPEC_CORRECTION"|"SOURCE_CONFLICT"|"CHANNEL_REJECTION"|"DOC_WITHDRAWN"|"DATA_GAP"|null,
   "entity_guess": "the variant or product id the document names, or null",
   "product_guess": "the product id, or null",
   "attribute_path": "one of the known paths above, or null",
@@ -425,7 +444,7 @@ SCOPE_SYSTEM = """\
 You decide which variants a supplier correction applies to.
 
 This is the one judgement in this system that no rule settles. A document
-reading "the AeroPure 300 is rated at 65 W" names a product that ships in two
+reading "the Northaven AP300 is rated at 65 W" names a product that ships in two
 models, and the catalog holds a separate value for each. Resolving it wrongly
 republishes a corrected number on a page it does not belong on, which is worse
 than publishing nothing at all.

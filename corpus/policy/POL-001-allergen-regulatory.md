@@ -14,7 +14,7 @@ tags: [allergen, regulated, fail-closed, safety, confidence, review, peanut-free
 ## Scope
 
 Applies to every product whose category begins `food.` and therefore to PRD-02
-Orchard Valley Trail Mix Bar (VAR-02A, VAR-02B) and PRD-05 Orchard Valley
+Harrowfield Trail Mix Bar (VAR-02A, VAR-02B) and PRD-05 Harrowfield
 Granola Clusters, both supplied by SUP-02 and both flagged `regulated`.
 
 The regulated flag is not a label on the product. It changes how every value on

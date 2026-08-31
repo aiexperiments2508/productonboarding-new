@@ -251,9 +251,15 @@ def test_a_dispatch_route_without_its_identifiers_refuses():
 # ---------------------------------------------------------------------------
 
 
-def test_every_publisher_exposes_two_reads_and_one_write():
+def test_every_publisher_declares_which_of_its_tools_mutate():
     """An operator who wants to show somebody a blast radius should not have to
-    hand over the ability to act on it."""
+    hand over the ability to act on it.
+
+    The count used to be in this test's name, which made the name wrong the
+    moment the surface grew. What matters is not how many tools there are but
+    that the server serves exactly what it declares, and that the mutating set
+    is declared rather than guessed at from the verbs.
+    """
     import asyncio
 
     from sc.estate import publication_server
@@ -263,7 +269,19 @@ def test_every_publisher_exposes_two_reads_and_one_write():
         built = publication_server.build(system)
         names = sorted(t.name for t in asyncio.run(built.list_tools()))
         assert names == sorted(publication_server.TOOLS)
-        assert "publish_correction" in names
+        assert set(publication_server.MUTATING) <= set(names)
+        assert "publish_correction" in publication_server.MUTATING
+
+
+def test_the_declared_verbs_cover_every_tool_that_can_write():
+    """``/api/publication/systems`` hands out ``VERBS``. A surface that could
+    write in a way the verb list did not name would be a listing that lies
+    about what the estate can do."""
+    from sc.estate import publication_server
+
+    assert len(publication.VERBS) >= len(publication_server.MUTATING)
+    for verb in ("redact", "discharge"):
+        assert verb in publication.VERBS
 
 
 def test_a_publisher_will_not_report_another_channels_impact():

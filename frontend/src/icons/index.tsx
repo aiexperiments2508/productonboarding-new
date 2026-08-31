@@ -96,6 +96,19 @@ export const IconApprovals = (p: IconProps) => (
 );
 
 /** System control. Sliders - the operational knobs. */
+/* Lifecycle: three lanes with a card moving between them. Not a clock and not
+ * an arrow - the question the view answers is "which column is it in", and a
+ * timeline glyph would promise a chart it deliberately does not draw. */
+export const IconLifecycle = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2.5" y="4" width="5.5" height="16" rx="1" />
+    <rect x="9.5" y="4" width="5" height="16" rx="1" />
+    <rect x="16" y="4" width="5.5" height="16" rx="1" />
+    <path d="M4 8h3M11 8h2M17.5 8h2.5" />
+    <path d="M4 11h2.5M11 11h2M17.5 11h2" />
+  </Icon>
+);
+
 export const IconSystem = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />

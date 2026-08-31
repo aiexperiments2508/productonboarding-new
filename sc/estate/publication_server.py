@@ -30,10 +30,35 @@ from __future__ import annotations
 from typing import Any
 
 from sc.estate import publication
+from sc.estate.redaction import NOTICE
 
-#: What a publication system exposes. Two reads and one write, and the write is
-#: the one that goes through every gate.
-TOOLS: tuple[str, ...] = ("describe_channel", "impact", "publish_correction")
+#: What a publication system exposes.
+#:
+#: It began as two reads and one write. The reads grew because the downstream
+#: applications are built on this surface and nothing else - a storefront that
+#: had to ask the platform's REST API what it was showing would not be a
+#: separate system, it would be another view of this one. The writes grew
+#: because taking a wrong value *down* is a different act from replacing it,
+#: needs a different authority, and happens at a different moment.
+#:
+#: Reading is still separate from writing, per system. An operator who wants to
+#: show somebody what a channel is carrying does not have to hand over the
+#: ability to change it.
+TOOLS: tuple[str, ...] = (
+    # reads
+    "describe_channel", "impact", "current_listing", "delivery_log",
+    "pending_corrections", "changes_since",
+    # writes - every one of them goes through the planning boundary
+    "publish_correction", "redact_field", "withdraw_listing",
+    "restore_listing", "discharge_obligation",
+)
+
+#: Which of them can change what a shopper sees. Declared rather than inferred
+#: from a name, because that is the question an operator handing out an
+#: endpoint actually asks.
+MUTATING: tuple[str, ...] = ("publish_correction", "redact_field",
+                             "withdraw_listing", "restore_listing",
+                             "discharge_obligation")
 
 #: The servers, held so their session managers can be started with the
 #: application - mounting a Starlette sub-app does not run its lifespan.
@@ -125,6 +150,265 @@ def _publish(system, incident_id: str, scenario_id: str,
     }
 
 
+def _listings_of(system) -> list[str]:
+    """Every listing this channel owns. The scope of every read below."""
+    from sc.state import baseline as baseline_mod
+
+    base = baseline_mod.get()
+    return sorted(base.listings_by_channel.get(system.channel_id, []))
+
+
+def _listing_for(system, sku: str) -> str | None:
+    from sc.state import baseline as baseline_mod
+
+    base = baseline_mod.get()
+    wanted = (sku or "").strip().upper()
+    for listing_id in _listings_of(system):
+        listing = base.listings[listing_id]
+        variant = base.variants.get(listing.variant_id)
+        if variant is not None and (variant.sku or "").upper() == wanted:
+            return listing_id
+    return None
+
+
+def _current_listing(system, sku: str) -> dict:
+    """What this channel is showing right now, redactions included.
+
+    Built from the listing state the rest of the system already derives rather
+    than from a second rendering pass - the storefront and the blast radius
+    have to agree about what is on the page, and two renderers would disagree
+    the first time either was edited.
+
+    An unknown SKU comes back ``found: false`` in the same shape ``impact``
+    uses, which is what stops a marketplace discovering, by exhaustive
+    guessing, which SKUs the print channel carries.
+    """
+    from sc.tools import network as network_tools
+    from sc.tools import planning
+
+    listing_id = _listing_for(system, sku)
+    if listing_id is None:
+        return {"channel_id": system.channel_id, "sku": sku, "found": False,
+                "reason": f"{system.channel_id} carries no listing for {sku!r}"}
+
+    state = network_tools.get_listing_state(listing_id)
+    if state.get("error"):
+        return {"channel_id": system.channel_id, "sku": sku, "found": False,
+                "reason": state["error"]}
+
+    hidden = {row["attribute_path"]: row
+              for row in planning.open_redactions([listing_id])}
+
+    fields = {}
+    for path, cell in (state.get("values") or {}).items():
+        redacted = hidden.get(path)
+        fields[path] = {
+            "value": None if redacted else (cell or {}).get("value"),
+            "unit": (cell or {}).get("unit"),
+            "doc": (cell or {}).get("doc"),
+            "redacted": bool(redacted),
+            "placeholder": (redacted or {}).get("placeholder", ""),
+            "notice": (redacted or {}).get("notice", ""),
+            "since": (redacted or {}).get("since", ""),
+        }
+
+    # Copy quotes values. A redaction that hid the allergen *field* and left
+    # the bullet saying "may contain milk" two inches above it would have
+    # withheld nothing that matters - and the page would be more misleading
+    # than before, because it would now look as though somebody had checked.
+    #
+    # Which copy quotes which value is not a guess: every asset carries the
+    # attribute references it was built from, and that lineage is what the
+    # blast radius has always been computed from. The same lineage answers this.
+    hidden_refs = {f"{state['variant']['id']}:{path}" for path in hidden}
+    copy = []
+    for asset in state["assets"]:
+        quotes = sorted(set(asset["derived_from"]) & hidden_refs)
+        copy.append({
+            "field": asset["field"],
+            "text": "" if quotes else asset["text"],
+            "redacted": bool(quotes),
+            "quotes": [ref.split(":", 1)[1] for ref in quotes],
+            "notice": NOTICE if quotes else "",
+            "stale": asset["stale"],
+            "stale_refs": asset["stale_refs"],
+        })
+
+    withheld = state["status"] == "WITHHELD"
+    return {
+        "channel_id": system.channel_id,
+        "sku": sku,
+        "found": True,
+        "listing_id": listing_id,
+        "status": state["status"],
+        "withheld": withheld,
+        "published_version": state["published_version"],
+        "product": state["product"],
+        "variant": state["variant"],
+        "recallable": system.recallable,
+        "fields": fields,
+        "redacted_fields": sorted(hidden),
+        "copy": copy,
+        "media": _media_for(state["variant"]["id"]),
+        "as_of": state["as_of"],
+        "notice": next((r["notice"] for r in hidden.values() if r.get("notice")),
+                       ""),
+    }
+
+
+def _media_for(variant_id: str) -> list[dict]:
+    """The imagery a shopper would see, seeded plus whatever has arrived."""
+    from sc.readiness import record as record_mod
+
+    record = record_mod.build(variant_id)
+    if record is None:
+        return []
+    return [{"role": str(a.role), "uri": a.uri, "alt_text": a.alt_text}
+            for a in record.media]
+
+
+#: Ledger verbs that describe something happening to a listing. Anything else
+#: in the audit table is about an incident or a document and is not this
+#: channel's business.
+_DELIVERY_ACTIONS = ("COMMIT", "REDACT", "RESTORE", "ERRATUM_OPEN",
+                     "ERRATUM_DISCHARGE", "REPRINT_QUEUE", "REPRINT_CONFIRM",
+                     "ROLLBACK")
+
+
+def _delivery_log(system, limit: int = 50, after: int = 0) -> list[dict]:
+    """What this channel has been told, newest first.
+
+    Read from the append-only ledger rather than from a log of its own. Two
+    accounts of what a channel was told is one account too many, and the
+    ledger is already the one that cannot be edited.
+    """
+    from sc import db
+
+    listings = _listings_of(system)
+    if not listings:
+        return []
+    placeholders = ",".join("?" * len(listings))
+    rows = db.query(
+        f"SELECT rowid AS seq, ts, actor, action, entity_id, detail, provenance"
+        f"  FROM audit WHERE entity_type = 'listing'"
+        f"   AND entity_id IN ({placeholders}) AND rowid > ?"
+        f" ORDER BY rowid DESC LIMIT ?",
+        (*listings, after, limit))
+    return [{
+        "seq": r["seq"], "ts": r["ts"], "actor": r["actor"],
+        "verb": r["action"], "listing_id": r["entity_id"],
+        "detail": db.loads(r["detail"]),
+        "approval_ref": (db.loads(r["provenance"]) or {}).get("source_id", ""),
+    } for r in rows]
+
+
+def _pending(system) -> dict:
+    """What is approved and queued for this channel, deferrals included.
+
+    The only place a frozen print channel can say, honestly, that there is a
+    correction it is not going to take.
+    """
+    from sc.estate import redaction
+    from sc.state import baseline as baseline_mod
+
+    base = baseline_mod.get()
+    obligations = redaction.open_obligations(system.id)
+    return {
+        "channel_id": system.channel_id,
+        "recallable": system.recallable,
+        "freeze_days": system.freeze_days,
+        "frozen": bool(not system.recallable and system.freeze_days),
+        "obligations": obligations,
+        "withheld": [row["listing_id"] for row in
+                     _withheld_listings(system, base)],
+    }
+
+
+def _withheld_listings(system, base) -> list[dict]:
+    from sc.tools import planning
+
+    return planning.open_redactions(_listings_of(system))
+
+
+def _changes_since(system, cursor: int = 0, limit: int = 100) -> dict:
+    """Everything that has happened to this channel since a cursor.
+
+    The cursor is the ledger's own rowid. The ledger is append-only and never
+    deleted, so the rowid is monotonic and needs no column of its own - and it
+    is deliberately not a timestamp: ``audit.ts`` is wall clock while every
+    fact runs on the simulated clock, and a cursor spanning both would be a
+    generator of bugs nobody could reproduce.
+    """
+    changes = _delivery_log(system, limit=limit, after=cursor)
+    highest = max([c["seq"] for c in changes] + [cursor])
+    return {"channel_id": system.channel_id, "cursor": highest,
+            "changes": list(reversed(changes))}
+
+
+# ---------------------------------------------------------------------------
+# Writes. None of these contains code that could act; each asks the thing that
+# can, and that thing refuses on its own terms.
+# ---------------------------------------------------------------------------
+
+
+def _redact_field(system, sku: str, attribute_path: str, reason: str,
+                  incident_id: str, actor: str) -> dict:
+    from sc.estate import redaction
+    from sc.state import baseline as baseline_mod
+    from sc.tools import network as network_tools
+
+    listing_id = _listing_for(system, sku)
+    if listing_id is None:
+        return {"channel_id": system.channel_id, "redacted": False,
+                "reason": f"{system.channel_id} carries no listing for {sku!r}"}
+
+    base = baseline_mod.get()
+    entity_id = base.listings[listing_id].variant_id
+    result = redaction.redact(
+        incident_id, entity_id, [attribute_path], actor=actor, reason=reason,
+        trace=network_tools.trace_dependencies(entity_id), base=base,
+        only_system=system.id)
+
+    mine = next((r for r in result["systems"] if r["channel_id"]
+                 == system.channel_id), None)
+    if mine is None:
+        return {"channel_id": system.channel_id, "redacted": False,
+                "reason": f"{attribute_path} does not reach {system.channel_id}"}
+    return {
+        "channel_id": system.channel_id, "sku": sku, "listing_id": listing_id,
+        # An erratum is never reported as a redaction. Nothing came down.
+        "redacted": bool(mine.get("redacted")),
+        "kind": mine["kind"], "outcome": mine["outcome"],
+        "reason": mine["reason"],
+        "obligation_id": mine.get("obligation_id", ""),
+        "authorised": result["authorised"],
+    }
+
+
+def _restore_field(system, sku: str, attribute_path: str, incident_id: str,
+                   actor: str) -> dict:
+    from sc.estate import redaction
+    from sc.state import baseline as baseline_mod
+    from sc.tools import network as network_tools
+
+    listing_id = _listing_for(system, sku)
+    if listing_id is None:
+        return {"channel_id": system.channel_id, "restored": False,
+                "reason": f"{system.channel_id} carries no listing for {sku!r}"}
+
+    base = baseline_mod.get()
+    entity_id = base.listings[listing_id].variant_id
+    result = redaction.restore(
+        incident_id, entity_id, [attribute_path], actor=actor,
+        trace=network_tools.trace_dependencies(entity_id), base=base,
+        only_system=system.id)
+    mine = next((r for r in result["systems"] if r["channel_id"]
+                 == system.channel_id), None)
+    return {"channel_id": system.channel_id, "sku": sku,
+            "restored": bool(mine and mine.get("restored")),
+            "reason": (mine or {}).get("reason", "")}
+
+
 def build(system) -> Any:
     """One publication system's MCP server."""
     from mcp.server.fastmcp import FastMCP
@@ -154,6 +438,71 @@ def build(system) -> Any:
         which still bind.
         """
         return _publish(system, incident_id, scenario_id, entity_id)
+
+    @mcp.tool()
+    def current_listing(sku: str) -> dict:
+        """What this channel is showing for a SKU right now.
+
+        Redactions appear as redactions rather than as the old value: a page
+        that rendered a suppressed allergen line would defeat the point of
+        suppressing it.
+        """
+        return _current_listing(system, sku)
+
+    @mcp.tool()
+    def delivery_log(limit: int = 50) -> list[dict]:
+        """What this channel has been told, newest first, with who and why."""
+        return _delivery_log(system, limit)
+
+    @mcp.tool()
+    def pending_corrections() -> dict:
+        """What is queued for this channel, including what it will not take."""
+        return _pending(system)
+
+    @mcp.tool()
+    def changes_since(cursor: int = 0, limit: int = 100) -> dict:
+        """Everything since a cursor, for a client that wants to keep up."""
+        return _changes_since(system, cursor, limit)
+
+    @mcp.tool()
+    def redact_field(sku: str, attribute_path: str, reason: str,
+                     incident_id: str, actor: str = "operator") -> dict:
+        """Take a wrong value down on this channel.
+
+        Needs a recorded approval on the incident, which is checked at the
+        planning boundary and not here. A channel whose artefact cannot be
+        recalled is never reported as redacted: it opens an erratum instead,
+        because saying a printed run was redacted would be false.
+        """
+        return _redact_field(system, sku, attribute_path, reason, incident_id,
+                             actor)
+
+    @mcp.tool()
+    def withdraw_listing(sku: str, attribute_path: str, reason: str,
+                         incident_id: str, actor: str = "operator") -> dict:
+        """Take the whole listing off air over a wrong field.
+
+        The same authority and the same refusals as ``redact_field`` - this is
+        the shape that redaction takes when the field is one the channel
+        declares it cannot publish without.
+        """
+        return _redact_field(system, sku, attribute_path, reason, incident_id,
+                             actor)
+
+    @mcp.tool()
+    def restore_listing(sku: str, attribute_path: str, incident_id: str,
+                        actor: str = "operator") -> dict:
+        """Put back what a redaction hid. Refuses where nothing was hidden."""
+        return _restore_field(system, sku, attribute_path, incident_id, actor)
+
+    @mcp.tool()
+    def discharge_obligation(obligation_id: str, evidence: str = "",
+                             actor: str = "operator") -> dict:
+        """Mark this channel's erratum published or its reprint confirmed."""
+        from sc.estate import redaction
+
+        return redaction.discharge(obligation_id, actor=actor,
+                                   evidence=evidence, system_id=system.id)
 
     return mcp
 
@@ -200,6 +549,6 @@ def mount(app) -> list[dict]:
             "tools": list(TOOLS),
             # Named here so an operator can see, from the listing alone, which
             # of these servers can change what a shopper sees.
-            "mutating": ["publish_correction"],
+            "mutating": list(MUTATING),
         })
     return mounted

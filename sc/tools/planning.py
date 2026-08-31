@@ -593,7 +593,8 @@ def propose_change(incident_id: str, scenario_id: str, delta: dict) -> dict:
 
 
 def _refuse(incident_id: str, scenario_id: str, error: str, detail: str,
-            violations: list[Violation], actor: str) -> dict:
+            violations: list[Violation], actor: str,
+            redactions: list[dict] | None = None) -> dict:
     """A publish that was stopped, on the record.
 
     A refusal is auditable for the same reason a commit is: the reviewer's
@@ -602,10 +603,12 @@ def _refuse(incident_id: str, scenario_id: str, error: str, detail: str,
     """
     audit(actor, "REFUSE", "incident", incident_id,
           {"scenario": scenario_id, "reason": error, "detail": detail,
-           "violations": [v.model_dump(mode="json") for v in violations]},
+           "violations": [v.model_dump(mode="json") for v in violations],
+           "redactions": redactions or []},
           Provenance(kind=ProvenanceKind.SIMULATED, agent="commit_plan"))
     return {"error": error, "committed": False, "detail": detail,
-            "violations": [v.model_dump(mode="json") for v in violations]}
+            "violations": [v.model_dump(mode="json") for v in violations],
+            "redactions": redactions or []}
 
 
 @idempotent("commit_plan")
@@ -613,12 +616,27 @@ def commit_plan(incident_id: str, scenario_id: str, actions: dict | list,
                 actor: str = "publisher", as_of: str | None = None) -> dict:
     """Publish an approved resolution.
 
-    Three refusals, all of them fail-closed and all of them at this boundary
-    rather than in the graph, so no future graph edit can route around them:
+    Four refusals, all fail-closed and all at this boundary rather than in the
+    graph, so no future graph edit can route around them:
 
     1.  no recorded APPROVE decision for this incident and scenario;
     2.  a source document has moved since the resolution was validated;
-    3.  a safety or allergen declaration is still open on an affected listing.
+    3.  a safety or allergen declaration is still open on an affected listing;
+    4.  a safety redaction is open on an affected listing and no release has
+        been approved.
+
+    The fourth is ordered last deliberately. A stale resolution still reports
+    ``stale_version`` and an open allergen violation still reports
+    ``safety_hold``, so the message a reviewer gets for an existing failure is
+    the message they have always got.
+
+    On the fourth: hiding a wrong value and publishing a replacement are
+    different decisions taken at different moments, and they need different
+    approvals. Suppressing a claim a reviewer has already agreed is wrong is
+    urgent and safe. Putting a new claim in its place is neither - the
+    replacement copy has to be regenerated and revalidated first, and the
+    person who agreed the value was wrong has not thereby agreed to whatever
+    was written afterwards.
 
     Only then are the exclusive locks taken and the published values written.
     """
@@ -657,6 +675,14 @@ def commit_plan(incident_id: str, scenario_id: str, actions: dict | list,
         return _refuse(incident_id, scenario_id, "safety_hold",
                        f"{len(blocked)} open safety or allergen violations on "
                        f"affected listings", blocked, actor)
+
+    held = _open_safety_redactions(base, change_set, ov)
+    if held and not _released(incident_id, scenario_id):
+        return _refuse(incident_id, scenario_id, "not_released",
+                       f"a safety redaction is open on {len(held)} listing(s); "
+                       f"a release decision is required before the corrected "
+                       f"value can be published", [], actor,
+                       redactions=held)
 
     claims = _publish_claims(base, change_set, valid.date())
     conflicts = [r for r in (reserve_publish(rid, bucket, incident_id,
@@ -830,6 +856,278 @@ def _retract_published(scenario_id: str, at: datetime, conn) -> list[str]:
                           provenance=provenance, valid_from=at, recorded_at=at,
                           conn=conn)
             for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Redaction, and the release gate
+#
+# A redaction hides a value that is already public and now known to be wrong.
+# It changes what a shopper sees, so it is written here rather than in the
+# estate, for the same reason publishing is: the estate is dispatch, and the
+# gates live at this boundary where no future edit can route around them.
+#
+# What it writes is deliberately narrow. **Listing-scoped facts only** - never
+# an attribute, never a published version. Two things would break otherwise:
+# every in-flight scenario would go stale against a version it did not move,
+# and the republish this whole sequence exists to allow would dead-end on
+# ``stale_version``.
+#
+# The attribute namespace is its own - ``redacted.<path>`` - which keeps these
+# facts out of the overlay entirely: ``overlay.build`` reads listing facts only
+# under the two attrs it names. The validator therefore does not see a
+# redaction, which is correct. A redaction is not a fix, and a channel rule
+# that stopped failing because the wrong value was hidden would be reporting
+# that the problem had gone away.
+# ---------------------------------------------------------------------------
+
+#: The attribute namespace a redaction is recorded under, per field.
+REDACTION_PREFIX = "redacted."
+
+#: Written on the provenance of every redaction fact, and never
+#: ``commit_plan``. ``_retract_published`` retracts by matching that agent, so
+#: this is the one thing standing between a rollback and the silent
+#: un-hiding of a safety suppression.
+REDACT_AGENT = "redact"
+
+
+def redaction_attr(attribute_path: str) -> str:
+    return f"{REDACTION_PREFIX}{attribute_path}"
+
+
+def _recorded_after(held, instant: datetime) -> datetime:
+    """A ``recorded_at`` strictly later than the fact being superseded.
+
+    The simulated clock does not move while the transport is paused, and a
+    reviewer hiding a field and putting it back is two decisions at one
+    simulated instant. The fact store breaks a ``recorded_at`` tie by id, which
+    is a uuid - so without this the restore loses to the redaction it
+    supersedes about half the time, and the field stays hidden with no error
+    reported anywhere.
+
+    The nudge goes on the *recorded* axis and never on the valid one. Pushing
+    ``valid_from`` forward would date the restore a moment into the future, and
+    an as-of read taken at the current instant would not see it at all - which
+    is the same symptom arrived at from the other direction.
+
+    The same microsecond nudge ``record_attribute`` and the live lane already
+    use, for the same reason.
+    """
+    recorded = getattr(held, "recorded_at", None)
+    if recorded is not None and instant <= recorded:
+        return recorded + timedelta(microseconds=1)
+    return instant
+
+
+def _authorised_to_redact(incident_id: str) -> tuple[bool, str]:
+    """Whether a reviewer has agreed the value being hidden is wrong.
+
+    Read-only, and scoped to the incident rather than to a scenario. Nothing
+    here writes an approval, so a redaction can never be the thing that
+    satisfies the resolution gate.
+
+    The scenario is deliberately not required. At the moment a wrong claim has
+    to come down there may be no scenario yet - the reading is still being
+    chosen - and a gate that demanded one would make the urgent half of this
+    impossible for exactly as long as it matters.
+    """
+    row = db.one("SELECT decision, actor FROM approvals WHERE incident_id = ?"
+                 " AND decision = ? ORDER BY decided_at DESC LIMIT 1",
+                 (incident_id, str(ApprovalDecision.APPROVE)))
+    if row is None:
+        return False, ("no reviewer has agreed this value is wrong; a "
+                       "redaction needs a recorded approval on the incident")
+    return True, str(row["actor"])
+
+
+def _released(incident_id: str, scenario_id: str) -> bool:
+    """Whether the corrected value has been cleared for publication."""
+    row = db.one("SELECT decision FROM releases WHERE incident_id = ?"
+                 " AND scenario_id = ? ORDER BY decided_at DESC LIMIT 1",
+                 (incident_id, scenario_id))
+    return row is not None and row["decision"] == "APPROVE"
+
+
+def record_release(incident_id: str, scenario_id: str, decision: str,
+                   actor: str, comment: str = "",
+                   redactions: list[str] | None = None) -> dict:
+    """Record the second decision: put the corrected value back on air.
+
+    Written to its own table and never to ``approvals``. ``commit_plan`` reads
+    the newest approval for an incident and tests only that its decision is
+    APPROVE - so a release recorded there would, on its own, satisfy the
+    resolution gate. The feature meant to add a second approval would have
+    quietly removed the first.
+    """
+    verdict = str(decision).upper()
+    if verdict not in {"APPROVE", "REJECT"}:
+        return {"error": "decision must be APPROVE or REJECT"}
+
+    release_id = _uid("REL")
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO releases (id, incident_id, scenario_id, decision,"
+            " actor, comment, decided_at, redactions) VALUES (?,?,?,?,?,?,?,?)",
+            (release_id, incident_id, scenario_id, verdict, actor, comment,
+             _now().isoformat(), db.dumps(redactions or [])))
+        audit(actor, "RELEASE", "incident", incident_id,
+              {"scenario": scenario_id, "decision": verdict,
+               "comment": comment, "redactions": redactions or []},
+              Provenance(kind=ProvenanceKind.DECIDED, source_id=release_id),
+              conn=conn)
+
+    from sc.estate import publication_events
+
+    publication_events.notify("release", {
+        "incident_id": incident_id, "scenario_id": scenario_id,
+        "decision": verdict, "actor": actor})
+    return {"release_id": release_id, "incident_id": incident_id,
+            "scenario_id": scenario_id, "decision": verdict, "actor": actor}
+
+
+def releases(incident_id: str) -> list[dict]:
+    """Release decisions on an incident, newest first."""
+    return [{**dict(r), "redactions": db.loads(r["redactions"])}
+            for r in db.query(
+                "SELECT * FROM releases WHERE incident_id = ?"
+                " ORDER BY decided_at DESC", (incident_id,))]
+
+
+def open_redactions(listing_ids: list[str] | None = None,
+                    as_of: datetime | None = None) -> list[dict]:
+    """What is currently hidden, by listing and field.
+
+    An as-of read like every other, so "what was this page showing at two
+    o'clock" stays answerable through the window as well as after it. A restore
+    is a later fact, not a deletion, so this returns the state in force rather
+    than the history - ``store.lineage`` still has the history.
+    """
+    valid = as_of or _sim_now()
+    out: list[dict] = []
+    for fact in store.get_many("listing", valid, None, entity_ids=listing_ids):
+        if not str(fact.attr).startswith(REDACTION_PREFIX):
+            continue
+        value = fact.value if isinstance(fact.value, dict) else {}
+        if value.get("state") != "REDACTED":
+            continue
+        out.append({
+            "listing_id": fact.entity_id,
+            "attribute_path": str(fact.attr)[len(REDACTION_PREFIX):],
+            "since": fact.valid_from.isoformat(),
+            **value,
+        })
+    return sorted(out, key=lambda r: (r["listing_id"], r["attribute_path"]))
+
+
+def _open_safety_redactions(base: Baseline, change_set: ChangeSet, ov) -> list[dict]:
+    """Redactions of safety-class fields on listings this change would touch.
+
+    Only safety-class fields hold a republish. A hidden marketing bullet is a
+    tidiness problem; a hidden allergen declaration is the reason the whole
+    sequence exists, and putting a replacement in its place is a decision
+    somebody has to take deliberately.
+    """
+    touched: set[str] = set()
+    for action in change_set.actions:
+        touched.update(_touched_listings(base, action))
+    if not touched:
+        return []
+
+    return [row for row in open_redactions(sorted(touched))
+            if getattr(base.attr_defs.get(row["attribute_path"]), "safety_class",
+                       False)]
+
+
+@idempotent("commit_redaction")
+def commit_redaction(incident_id: str, listing_id: str, attribute_path: str,
+                     kind: str, actor: str, reason: str,
+                     placeholder: str = "", notice: str = "",
+                     take_down: bool = False) -> dict:
+    """Hide one wrong field on one listing. The only thing that writes one.
+
+    Writes a fact, never an edit. What the page showed before is still
+    readable as of then, which is what makes the audit question - "what was on
+    this page at two o'clock?" - answerable afterwards rather than lost.
+    """
+    ok, who = _authorised_to_redact(incident_id)
+    if not ok:
+        return {"error": "not_approved", "redacted": False, "detail": who}
+
+    attr = redaction_attr(attribute_path)
+    valid = _sim_now()
+    recorded = _recorded_after(
+        store.get("listing", listing_id, attr, valid, valid), valid)
+    fact_id = None
+    with db.transaction() as conn:
+        fact_id = store.record(
+            "listing", listing_id, attr,
+            {"state": "REDACTED", "kind": kind, "placeholder": placeholder,
+             "notice": notice, "reason": reason, "incident_id": incident_id,
+             "approved_by": who},
+            valid_from=valid, recorded_at=recorded,
+            provenance=Provenance(kind=ProvenanceKind.DECIDED,
+                                  source_id=incident_id, agent=REDACT_AGENT,
+                                  note=reason[:200]),
+            conn=conn)
+        if take_down:
+            # The listing's own status, in the shape the channel gateway
+            # already writes it, so every panel that renders a withheld
+            # listing renders this one with no new code.
+            store.record("listing", listing_id, overlay_mod.ATTR_STATUS,
+                         "WITHHELD", valid_from=valid, recorded_at=recorded,
+                         provenance=Provenance(kind=ProvenanceKind.DECIDED,
+                                               source_id=incident_id,
+                                               agent=REDACT_AGENT),
+                         conn=conn)
+        audit(actor, "REDACT", "listing", listing_id,
+              {"incident_id": incident_id, "attribute_path": attribute_path,
+               "kind": kind, "reason": reason, "approved_by": who,
+               "took_listing_down": bool(take_down)},
+              Provenance(kind=ProvenanceKind.DECIDED, source_id=incident_id,
+                         agent=REDACT_AGENT),
+              conn=conn)
+
+    return {"redacted": True, "listing_id": listing_id, "kind": kind,
+            "attribute_path": attribute_path, "fact_id": fact_id,
+            "approved_by": who, "at": valid.isoformat()}
+
+
+@idempotent("commit_restore")
+def commit_restore(incident_id: str, listing_id: str, attribute_path: str,
+                   actor: str, reason: str = "",
+                   put_back: bool = False) -> dict:
+    """Put a hidden field back. A later fact, never a deletion."""
+    attr = redaction_attr(attribute_path)
+    valid = _sim_now()
+    held = store.get("listing", listing_id, attr, valid, valid)
+    if held is None or (held.value or {}).get("state") != "REDACTED":
+        return {"error": "not_redacted", "restored": False,
+                "detail": f"{listing_id} is not hiding {attribute_path}"}
+    recorded = _recorded_after(held, valid)
+
+    with db.transaction() as conn:
+        store.record(
+            "listing", listing_id, attr,
+            {"state": "VISIBLE", "reason": reason, "incident_id": incident_id},
+            valid_from=valid, recorded_at=recorded,
+            provenance=Provenance(kind=ProvenanceKind.DECIDED,
+                                  source_id=incident_id, agent=REDACT_AGENT),
+            supersedes_id=held.id, conn=conn)
+        if put_back:
+            store.record("listing", listing_id, overlay_mod.ATTR_STATUS,
+                         "LIVE", valid_from=valid, recorded_at=recorded,
+                         provenance=Provenance(kind=ProvenanceKind.DECIDED,
+                                               source_id=incident_id,
+                                               agent=REDACT_AGENT),
+                         conn=conn)
+        audit(actor, "RESTORE", "listing", listing_id,
+              {"incident_id": incident_id, "attribute_path": attribute_path,
+               "reason": reason, "put_listing_back": bool(put_back)},
+              Provenance(kind=ProvenanceKind.DECIDED, source_id=incident_id,
+                         agent=REDACT_AGENT),
+              conn=conn)
+
+    return {"restored": True, "listing_id": listing_id,
+            "attribute_path": attribute_path, "at": valid.isoformat()}
 
 
 @idempotent("rollback")

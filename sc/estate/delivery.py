@@ -56,6 +56,36 @@ def deliver(events: list[Event]) -> list[dict]:
     return recorded
 
 
+def deliver_live(system_id: str, events: list[Event]) -> list[dict]:
+    """Record a submission as an arrival from the system it came through.
+
+    Not ``deliver``, and the difference matters twice.
+
+    ``emitter.owner_of`` *deals* an event among the systems that declare its
+    type, deterministically but arbitrarily. That is right for the recording,
+    where the tape only knows a coarse origin. It is wrong here: we know
+    exactly which endpoint this arrived at, because the endpoint is what
+    accepted it. Dealing it would tell a supplier who submitted through their
+    own PIM that their data came from the industry data pool.
+
+    ``emitter.schedule_for`` also stamps defects from the system's declared
+    defect rate. Applied to a submission, the estate would tell a supplier that
+    the form they had just filled in correctly arrived with a mandatory field
+    missing - the estate lying about itself in the one place a supplier can
+    check it.
+    """
+    if not events:
+        return []
+
+    from sc.replay import tape
+
+    ordinal = 9000 + (min(e.seq for e in events) - tape.LIVE_BASE)
+    batch = emitter.Batch(system_id=system_id, ordinal=max(ordinal, 9000),
+                          sequences=tuple(sorted(e.seq for e in events)),
+                          after=0.0, defects={})
+    return arrivals.record(batch, {e.seq: e.id for e in events})
+
+
 def backfill() -> list[dict]:
     """Record arrivals for everything already released.
 
@@ -63,9 +93,13 @@ def backfill() -> list[dict]:
     jumped past the inject by a script, has released events and no arrivals.
     Rather than leaving the Ingest Fabric empty on a system that has plainly
     been running, this deals out what is already visible.
+
+    The recorded flight only. A submission's arrival is written by
+    ``deliver_live`` against the endpoint that accepted it, and re-dealing it
+    here would hand it to whichever system the draw happened to pick.
     """
     rows = db.query(
-        "SELECT * FROM events WHERE released_at IS NOT NULL"
+        "SELECT * FROM events WHERE released_at IS NOT NULL AND lane = 'TAPE'"
         "  AND id NOT IN (SELECT event_id FROM arrivals) ORDER BY seq")
     if not rows:
         return []

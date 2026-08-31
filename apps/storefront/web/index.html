@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orchard &amp; Co</title>
+<link rel="stylesheet" href="/static/shop.css">
+</head>
+<body>
+
+<div class="strip" id="strip">
+  <span>Viewing as</span>
+  <div class="channels" id="channels"></div>
+  <span class="spacer"></span>
+  <button class="ghost" id="showLog">Delivery log</button>
+</div>
+
+<header class="masthead">
+  <a class="logo" href="#" id="home">Orchard&nbsp;&amp;&nbsp;Co</a>
+  <nav>
+    <a href="#">Home &amp; kitchen</a>
+    <a href="#">Food cupboard</a>
+    <a href="#">Audio</a>
+  </nav>
+  <div class="basket">Basket (0)</div>
+</header>
+
+<main>
+
+  <section id="shelf" class="shelf">
+    <h1>Featured this week</h1>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section id="pdp" class="pdp" hidden>
+    <button class="link" id="back">&larr; Back</button>
+
+    <div class="pdp-top">
+      <div class="gallery">
+        <img id="hero" alt="">
+        <div class="thumbs" id="thumbs"></div>
+      </div>
+
+      <div class="buy">
+        <p class="crumb" id="crumb"></p>
+        <h1 id="title"></h1>
+        <p class="sku">SKU <span id="sku"></span></p>
+        <p class="price" id="price"></p>
+
+        <div id="withheld" class="withheld" hidden>
+          <strong>This product is temporarily unavailable</strong>
+          <p id="withheldWhy"></p>
+        </div>
+
+        <button class="buynow" id="buy">Add to basket</button>
+        <p class="deliv">Free delivery on orders over &pound;25</p>
+      </div>
+    </div>
+
+    <div class="pdp-body">
+      <section>
+        <h2>About this product</h2>
+        <div id="bullets" class="bullets"></div>
+        <p id="description" class="desc"></p>
+      </section>
+
+      <section>
+        <h2>Specification</h2>
+        <table class="specs"><tbody id="specs"></tbody></table>
+      </section>
+    </div>
+  </section>
+
+</main>
+
+<dialog id="logDialog">
+  <h2>What this channel has been told</h2>
+  <p class="lede">A shop would not show you this. It is here so you can see
+    that the page above changed because somebody decided something, and read
+    who and why.</p>
+  <div id="log" class="log"></div>
+  <menu><button class="ghost" id="closeLog">Close</button></menu>
+</dialog>
+
+<aside id="flashes"></aside>
+
+<footer class="foot">
+  <span id="footLink"></span>
+  <span>Every field on this page was read from its channel over MCP.</span>
+</footer>
+
+<script type="module" src="/static/shop.js"></script>
+</body>
+</html>

@@ -77,15 +77,40 @@ class System:
     #: the precedence already documented in POL-002 rather than inventing a
     #: second ranking - artwork outranks a portal feed, which outranks email.
     precedence: int = 20
+    #: What a supplier may send *in* through this system, if anything. Empty -
+    #: the default, and true of eight of the eleven - means this system carries
+    #: traffic outward only and has no intake surface at all.
+    #:
+    #: Deliberately not folded into ``emits``. ``emits`` is what the recording
+    #: says this system originates, and ``emitter.owner_of`` deals every taped
+    #: event among the systems declaring its type - so adding SPEC_DOC to the
+    #: data pool in order to describe a live upload would silently reassign
+    #: every document on the tape to a different carrier and invalidate the
+    #: answer key the extraction tests grade against.
+    #:
+    #: It is also the whole of the intake configuration. The servers iterate
+    #: the systems that accept something and derive each endpoint's tool list
+    #: from what it accepts, so narrowing a system here removes its upload
+    #: tools with no code change anywhere.
+    accepts: tuple[str, ...] = ()
 
     @property
     def well_behaved(self) -> bool:
         return not self.defects
 
+    @property
+    def vendor_facing(self) -> bool:
+        """Whether a supplier can send anything in through this system."""
+        return bool(self.accepts)
+
 
 SYSTEMS: tuple[System, ...] = (
     System(
         id="supplier-portal",
+        # Where a supplier types its own data, so it takes everything: a
+        # corrected specification, the document behind it, and the pack shot
+        # whose absence is the commonest reason a launch is held.
+        accepts=("SPEC_DOC", "SUPPLIER_FEED", "CATALOG_UPDATE"),
         title="Supplier Portal",
         owner="Supplier self-service",
         why="Where a supplier's own staff type specifications into a form. "
@@ -100,6 +125,9 @@ SYSTEMS: tuple[System, ...] = (
     ),
     System(
         id="supplier-pim",
+        # Master data sent machine to machine. It sends specifications and the
+        # documents behind them; it has no imaging function, so no images.
+        accepts=("SPEC_DOC", "SUPPLIER_FEED"),
         title="Supplier PIM",
         owner="Supplier master data",
         why="The supplier's own product information system, sending machine to "
@@ -143,6 +171,11 @@ SYSTEMS: tuple[System, ...] = (
     ),
     System(
         id="gdsn-pool",
+        # The industry data pool syndicates attribute rows and nothing else.
+        # Narrower on purpose: it is the system that is wrong in three ways at
+        # once, and a pool that could also post documents would give it a
+        # fourth way to be wrong that a real pool does not have.
+        accepts=("SUPPLIER_FEED",),
         title="GDSN Data Pool",
         owner="Industry data pool",
         why="The industry-standard pool. It is not wrong to call net content "

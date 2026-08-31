@@ -54,6 +54,10 @@ data/media/
 # are the ones recorded in the README.
 data/golden/
 data/eval/
+# What suppliers have sent through the vendor intake, and the lines a reviewer
+# has accepted from their proposals. Both are things this installation did, not
+# things the repository describes.
+data/inbox/
 
 # Databases: the application store, the LangGraph checkpoints beside it, and
 # the SQLite sidecar files that appear in WAL mode.

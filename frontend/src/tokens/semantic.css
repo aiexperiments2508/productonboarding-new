@@ -322,3 +322,35 @@
   --glow-accent: oklch(0.696 0.128 var(--brand-hue) / 0.42);
   --glow-danger: oklch(0.706 0.152 var(--h-danger) / 0.38);
 }
+
+/* --- lifecycle stages ------------------------------------------------------
+ *
+ * One hue per lane on the board. Deliberately not the verdict colours: a
+ * verdict says whether the information is fit to publish, and a stage says
+ * where the product has got to. A product can be on sale and carrying a
+ * correction, and the two facts want two colours.
+ *
+ * The late-change hue is the danger hue rather than the warn hue on purpose.
+ * That lane means something wrong is in front of a shopper right now, which is
+ * not a "look at this later" colour.
+ */
+:root {
+  --stage-draft:    oklch(60% 0.02 var(--h-info));
+  --stage-supplier: oklch(62% 0.13 var(--h-warn));
+  --stage-cleared:  oklch(60% 0.11 var(--h-info));
+  --stage-pushed:   oklch(58% 0.12 var(--h-purple));
+  --stage-live:     oklch(58% 0.13 var(--h-ok));
+  --stage-late:     oklch(58% 0.16 var(--h-danger));
+
+  --stage-late-soft: oklch(96% 0.03 var(--h-danger));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --stage-late-soft: oklch(28% 0.05 var(--h-danger));
+  }
+}
+
+:root[data-theme="dark"] {
+  --stage-late-soft: oklch(28% 0.05 var(--h-danger));
+}

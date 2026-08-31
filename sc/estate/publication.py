@@ -26,11 +26,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: What a publication system can be asked to do. Deliberately three verbs and
-#: not a general write surface: a connector that accepts arbitrary mutations is
-#: one nobody can reason about, and these three are the whole vocabulary of
-#: "the shopper-facing value is wrong".
-VERBS: tuple[str, ...] = ("push_update", "withdraw_listing", "restore_listing")
+#: What a publication system can be asked to do. A closed vocabulary and not a
+#: general write surface: a connector that accepts arbitrary mutations is one
+#: nobody can reason about.
+#:
+#: It was three, and the three were the whole vocabulary of "the shopper-facing
+#: value is wrong". A fourth and fifth were added when it turned out that is
+#: two questions rather than one. Replacing a wrong value needs a validated
+#: replacement to exist; taking it down does not, and waiting for one means
+#: leaving a wrong allergen declaration on sale in the meantime. So `redact`
+#: hides, `push_update` replaces, and they are gated separately.
+#:
+#: `discharge` is the fifth because some channels cannot do either. A printed
+#: run cannot be recalled, so what is owed is an erratum, and an obligation
+#: nobody can close is not an obligation.
+VERBS: tuple[str, ...] = ("push_update", "redact", "withdraw_listing",
+                          "restore_listing", "discharge")
 
 
 @dataclass(frozen=True)

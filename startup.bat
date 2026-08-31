@@ -2,14 +2,28 @@
 REM ===========================================================================
 REM  Autonomous Product Intelligence Factory - Windows launcher
 REM
-REM    startup.bat          production: one process serving the API and the
-REM                         pre-built UI together.  http://127.0.0.1:8100
+REM    startup.bat          production: the platform, plus the three connected
+REM                         applications, each in its own window.
+REM    startup.bat solo     the platform only, no connected applications.
 REM    startup.bat dev      development: backend with autoreload in this
 REM                         window, Vite dev server in a second one.
 REM    startup.bat build    rebuild the frontend, then run production.
 REM    startup.bat clean    reinstall frontend dependencies, rebuild, run.
 REM    startup.bat reset    wipe the database and reload the seed pack.
+REM    startup.bat stage    put two products on sale, ready for a late change.
 REM    startup.bat studio   LangGraph Studio dev server on :2024 (optional).
+REM
+REM  FOUR processes, on four ports:
+REM
+REM    8000   the platform  - API, the UI, and every MCP server
+REM    8110   Vendor Portal - upstream. Suppliers push corrections in here.
+REM    8120   Storefront    - downstream. What a shopper sees.
+REM    8130   Ops Console   - downstream. Print, shelf, search, errata.
+REM
+REM  The three connected applications reach the platform over MCP and by no
+REM  other route - they have no database and no access to its API. That is the
+REM  reason they are separate processes rather than three more tabs, and it is
+REM  why they can be started, stopped and restarted independently.
 REM
 REM  No Docker. The only hard requirement is Python; the frontend ships
 REM  pre-built in frontend\dist, so Node is needed only for `dev` and `build`.
@@ -91,37 +105,44 @@ if not exist ".env" (
     )
 )
 
-REM Read the port and gateway settings out of .env so the banner and the
-REM browser open on the right address.
-set "API_PORT=8100"
+REM Read the ports and gateway settings out of .env so the banner and the
+REM browser open on the right addresses. The defaults here have to match
+REM .env.example, or a machine with no .env gets a different estate.
+set "API_PORT=8000"
+set "VENDOR_PORT=8110"
+set "STOREFRONT_PORT=8120"
+set "OPS_PORT=8130"
 set "EXTERNAL_GATEWAY="
 if exist ".env" (
     for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
         if /i "%%A"=="API_PORT" set "API_PORT=%%B"
+        if /i "%%A"=="VENDOR_PORT" set "VENDOR_PORT=%%B"
+        if /i "%%A"=="STOREFRONT_PORT" set "STOREFRONT_PORT=%%B"
+        if /i "%%A"=="OPS_PORT" set "OPS_PORT=%%B"
         if /i "%%A"=="LITELLM_BASE_URL" set "EXTERNAL_GATEWAY=%%B"
     )
 )
 REM Trim stray spaces picked up from the file.
 for /f "tokens=* delims= " %%A in ("!API_PORT!") do set "API_PORT=%%A"
+for /f "tokens=* delims= " %%A in ("!VENDOR_PORT!") do set "VENDOR_PORT=%%A"
+for /f "tokens=* delims= " %%A in ("!STOREFRONT_PORT!") do set "STOREFRONT_PORT=%%A"
+for /f "tokens=* delims= " %%A in ("!OPS_PORT!") do set "OPS_PORT=%%A"
 
 REM Refuse to start on a port somebody else already owns. Without this the
 REM server fails to bind, the browser opens anyway, and whatever was already
 REM listening answers - which looks exactly like this app booting the wrong
 REM code. It is a genuinely confusing five minutes, and worth one check.
-set "PORT_OWNER="
-for /f "tokens=5" %%P in ('netstat -ano -p TCP ^| findstr /r /c:"LISTENING" ^| findstr /r /c:":!API_PORT! "') do set "PORT_OWNER=%%P"
-if defined PORT_OWNER (
-    echo.
-    echo  [X] Port !API_PORT! is already in use by process !PORT_OWNER!.
-    echo.
-    echo      Something is already serving that address, and it is not this
-    echo      run. Opening the browser now would show you that other app.
-    echo.
-    echo      Check what it is:   tasklist /fi "pid eq !PORT_OWNER!"
-    echo      Stop it:            taskkill /pid !PORT_OWNER! /f
-    echo      Or set a different API_PORT in .env
-    echo.
-    goto :fail
+REM Four ports now, and each one is checked by name so the message says which
+REM application could not have its address rather than only which number.
+call :check_port "!API_PORT!" "the platform" "API_PORT"
+if errorlevel 1 goto :fail
+if /i not "%MODE%"=="solo" (
+    call :check_port "!VENDOR_PORT!" "the Vendor Portal" "VENDOR_PORT"
+    if errorlevel 1 goto :fail
+    call :check_port "!STOREFRONT_PORT!" "the Storefront" "STOREFRONT_PORT"
+    if errorlevel 1 goto :fail
+    call :check_port "!OPS_PORT!" "the Ops Console" "OPS_PORT"
+    if errorlevel 1 goto :fail
 )
 
 REM --- 5. gateway -------------------------------------------------------------
@@ -167,6 +188,8 @@ if not exist "data\catalog.json" (
 
 REM --- 7. modes ---------------------------------------------------------------
 if /i "%MODE%"=="reset"  goto :reset
+if /i "%MODE%"=="stage"  goto :stage
+if /i "%MODE%"=="solo"   goto :run
 if /i "%MODE%"=="build"  goto :build
 if /i "%MODE%"=="clean"  goto :clean
 if /i "%MODE%"=="dev"    goto :dev
@@ -232,6 +255,21 @@ echo.
 goto :done
 
 
+:stage
+REM Two products on sale, so the late change has something to be late for.
+REM Every listing in the seed pack is PREPARED - which is right for the arc the
+REM tape tells and wrong for this one, which is about a correction arriving
+REM after a launch.
+echo  [.] Putting two products on sale ...
+"%VPY%" scripts\stage_launch.py --press
+if errorlevel 1 goto :fail
+echo.
+echo  Staged. Send the late change from the Vendor Portal, or re-run with:
+echo    .venv\Scripts\python.exe scripts\stage_launch.py --press --inject
+echo.
+goto :run
+
+
 :reset
 echo  [.] Resetting the database and reloading the seed pack ...
 "%VPY%" scripts\generate_data.py
@@ -254,9 +292,10 @@ echo  Starting BACKEND  http://127.0.0.1:!API_PORT!   ^(this window^)
 echo  Starting FRONTEND http://127.0.0.1:5173         ^(new window, hot reload^)
 echo.
 echo  The Vite dev server proxies /api to the backend, so use :5173 while
-echo  editing the UI. Close both windows to stop.
+echo  editing the UI. Close the windows to stop.
 echo.
 start "Product Intelligence Factory - frontend" cmd /k "cd /d "%~dp0frontend" && npm.cmd run dev"
+call :start_satellites
 timeout /t 2 /nobreak >nul
 start "" "http://127.0.0.1:5173"
 "%VPY%" run.py --reload !GATEWAY_FLAG!
@@ -286,14 +325,24 @@ if errorlevel 1 ( popd & echo  [X] Frontend build failed. & goto :fail )
 popd
 
 :serve
+if /i not "%MODE%"=="solo" call :start_satellites
+
 echo.
-echo  UI and API:  http://127.0.0.1:!API_PORT!
+echo  Platform       http://127.0.0.1:!API_PORT!        API, UI, MCP servers
+if /i not "%MODE%"=="solo" (
+    echo  Vendor Portal  http://127.0.0.1:!VENDOR_PORT!        upstream - suppliers push here
+    echo  Storefront     http://127.0.0.1:!STOREFRONT_PORT!        downstream - what a shopper sees
+    echo  Ops Console    http://127.0.0.1:!OPS_PORT!        downstream - print, shelf, errata
+    echo.
+    echo  The three connected applications reach the platform over MCP and by no
+    echo  other route. They open inside Product Lifecycle, or on their own.
+)
 echo.
 echo  Ctrl-K / Cmd-K   command palette: jump, drive the replay, search the corpus
 echo  Status bar       replay transport, on screen from every view
 echo  Top right        theme ^(light / dark / system^), density, accent
 echo.
-echo  Ctrl-C to stop
+echo  Ctrl-C stops the platform. Close the other windows to stop those.
 echo.
 start "" "http://127.0.0.1:!API_PORT!"
 "%VPY%" run.py !GATEWAY_FLAG!
@@ -301,6 +350,44 @@ goto :done
 
 
 REM --- helpers ----------------------------------------------------------------
+:start_satellites
+REM The three connected applications, each in its own window.
+REM
+REM Their own windows rather than one supervisor, deliberately: each is a
+REM separate system and each keeps its own log, so "the Storefront cannot reach
+REM the platform" is one window saying so rather than three interleaved
+REM streams. They share this venv - they are Python, and their only dependency
+REM beyond the standard library is the MCP client the platform already needs.
+REM
+REM They tolerate the platform not being up yet. Each dials on its first call
+REM and reconnects afterwards, so start order does not matter and restarting
+REM the platform mid-demo does not require restarting these.
+echo  [.] Starting the connected applications ...
+start "Vendor Portal - upstream" cmd /k "cd /d "%~dp0" && .venv\Scripts\python.exe -m apps.vendor.server"
+start "Storefront - downstream" cmd /k "cd /d "%~dp0" && .venv\Scripts\python.exe -m apps.storefront.server"
+start "Ops Console - downstream" cmd /k "cd /d "%~dp0" && .venv\Scripts\python.exe -m apps.ops.server"
+exit /b 0
+
+
+:check_port
+REM %~1 port, %~2 what wants it, %~3 the .env key that moves it.
+REM
+REM Refusing to start beats binding failure. Without this the server fails to
+REM bind, the browser opens anyway, and whatever was already listening answers -
+REM which looks exactly like this app booting the wrong code.
+set "PORT_OWNER="
+for /f "tokens=5" %%P in ('netstat -ano -p TCP ^| findstr /r /c:"LISTENING" ^| findstr /r /c:":%~1 "') do set "PORT_OWNER=%%P"
+if not defined PORT_OWNER exit /b 0
+echo.
+echo  [X] Port %~1, which %~2 needs, is held by process !PORT_OWNER!.
+echo.
+echo      Check what it is:   tasklist /fi "pid eq !PORT_OWNER!"
+echo      Stop it:            taskkill /pid !PORT_OWNER! /f
+echo      Or set a different %~3 in .env
+echo.
+exit /b 1
+
+
 :ensure_node
 where npm.cmd >nul 2>&1
 if errorlevel 1 (

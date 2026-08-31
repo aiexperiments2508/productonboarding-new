@@ -94,7 +94,46 @@ def init_db(drop: bool = False) -> None:
                 p.unlink()
     conn = connect()
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    _migrate(conn)
     conn.commit()
+
+
+#: Columns added to tables that predate them. ``schema.sql`` is replayed on
+#: every boot through ``executescript`` and is written entirely as CREATE TABLE
+#: IF NOT EXISTS, so a new column on an existing table cannot be declared there
+#: alone - the CREATE is skipped and the column never appears. A bare ALTER in
+#: the script would fail on the second boot instead.
+#:
+#: Kept as data rather than a sequence of calls so that "what has been added
+#: since" is one list to read.
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("events", "lane", "TEXT NOT NULL DEFAULT 'TAPE'"),
+)
+
+#: Indexes over those columns, created here rather than in ``schema.sql``.
+#:
+#: They cannot live in the script. ``executescript`` runs the whole file in one
+#: go, so an index over a column this function has not added yet is executed
+#: *before* the column exists - and on an existing database that is not a
+#: warning, it is `no such column` and the application does not start.
+_ADDED_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS idx_events_lane_seq ON events (lane, seq)",
+)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring an existing database up to the current schema. Idempotent.
+
+    Deliberately tiny and additive. Requiring ``--reset`` to pick up a new
+    column would throw away the LangGraph checkpoints, which live in their own
+    file and are the only record of a suspended approval.
+    """
+    for table, column, ddl in _ADDED_COLUMNS:
+        held = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in held:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+    for statement in _ADDED_INDEXES:
+        conn.execute(statement)
 
 
 class transaction:

@@ -432,8 +432,18 @@ LISTING_CHANNELS = {
     "PRD-01": ["CH-WEB", "CH-MKT-A", "CH-PRINT", "CH-SHELF"],
     "PRD-02": ["CH-WEB", "CH-MKT-A", "CH-MKT-B", "CH-SEARCH", "CH-SHELF"],
     "PRD-03": ["CH-WEB", "CH-MKT-A"],
-    "PRD-04": ["CH-WEB", "CH-MKT-B"],
-    "PRD-05": ["CH-WEB", "CH-MKT-A"],
+    # The kettle and the granola are the two the late-change story runs on, so
+    # they carry the breadth that story needs to be about anything. A
+    # correction that reaches two web pages demonstrates a correction reaching
+    # two web pages; the interesting cases are the channels that answer
+    # differently - a shelf label somebody has to walk over and reprint, and a
+    # print run that cannot be recalled at all.
+    "PRD-04": ["CH-WEB", "CH-MKT-B", "CH-SHELF", "CH-SEARCH"],
+    # All six kinds, deliberately. This is the safety-class arc, and the whole
+    # point of it is that the same correction has five different right answers
+    # depending on what the channel can physically do about it.
+    "PRD-05": ["CH-WEB", "CH-MKT-A", "CH-MKT-B", "CH-PRINT", "CH-SHELF",
+               "CH-SEARCH"],
     "PRD-06": ["CH-WEB", "CH-MKT-B"],
 }
 
@@ -609,6 +619,8 @@ COPY = {
             "cup to the boil in 45 seconds. Brushed stainless steel body, washable "
             "limescale filter, a 360° base and cord storage underneath.",
             ["specs.power_w"], []),
+        "shelf_text": ("Cascade Rapid Kettle 1.7L · 3000W",
+                       ["specs.power_w"], []),
     },
     "VAR-05A": {
         "web_title": ("Orchard Valley Granola Clusters 300g — honey and almond",
@@ -627,6 +639,22 @@ COPY = {
             "7.2 g of fibre per 100 g. Contains almonds. May contain milk. "
             "Ingredients: oats, honey, almonds, sunflower oil, dried cranberries.",
             ["food.fibre_g", "food.ingredients", "food.allergens.contains",
+             "food.allergens.may_contain"], ["high-fibre"]),
+        # Terse because it has to be: RUL-S01 gives a shelf-edge label forty
+        # characters, and a label that does not fit is not a label. It still
+        # names both allergen paths, which is what puts it in the blast radius
+        # of a correction to either.
+        "shelf_text": ("Granola Clusters 300g · Almonds, milk",
+                       ["food.net_weight_g", "food.allergens.contains",
+                        "food.allergens.may_contain"], []),
+        # The one that cannot be taken back. It quotes the allergen line, so a
+        # correction to that line reaches a printed page - which is the whole
+        # argument for an erratum being a different outcome from a redaction.
+        "catalogue_copy": (
+            "Orchard Valley Granola Clusters 300 g. Baked oat clusters with honey, "
+            "whole almonds and dried cranberries, 7.2 g of fibre per 100 g. "
+            "Contains almonds. May contain milk.",
+            ["food.net_weight_g", "food.fibre_g", "food.allergens.contains",
              "food.allergens.may_contain"], ["high-fibre"]),
     },
     "VAR-06A": {
@@ -1475,6 +1503,16 @@ FROZEN_BY_ARC = {
     ("VAR-02A", "food.allergens.may_contain"), ("VAR-02B", "food.allergens.may_contain"),
     ("VAR-02A", "food.net_weight_g"), ("VAR-02B", "food.net_weight_g"),
     ("VAR-02A", "claims"), ("VAR-02B", "claims"),
+    # The two the late-change story runs on. `confirmable` is built from every
+    # hero (variant, path) NOT in this set, so without these a routine feed
+    # would re-assert the old allergen line - and the correction a supplier
+    # sent would be silently overwritten by noise carrying a later
+    # recorded_at, the moment the clock advanced past it. The demo's premise
+    # would evaporate mid-run, and nothing would report anything wrong.
+    ("VAR-05A", "food.allergens.contains"),
+    ("VAR-05A", "food.allergens.may_contain"),
+    ("VAR-05A", "food.ingredients"),
+    ("VAR-04A", "specs.power_w"),
 }
 
 MAILBOX_TO = "product-content@internal"
@@ -2620,6 +2658,20 @@ def write_pack(files: dict[str, str]) -> None:
         path.write_text(files[name], encoding="utf-8", newline="\n")
 
 
+def drop_accepted_lines(out: Path) -> None:
+    """Remove any lines accepted into the previous pack.
+
+    A reseed is a new world. A product a reviewer accepted from a supplier's
+    proposal happened in the old one, and carrying it across would leave the
+    catalog holding an entity no document in the new pack has ever mentioned -
+    which is the one thing the generator's own checks cannot catch, because
+    they are computed from what it wrote.
+    """
+    extension = out / "catalog.live.json"
+    if extension.exists():
+        extension.unlink()
+
+
 def main() -> None:
     print(f"Generating seed pack (seed={SEED}, horizon={HORIZON_DAYS}d "
           f"from {HORIZON_START})")
@@ -2644,6 +2696,7 @@ def main() -> None:
     problems += id_problems
 
     write_pack(files)
+    drop_accepted_lines(DATA)
 
     events = model["events"]
     comms = sum(1 for e in events if e["type"] == "COMMS")

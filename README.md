@@ -33,6 +33,19 @@ and the event plane is a table.
 Useful flags: `--reset` (drop the database and reload the seed pack),
 `--no-gateway` (work offline from the LLM response cache), `--port`.
 
+On Windows, `startup.bat` does all of that and also starts the three connected
+applications:
+
+| | | |
+|---|---|---|
+| `http://127.0.0.1:8000` | **the platform** | API, UI, and every MCP server |
+| `http://127.0.0.1:8110` | **Vendor Portal** | upstream — suppliers push corrections in |
+| `http://127.0.0.1:8120` | **Storefront** | downstream — what a shopper sees |
+| `http://127.0.0.1:8130` | **Ops Console** | downstream — print, shelf, search, errata |
+
+`startup.bat solo` runs the platform alone; `startup.bat stage` puts two
+products on sale first, so a late change has something to be late for.
+
 ### The model gateway
 
 Every model and embedding call leaves through one LiteLLM gateway. There are
@@ -153,6 +166,79 @@ three to four minutes. The per-field rewrites and the per-document readings run
 concurrently; the extraction *writes* stay strictly sequential, because a
 watermark advances as each document is persisted and the next is read against
 it.
+
+## What V3 added
+
+The system up to here is a **replay**. Five thousand events, recorded once,
+released on a clock you can pause and step. Convincing, and entirely in the
+past tense: nothing outside the process could put a new fact into it, and
+nothing outside the process could see what came out.
+
+V3 adds the present tense.
+
+**Three connected applications**, each its own process on its own port, each
+reaching the platform over MCP and by no other route. They have no database,
+no access to the API, and — checked by `tests/test_app_boundary.py` — no import
+of `sc`. That test exists because the boundary is one convenient line of Python
+away from being false at any moment, and nothing would visibly break when it
+was.
+
+* **Vendor Portal.** A supplier signs in as one of three systems the retailer
+  runs an intake for — the portal, the supplier's PIM, the industry data pool —
+  and sends a corrected specification, a document, an image, or a proposal for
+  a line the catalog does not have. Each endpoint's tool list is *derived* from
+  what its system declares it accepts, so the data pool has no upload surface
+  and the PIM has no imaging one.
+* **Storefront.** The web page and the two marketplace listings, rendered from
+  what each channel says it is currently showing.
+* **Ops Console.** Print, shelf and search: the channels where a correction
+  turns into somebody's afternoon.
+
+**A live lane on the event tape.** A submission is a real event that the
+platform's own ingestion judges under the same precedence policy, materiality
+threshold and safety override as the recording — but it is not part of the
+recording, so the transport cannot rewind it and the clock cannot walk into it.
+The two lanes are told apart by a column and never by a sequence range; see the
+docstring in `sc/replay/tape.py` for the two silent failures that decided that.
+
+**A supplier cannot write a value into the catalog.** A submission is recorded
+as a *document version*. What it asserts becomes a fact only when the graph
+reads the document and writes it back as INFERRED, under the fail-closed safety
+gate. The provenance taxonomy does the enforcing; there is no permission check
+to route around.
+
+**Redaction, and a second gate.** A late correction lands against copy that is
+already live, and between knowing the value is wrong and having a validated
+replacement the wrong value is still on sale. So hiding it and republishing are
+separated: hiding is authorised by the approval that already agreed the value
+was wrong and happens at once; republishing needs its own release decision,
+enforced as a fourth refusal in `commit_plan` and recorded in its own table —
+never in `approvals`, where it would have satisfied the first gate by itself.
+
+What "hide" means is derived from what the channel can actually do, and one
+correction gets five different right answers:
+
+| Channel | Outcome |
+|---|---|
+| Own website | listing withheld — a food page reading "Contains: —" is not a lawful page |
+| Marketplace A / B | listing withdrawn — its own rules make a placeholder a hard violation |
+| Search facets | facet dropped — a shopper filtering "no peanuts" and finding peanuts is the harm |
+| Shelf-edge labels | reprint queued — it stays wrong in the aisle until somebody walks over |
+| Print catalogue | **erratum owed** — 214,000 catalogues cannot be recalled, and saying they were redacted would be the one lie that matters |
+
+Copy is redacted with the value it quotes. A bullet reading "may contain milk"
+above a spec row saying the allergen statement is being checked would make the
+page worse than before it was corrected — and which copy quotes which value is
+not a guess, it is the same `derived_from` lineage the blast radius has always
+been computed from.
+
+**Product Lifecycle**, a new section, is where the halves join: every product in
+the lane its own state puts it in — proposed, with the supplier, cleared, pushed
+downstream, on sale, or overtaken by a late change. Lanes are derived and never
+stored, for the reason the publication estate is derived from the channels: a
+stored status would be a second account of a product's state, and the first
+thing it would disagree about is the product somebody just corrected. The three
+applications open from a strip at the top of it.
 
 ## Driving the demo
 
@@ -355,8 +441,24 @@ can prove, not less.
 python -m pytest tests/ -q
 ```
 
-446 tests, ~110 seconds. Three skip without an embedding matrix; the rest need no
-network.
+598 tests, about eight minutes. Three skip without an embedding matrix; the
+rest need no network.
+
+Four of them are load-bearing beyond their own subject, and are worth knowing
+about before changing the things they guard:
+
+* `test_the_replay_cursor_cannot_walk_into_the_live_lane` and
+  `test_a_live_event_does_not_poison_the_tape_ingest_cursor` — both failures
+  are silent. The system goes on reporting success while it stops recording
+  facts.
+* `test_a_redaction_does_not_clear_the_frozen_version_violation` — the
+  validator skips every check for a withheld listing, so a redaction routed
+  through a change-set action would erase a frozen-version violation while the
+  wrong catalogues were still in the world. That is INC-2026-002 in the corpus,
+  happening a second time in the code written to prevent it.
+* `test_a_release_approval_alone_does_not_publish_an_unapproved_resolution` —
+  `commit_plan` reads the newest approval and tests only that it is APPROVE, so
+  a release recorded in that table would satisfy the first gate by itself.
 
 The graph tests run with the gateway deliberately unreachable, so the fallback
 paths are what CI actually exercises. There is no LLM mocking anywhere in the
@@ -429,6 +531,30 @@ tool's self-description is not a control.
 A discovered tool never shadows a built-in one. If a connected system declares
 `commit_plan`, the built-in keeps the name and the collision is reported.
 
+**Two more surfaces, added in V3.** The estate above answers questions; these
+two accept traffic, and they are listed apart from it because an operator
+handing out an address should be able to tell from the path which is which.
+
+*The vendor intake*, at `/mcp/intake/{system}`, for the three systems whose
+manifest entry declares an `accepts` list. Each endpoint's tools are derived
+from that list rather than written down, so narrowing a system in the manifest
+removes its upload surface with no code change. Nothing here reaches the fact
+store — a tool call appends an event, and the platform's own ingestion judges
+it. That is checked by walking the module's imports, not asserted in a comment.
+
+*The publication estate*, at `/mcp/publish/{channel}`, grew from three tools to
+eleven: six reads that let a downstream application be built entirely on the
+protocol, and five writes that all go through the planning boundary. `MUTATING`
+is declared rather than inferred from the verbs, because "which of these can
+act" is the question an operator actually asks.
+
+The three applications in `apps/` are clients of those two surfaces and of
+nothing else. Each holds its MCP session server-side — partly because the
+platform's CORS configuration does not expose `Mcp-Session-Id` so a
+browser-side client could not continue a session it had just opened, and
+partly because a supplier identity set in a browser is a supplier identity
+anybody can set.
+
 ## A2A
 
 Peers with Agent Cards another organisation's agent could discover:
@@ -478,10 +604,14 @@ sc/          contracts, db, state, sim, rag, llm, graph, tools, replay
 sc/estate/   the eleven external systems: manifest, emitter, defects, arrivals,
              their MCP servers, and the publication side
 sc/readiness/ the nine checks, the verdict, the staging page
-scripts/     generate_data.py, build_index.py, prepare_demo.py, evaluate.py
+scripts/     generate_data.py, build_index.py, prepare_demo.py, evaluate.py,
+             stage_launch.py (two products on sale, for the late-change arc)
 sc/graph/    nodes, branches, prompts, evidence desk, state, assembly
 sc/a2a/      peer agents, their cards, the client that calls them
 sc/mcp/      toolsets split by owning system, plus the stdio client
+sc/lifecycle/ the board, one product's timeline, and accepting a proposed line
+apps/        the three connected applications - vendor portal, storefront, ops
+             console. Each its own process; none of them imports sc
 frontend/    React UI - tokens, ui primitives, app shell, views;
              dist/ is committed so the lab never needs npm
 tests/       the suite

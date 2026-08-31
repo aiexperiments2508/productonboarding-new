@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ops Console</title>
+<link rel="stylesheet" href="/static/ops.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="id">
+    <span class="dot"></span>
+    <b>OPS CONSOLE</b>
+    <span class="sub">publication estate</span>
+  </div>
+  <div class="counts" id="counts"></div>
+  <div class="right">
+    <span id="platform"></span>
+    <button class="btn" id="showCalls">protocol</button>
+  </div>
+</header>
+
+<nav class="views">
+  <button class="view on" data-view="estate">Estate</button>
+  <button class="view" data-view="owed">Work owed</button>
+  <button class="view" data-view="ledger">Ledger</button>
+  <button class="view" data-view="inspect">Inspect a SKU</button>
+</nav>
+
+<main>
+
+  <section id="v-estate">
+    <table class="grid">
+      <thead>
+        <tr><th>Channel</th><th>Kind</th><th>Recall</th><th>Freeze</th>
+            <th>Withheld</th><th>Owed</th><th>Standing</th></tr>
+      </thead>
+      <tbody id="estate"></tbody>
+    </table>
+    <p class="foot-note" id="estateNote"></p>
+  </section>
+
+  <section id="v-owed" hidden>
+    <p class="lede">A redaction on a web page finishes when it is written. On a
+      printed run there is nothing to take down, so what is recorded is the work
+      still owed to the world. Nothing closes it but somebody doing it.</p>
+    <div id="owed" class="owed"></div>
+  </section>
+
+  <section id="v-ledger" hidden>
+    <div class="filters">
+      <select id="ledgerChannel"><option value="">All channels</option></select>
+    </div>
+    <table class="grid">
+      <thead><tr><th>When</th><th>Channel</th><th>Verb</th><th>Listing</th>
+                 <th>Actor</th><th>Why</th></tr></thead>
+      <tbody id="ledger"></tbody>
+    </table>
+  </section>
+
+  <section id="v-inspect" hidden>
+    <div class="filters">
+      <input id="sku" placeholder="SKU, e.g. OVF-GRC-300" value="OVF-GRC-300">
+      <button class="btn primary" id="inspect">Inspect across the estate</button>
+    </div>
+    <div id="inspection" class="inspect"></div>
+  </section>
+
+</main>
+
+<dialog id="dischargeDialog">
+  <form method="dialog" id="dischargeForm">
+    <h2 id="dischargeTitle"></h2>
+    <p class="lede" id="dischargeWhat"></p>
+    <label><span>Your name</span><input id="dischargeWho" value="ops" required></label>
+    <label><span>Evidence</span>
+      <input id="dischargeEvidence" placeholder="e.g. erratum card in issue 34" required></label>
+    <p class="warn">This records that the work was done. It is not an approval —
+      approvals are taken in the platform's review surface.</p>
+    <menu>
+      <button value="cancel" class="btn">Cancel</button>
+      <button value="ok" class="btn primary">Record it</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="callsDialog">
+  <h2>Every call this console has made</h2>
+  <p class="lede">This process has no database and no access to the platform's
+    API. Everything on these screens crossed MCP.</p>
+  <div id="calls" class="calls"></div>
+  <menu><button class="btn" id="closeCalls">Close</button></menu>
+</dialog>
+
+<aside id="alerts"></aside>
+
+<script type="module" src="/static/ops.js"></script>
+</body>
+</html>

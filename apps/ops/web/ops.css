@@ -1,0 +1,160 @@
+/* Ops Console.
+ *
+ * A back-office tool: dense, monospaced where it counts, dark because this is
+ * the screen that stays open on a wall all day. Not the storefront's serif
+ * warmth and not the vendor portal's corporate blue - three applications, three
+ * houses, which is the point being made.
+ */
+
+:root {
+  --bg: #12161b;
+  --panel: #181d24;
+  --panel-2: #1e242c;
+  --line: #2b333d;
+  --ink: #dde3ea;
+  --soft: #8b97a5;
+  --dim: #5f6b78;
+  --accent: #3f9ae0;
+  --ok: #45b57a;
+  --warn: #d8a33c;
+  --bad: #d9615a;
+  --mono: "Cascadia Mono", Consolas, "SF Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+
+/* --- chrome -------------------------------------------------------------- */
+
+.top {
+  display: flex; align-items: center; gap: 20px;
+  padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.id { display: flex; align-items: center; gap: 9px; }
+.id b { letter-spacing: 1.6px; font-size: 13px; }
+.id .sub { color: var(--dim); font-size: 12px; }
+.dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(69,181,122,.16);
+}
+.counts { display: flex; gap: 18px; flex: 1; font-size: 12px; color: var(--soft); }
+.counts b { color: var(--ink); font-family: var(--mono); }
+.counts .warn b { color: var(--warn); }
+.counts .bad b { color: var(--bad); }
+.right { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--dim); }
+
+.views { display: flex; gap: 2px; padding: 0 18px; background: var(--panel);
+         border-bottom: 1px solid var(--line); }
+.view {
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  color: var(--soft); padding: 9px 14px; font: inherit; cursor: pointer;
+}
+.view.on { color: var(--ink); border-bottom-color: var(--accent); }
+
+main { padding: 18px; }
+.lede { color: var(--soft); max-width: 720px; margin: 0 0 16px; }
+.foot-note { color: var(--dim); font-size: 12px; margin-top: 14px; }
+
+.btn {
+  background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+  padding: 5px 12px; font: inherit; cursor: pointer; border-radius: 3px;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #07121b; font-weight: 600; }
+
+.filters { display: flex; gap: 10px; margin-bottom: 14px; }
+input, select {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
+  padding: 6px 9px; font: inherit; border-radius: 3px; min-width: 220px;
+}
+
+/* --- tables -------------------------------------------------------------- */
+
+table.grid { width: 100%; border-collapse: collapse; background: var(--panel); }
+table.grid th {
+  text-align: left; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .7px; color: var(--dim); font-weight: 600;
+  padding: 8px 12px; border-bottom: 1px solid var(--line);
+}
+table.grid td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.grid tr:last-child td { border-bottom: 0; }
+table.grid code, .mono { font-family: var(--mono); font-size: 12px; }
+
+.tag {
+  display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 2px;
+  border: 1px solid; font-family: var(--mono);
+}
+.tag.ok { color: var(--ok); border-color: rgba(69,181,122,.4); background: rgba(69,181,122,.1); }
+.tag.warn { color: var(--warn); border-color: rgba(216,163,60,.4); background: rgba(216,163,60,.1); }
+.tag.bad { color: var(--bad); border-color: rgba(217,97,90,.4); background: rgba(217,97,90,.1); }
+.tag.dim { color: var(--dim); border-color: var(--line); }
+.mine { color: var(--accent); font-size: 11px; margin-left: 6px; }
+
+/* --- work owed ----------------------------------------------------------- */
+
+.owed { display: grid; gap: 12px; }
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--warn); padding: 14px 16px;
+  display: flex; justify-content: space-between; gap: 20px; align-items: flex-start;
+}
+.card.erratum { border-left-color: var(--bad); }
+.card h3 { margin: 0 0 4px; font-size: 14px; }
+.card .meta { color: var(--soft); font-size: 12px; }
+.card .why { color: var(--ink); font-size: 13px; margin-top: 7px; max-width: 620px; }
+.card .due { font-family: var(--mono); font-size: 12px; color: var(--warn); }
+.empty { color: var(--dim); padding: 30px; text-align: center;
+         border: 1px dashed var(--line); }
+
+/* --- inspect ------------------------------------------------------------- */
+
+.inspect { display: grid; gap: 12px; }
+.chan {
+  background: var(--panel); border: 1px solid var(--line); padding: 14px 16px;
+}
+.chan h3 { margin: 0 0 3px; font-size: 14px; display: flex; gap: 10px; align-items: center; }
+.chan .fields { margin-top: 10px; display: grid; gap: 4px; }
+.chan .f {
+  display: grid; grid-template-columns: 220px 1fr; gap: 12px;
+  font-size: 13px; padding: 3px 0;
+}
+.chan .f .k { color: var(--soft); font-family: var(--mono); font-size: 12px; }
+.chan .f.hidden .v { color: var(--warn); }
+.chan .none { color: var(--dim); font-size: 13px; }
+
+/* --- dialogs, alerts ------------------------------------------------------ */
+
+dialog {
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 4px; padding: 22px; max-width: 560px; width: 92%;
+}
+dialog::backdrop { background: rgba(5,8,11,.7); }
+dialog h2 { margin: 0 0 6px; font-size: 16px; }
+dialog label { display: block; margin-bottom: 12px; }
+dialog label span { display: block; font-size: 12px; color: var(--soft); margin-bottom: 4px; }
+dialog input { width: 100%; }
+dialog menu { display: flex; gap: 10px; justify-content: flex-end; padding: 0; margin: 16px 0 0; }
+.warn {
+  background: rgba(216,163,60,.1); border-left: 3px solid var(--warn);
+  padding: 8px 11px; font-size: 12px; color: var(--warn); margin: 0;
+}
+#callsDialog { max-width: 800px; }
+.calls { max-height: 50vh; overflow: auto; border: 1px solid var(--line); }
+.calls div {
+  display: grid; grid-template-columns: 66px 1fr 60px 1fr; gap: 10px;
+  padding: 4px 9px; font-family: var(--mono); font-size: 11px;
+  border-bottom: 1px solid var(--line); color: var(--soft);
+}
+.calls .bad { color: var(--bad); }
+
+#alerts { position: fixed; right: 18px; bottom: 18px; display: grid; gap: 8px; }
+.alert {
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent); padding: 10px 14px; font-size: 13px;
+  max-width: 380px;
+}
+.alert.warn { border-left-color: var(--warn); }

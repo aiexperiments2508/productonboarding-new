@@ -1,11 +1,11 @@
 import type { ComponentType } from "react";
 import {
-  IconApprovals, IconInvestigate, IconProduct, IconScenarios, IconSystem,
-  IconTower,
+  IconApprovals, IconInvestigate, IconLifecycle, IconProduct, IconScenarios,
+  IconSystem, IconTower,
 } from "../icons";
 import type { IconProps } from "../icons";
 
-/* The five sections, defined once.
+/* The sections, defined once.
  *
  * The sidebar, the breadcrumb, the page header and the command palette all
  * read from this. Previously the label list lived in main.tsx and the palette
@@ -23,8 +23,8 @@ export interface Section {
 }
 
 export type SectionId =
-  | "tower" | "product360" | "investigation" | "scenarios" | "approvals"
-  | "system";
+  | "tower" | "lifecycle" | "product360" | "investigation" | "scenarios"
+  | "approvals" | "system";
 
 export const SECTIONS: Section[] = [
   {
@@ -33,6 +33,16 @@ export const SECTIONS: Section[] = [
     description:
       "The external systems feeding the catalog, what each one is delivering right now, and which corrections are in force.",
     Icon: IconTower,
+  },
+  {
+    id: "lifecycle",
+    // "Lifecycle", not "Pipeline": a pipeline implies one direction, and the
+    // lane this view exists for is the one products come *back* into after
+    // they have already launched.
+    label: "Product Lifecycle",
+    description:
+      "Where every product has got to - sent back to its supplier, cleared, pushed downstream, on sale, or overtaken by a late change. The upstream and downstream systems open from here.",
+    Icon: IconLifecycle,
   },
   {
     id: "product360",

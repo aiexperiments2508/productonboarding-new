@@ -29,6 +29,7 @@ from sc.graph import nodes as graph_nodes
 from sc.llm import gateway, models
 from sc.rag import index as rag_index
 from sc.rag import retrieve
+from sc.estate import publication_events
 from sc.replay import ingest, tape
 from sc.state import baseline as baseline_mod
 from sc.tools import network as network_tools
@@ -121,6 +122,33 @@ def _on_events(events) -> None:
         bus.publish("signal", {"signal": signal.model_dump(mode="json")})
 
 
+def _on_live(events, signals) -> None:
+    """A supplier submitted something. Tell every open reader.
+
+    Deliberately the same two messages ``_on_events`` publishes, so a reader
+    does not have to know whether what it is looking at came off the recording
+    or off a portal - it is the same fact plane either way. The extra field is
+    ``lane``, for the one panel that cares.
+    """
+    bus.publish("events", {
+        "events": [e.model_dump(mode="json") for e in events],
+        "lane": "LIVE",
+        "replay": tape.state().model_dump(mode="json"),
+    })
+    for signal in signals:
+        bus.publish("signal", {"signal": signal.model_dump(mode="json")})
+
+
+def _on_publication(kind: str, payload: dict) -> None:
+    """Redactions and obligations, from the write path that has no bus.
+
+    ``sc.tools.planning`` and ``sc.estate.redaction`` import nothing from this
+    module and must not start: they are the write path, and coupling it to the
+    web process would mean a correction could not be committed by a script.
+    """
+    bus.publish(kind, payload)
+
+
 @app.on_event("startup")
 async def startup() -> None:
     global _clock_task, _estate_stack
@@ -130,6 +158,13 @@ async def startup() -> None:
 
     bootstrap.ensure_ready()
     _clock_task = asyncio.create_task(tape.run_clock(_on_events))
+
+    # A submission arrives outside the clock, so it needs its own way to reach
+    # the live feed. Registered rather than imported: the estate is mounted by
+    # this module, and having it call back into this module directly would be a
+    # genuine cycle.
+    tape.set_live_sink(_on_live)
+    publication_events.subscribe(_on_publication)
 
     # Each estate system is a mounted Starlette sub-app, and mounting does not
     # run a sub-app's lifespan. A streamable-HTTP server whose session manager
@@ -145,6 +180,10 @@ async def startup() -> None:
         from sc.estate import publication_server as _publishers
 
         started += await _publishers.start(_estate_stack)
+
+        from sc.estate import intake_server as _intake
+
+        started += await _intake.start(_estate_stack)
         log.info("estate: %d system server(s) listening", started)
 
         # Dial them, in the background. Ten handshakes is a second or two, and
@@ -406,7 +445,11 @@ def control_replay(command: ReplayCommand) -> dict:
         released = tape.jump_to(target)
     elif action == ReplayAction.RESET:
         tape.reset()
-        db.connect().execute("DELETE FROM event_cursors")
+        # The recording's watermark only. Clearing them all would re-ingest
+        # every submission on the next batch, and a rewind of the tape is not
+        # a statement about what a supplier sent.
+        db.connect().execute("DELETE FROM event_cursors WHERE consumer = ?",
+                             (ingest.CONSUMER,))
         db.connect().commit()
 
     if released:
@@ -698,6 +741,20 @@ try:
 except Exception as _exc:  # noqa: BLE001 - the app must start regardless
     ESTATE_MOUNTED = []
     log.warning("estate systems not mounted: %s", _exc)
+
+# The way in. Three of the eleven systems accept submissions, and each gets an
+# intake endpoint of its own at /mcp/intake/{system_id}. Separate from the
+# read-only estate above because these accept traffic rather than answer
+# questions about it, and an operator handing out an address should be able to
+# tell which is which from the path.
+try:
+    from sc.estate import intake_server
+
+    INTAKE_MOUNTED = intake_server.mount(app)
+except Exception as _exc:  # noqa: BLE001 - the app must start regardless
+    INTAKE_MOUNTED = []
+    log.warning("vendor intake not mounted: %s", _exc)
+
 
 # The other end of the pipe: one server per channel that owns live listings.
 # Mounted apart from the ingest estate because these can change what a shopper
@@ -1191,6 +1248,233 @@ def estate_servers() -> dict:
     return {"servers": ESTATE_MOUNTED}
 
 
+# ---------------------------------------------------------------------------
+# The lifecycle board
+#
+# The one view that joins the halves: what a supplier sent, what the checks
+# decided, what went downstream, and what is still wrong out there. Every lane
+# is derived - see sc/lifecycle/stages.py for why there is no status column.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/lifecycle")
+def lifecycle(q: str = "", supplier: str | None = None,
+              category: str | None = None, limit: int = 400,
+              use_model: bool = False) -> dict:
+    """Every product, in the lane its own state puts it in.
+
+    The same filters ``/api/products`` takes, because a board and a list of the
+    same population that disagreed about what "supplier" means would be two
+    populations.
+    """
+    from sc.lifecycle import board
+
+    return board.build(q=q, suppliers=_csv(supplier),
+                       categories=_csv(category), limit=limit,
+                       use_model=use_model)
+
+
+# Declared before ``/api/lifecycle/{product_id}`` on purpose. Routes are
+# matched in registration order, so the placeholder below would other-
+# wise answer this address with "no product called drafts".
+@app.get("/api/lifecycle/drafts")
+def lifecycle_drafts() -> dict:
+    """Lines a supplier has proposed that nobody has decided on."""
+    from sc.lifecycle import drafts
+
+    return {"drafts": drafts.pending()}
+
+
+@app.post("/api/lifecycle/drafts/{submission_id}/accept")
+def lifecycle_accept_draft(submission_id: str, body: dict | None = None) -> dict:
+    """Let a proposed line into the catalog.
+
+    A decision with a person's name on it rather than a side effect of a
+    supplier filling in a form: accepting a line means the retailer takes on
+    responsibility for what it says about something it has never sold, and no
+    rule can take that on for somebody.
+    """
+    from sc.lifecycle import drafts
+
+    options = body or {}
+    result = drafts.accept(submission_id,
+                           actor=options.get("actor", "reviewer"),
+                           sku=options.get("sku", ""),
+                           name=options.get("name", ""),
+                           category=options.get("category", ""))
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    bus.publish("commit", {"result": result, "kind": "accepted_line"})
+    return result
+
+
+@app.get("/api/lifecycle/{product_id}")
+def lifecycle_timeline(product_id: str, limit: int = 120) -> dict:
+    """One product's journey, joined from the tables that each own a part."""
+    from sc.lifecycle import timeline
+
+    result = timeline.build(product_id, limit)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.get("/api/lifecycle/{product_id}/downstream")
+def lifecycle_downstream(product_id: str) -> dict:
+    """What every downstream system is carrying for this product right now.
+
+    The reviewer's version of the question the storefront answers by rendering
+    a page: which channels hold it, what each is showing, and what is currently
+    held back.
+    """
+    from sc.estate import publication
+    from sc.state import baseline as baseline_mod
+    from sc.state import overlay as overlay_mod
+    from sc.tools import planning
+
+    base = baseline_mod.get()
+    if product_id not in base.products:
+        raise HTTPException(status_code=404, detail="no such product")
+
+    from sc.readiness import record as record_mod
+
+    overlay = overlay_mod.cached(record_mod._instant(None), None)
+    systems = {s.channel_id: s for s in publication.systems(base)}
+    hidden = {(r["listing_id"], r["attribute_path"]): r
+              for r in planning.open_redactions()}
+
+    rows = []
+    for variant_id in base.variants_of.get(product_id, []):
+        variant = base.variants[variant_id]
+        for listing_id in base.listings_of.get(variant_id, []):
+            listing = base.listings[listing_id]
+            system = systems.get(listing.channel_id)
+            held = [v for (l, _p), v in hidden.items() if l == listing_id]
+            rows.append({
+                "listing_id": listing_id,
+                "sku": variant.sku,
+                "channel_id": listing.channel_id,
+                "channel": base.channels[listing.channel_id].name,
+                "system": getattr(system, "id", ""),
+                "endpoint": getattr(system, "endpoint", ""),
+                "recallable": getattr(system, "recallable", True),
+                "freeze_days": getattr(system, "freeze_days", 0),
+                "status": overlay.channel_status.get(listing_id, listing.status),
+                "published_version": overlay.published_version.get(
+                    listing_id, listing.published_version),
+                "redactions": held,
+            })
+
+    from sc.estate import redaction
+
+    return {"product_id": product_id, "listings": sorted(
+        rows, key=lambda r: (r["channel_id"], r["sku"])),
+        "obligations": [o for o in redaction.open_obligations()
+                        if o["listing_id"] in {r["listing_id"] for r in rows}]}
+
+
+@app.post("/api/lifecycle/redact")
+def lifecycle_redact(body: dict) -> dict:
+    """Take a wrong value down across everything carrying it.
+
+    Authorised by the approval that already agreed the value is wrong, and
+    refused without one. This is the first of the two gates: it hides, and it
+    deliberately cannot publish a replacement.
+    """
+    from sc.estate import redaction
+
+    incident_id = (body or {}).get("incident_id", "")
+    entity_id = (body or {}).get("entity_id", "")
+    fields = (body or {}).get("fields") or []
+    if not (incident_id and entity_id and fields):
+        raise HTTPException(
+            status_code=400,
+            detail="incident_id, entity_id and fields are required")
+
+    result = redaction.redact(incident_id, entity_id, fields,
+                              actor=(body or {}).get("actor", "reviewer"),
+                              reason=(body or {}).get("reason", ""))
+    return result
+
+
+@app.post("/api/lifecycle/restore")
+def lifecycle_restore(body: dict) -> dict:
+    """Put a hidden value back. Refuses where nothing was hidden."""
+    from sc.estate import redaction
+
+    return redaction.restore((body or {}).get("incident_id", ""),
+                             (body or {}).get("entity_id", ""),
+                             (body or {}).get("fields") or [],
+                             actor=(body or {}).get("actor", "reviewer"),
+                             reason=(body or {}).get("reason", ""))
+
+
+@app.post("/api/lifecycle/release")
+def lifecycle_release(body: dict) -> dict:
+    """The second gate: clear the corrected value for publication.
+
+    Recorded in its own table, never in ``approvals`` - a release row there
+    would satisfy the resolution gate on its own, and the second approval would
+    have removed the first.
+    """
+    from sc.tools import planning
+
+    incident_id = (body or {}).get("incident_id", "")
+    scenario_id = (body or {}).get("scenario_id", "")
+    if not (incident_id and scenario_id):
+        raise HTTPException(status_code=400,
+                            detail="incident_id and scenario_id are required")
+
+    result = planning.record_release(
+        incident_id, scenario_id, (body or {}).get("decision", "APPROVE"),
+        (body or {}).get("actor", "reviewer"),
+        comment=(body or {}).get("comment", ""),
+        redactions=(body or {}).get("redactions") or [])
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    bus.publish("approval", {"stage": "release", **result})
+    return result
+
+
+@app.get("/api/obligations")
+def obligations(status: str = "OPEN") -> dict:
+    """What the estate still owes the world, and who owes it."""
+    from sc.estate import redaction
+
+    return {"obligations": redaction.open_obligations(status=status)}
+
+
+@app.get("/api/intake/servers")
+def intake_servers() -> dict:
+    """Where a supplier can send something, and what each endpoint takes.
+
+    Listed apart from ``/api/mcp/servers`` on purpose. That route answers "what
+    can this platform reach"; an intake endpoint is an address others reach us
+    at, and folding the two together would make neither question answerable.
+    """
+    from sc.estate import intake
+
+    return {"servers": INTAKE_MOUNTED,
+            "suppliers": sorted(intake.known_suppliers()),
+            "max_upload_bytes": intake.MAX_UPLOAD_BYTES}
+
+
+@app.get("/api/intake/submissions")
+def intake_submissions(supplier: str = "", limit: int = 50) -> dict:
+    """What suppliers have sent, newest first. The Ingest Fabric's live half."""
+    from sc.estate import submissions as submissions_mod
+
+    if supplier:
+        return {"submissions": submissions_mod.recent(supplier, limit)}
+    rows = db.query("SELECT supplier_id FROM submissions"
+                    " GROUP BY supplier_id ORDER BY MAX(wall_at) DESC")
+    out: list[dict] = []
+    for row in rows:
+        out += submissions_mod.recent(row["supplier_id"], limit)
+    out.sort(key=lambda r: r["wall_at"], reverse=True)
+    return {"submissions": out[:limit]}
+
+
 @app.get("/api/estate/arrivals")
 def estate_arrivals_feed(limit: int = 120) -> dict:
     """What has landed, newest first, with the batch and the system."""
@@ -1438,6 +1722,18 @@ def fact_lineage(fact_id: str) -> dict:
 MEDIA_DIR = Path(__file__).resolve().parents[1] / "data" / "media"
 if MEDIA_DIR.exists():
     app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+
+# What suppliers have sent, under its own path rather than mixed into /media.
+#
+# It has to be served: a reviewer deciding whether a replacement pack shot
+# fixes the finding has to be able to look at it, and a record that names an
+# image nobody can open is a record nobody can act on. Keeping it on a separate
+# path is what stops that being the same statement as "this is catalog
+# imagery" - the seed pack builder rewrites /media and never touches this, and
+# a URI tells a reader which of the two it is looking at.
+INBOX_DIR = Path(__file__).resolve().parents[1] / "data" / "inbox"
+INBOX_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/inbox", StaticFiles(directory=INBOX_DIR), name="inbox")
 
 
 @app.get("/media/{path:path}")

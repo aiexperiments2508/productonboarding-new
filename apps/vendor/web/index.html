@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vendor Portal</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark">VP</span>
+    <span>
+      <strong>Vendor Portal</strong>
+      <em id="systemName">supplier self-service</em>
+    </span>
+  </div>
+  <div class="who" id="who" hidden>
+    <span class="pill" id="whoSupplier"></span>
+    <button class="link" id="signOut">Sign out</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- Sign in -->
+  <section id="signIn" class="panel">
+    <h1>Sign in</h1>
+    <p class="lede">Choose the system you send through, then the supplier
+      account you are acting for.</p>
+
+    <div class="systems" id="systems"></div>
+
+    <label class="field">
+      <span>Supplier account</span>
+      <select id="supplier"><option value="">Loading…</option></select>
+    </label>
+
+    <button class="primary" id="go" disabled>Open my products</button>
+    <p class="note" id="signInNote"></p>
+  </section>
+
+  <!-- Products -->
+  <section id="catalogue" class="panel" hidden>
+    <div class="rowhead">
+      <h1>My products</h1>
+      <input id="search" type="search" placeholder="Search by name or SKU">
+    </div>
+    <div id="products" class="cards"></div>
+    <button class="ghost" id="newProduct">Propose a new line</button>
+  </section>
+
+  <!-- One product -->
+  <section id="detail" class="panel" hidden>
+    <button class="link back" id="back">&larr; All products</button>
+    <h1 id="detailName"></h1>
+    <p class="lede" id="detailMeta"></p>
+
+    <nav class="tabs">
+      <button class="tab on" data-tab="spec">Specification</button>
+      <button class="tab" data-tab="files">Documents &amp; images</button>
+      <button class="tab" data-tab="history">What happened</button>
+    </nav>
+
+    <div class="tabbody" id="tab-spec">
+      <table class="spec">
+        <thead><tr><th>Attribute</th><th>Variant</th><th>We hold</th><th>Source</th><th></th></tr></thead>
+        <tbody id="specRows"></tbody>
+      </table>
+    </div>
+
+    <div class="tabbody" id="tab-files" hidden>
+      <div class="two">
+        <form class="sub" id="docForm">
+          <h2>Send a document</h2>
+          <label class="field"><span>File</span><input type="file" id="docFile" required></label>
+          <label class="field"><span>Text rendition <em>(optional)</em></span>
+            <textarea id="docText" rows="4" placeholder="Paste the text of the document if you want it read. Without it we record only that it arrived."></textarea></label>
+          <label class="field"><span>Note</span><input id="docNote" type="text"></label>
+          <button class="primary">Send document</button>
+        </form>
+        <form class="sub" id="imgForm">
+          <h2>Send an image</h2>
+          <label class="field"><span>Variant</span><select id="imgVariant"></select></label>
+          <label class="field"><span>Role</span>
+            <select id="imgRole">
+              <option>HERO</option><option>IN_SITU</option>
+              <option>PACK_FRONT</option><option>INGREDIENT_PANEL</option>
+              <option>DETAIL</option>
+            </select></label>
+          <label class="field"><span>File</span><input type="file" id="imgFile" accept="image/*" required></label>
+          <label class="field"><span>Alt text</span><input id="imgAlt" type="text"></label>
+          <button class="primary">Send image</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="tabbody" id="tab-history" hidden>
+      <div id="history" class="timeline"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Send a specification change -->
+<dialog id="specDialog">
+  <form method="dialog" id="specForm">
+    <h2>Revise a specification</h2>
+    <p class="lede" id="specSubject"></p>
+    <label class="field"><span>New value</span><input id="specValue" required></label>
+    <label class="field"><span>Effective from <em>(optional)</em></span>
+      <input id="specDate" type="date"></label>
+    <label class="field"><span>Note <em id="noteReq"></em></span>
+      <textarea id="specNote" rows="3"></textarea></label>
+    <p class="warn" id="specWarn" hidden></p>
+    <menu>
+      <button value="cancel" class="ghost">Cancel</button>
+      <button value="send" class="primary" id="specSend">Send to retailer</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- Propose a new line -->
+<dialog id="draftDialog">
+  <form method="dialog" id="draftForm">
+    <h2>Propose a new line</h2>
+    <label class="field"><span>Product name</span><input id="draftName" required></label>
+    <label class="field"><span>Category</span>
+      <input id="draftCategory" placeholder="food.snacks.bars" required></label>
+    <label class="field"><span>Note</span><textarea id="draftNote" rows="3"></textarea></label>
+    <menu>
+      <button value="cancel" class="ghost">Cancel</button>
+      <button value="send" class="primary">Send proposal</button>
+    </menu>
+  </form>
+</dialog>
+
+<aside id="toasts"></aside>
+
+<footer class="foot">
+  <span id="footLink"></span>
+  <button class="link" id="showCalls">Protocol log</button>
+</footer>
+
+<dialog id="callsDialog">
+  <h2>Every call this portal has made</h2>
+  <p class="lede">This portal has no database and no access to the retailer's
+    API. Everything on these screens crossed MCP.</p>
+  <div id="calls" class="calls"></div>
+  <menu><button class="ghost" id="closeCalls">Close</button></menu>
+</dialog>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

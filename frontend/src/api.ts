@@ -1150,6 +1150,143 @@ function productQuery(opts: {
   return query ? `?${query}` : "";
 }
 
+/* --- the lifecycle board ------------------------------------------------- */
+
+export type LifecycleStage =
+  | "DRAFT" | "WITH_SUPPLIER" | "CLEARED" | "PUSHED_DOWNSTREAM" | "LIVE"
+  | "LATE_CHANGE";
+
+export interface LifecycleCorrection {
+  source: "signal" | "submission";
+  kind: string;
+  summary: string;
+  paths: string[];
+  detected_at?: string;
+  doc_ref?: string;
+  supplier?: string;
+  system?: string;
+  submission_id?: string;
+  effective_from?: string | null;
+  awaiting_extraction?: boolean;
+  old_value?: unknown;
+  new_value?: unknown;
+}
+
+export interface LifecycleRedaction {
+  listing_id: string;
+  attribute_path: string;
+  channel_id: string;
+  kind: string;
+  since: string;
+  reason?: string;
+  notice?: string;
+}
+
+export interface LifecycleVariant {
+  entity_id: string;
+  sku: string;
+  name: string;
+  verdict: string;
+  listings: Record<string, number>;
+}
+
+export interface LifecycleProduct {
+  product_id: string;
+  name: string;
+  category: string;
+  supplier: string;
+  regulated: boolean;
+  stage: LifecycleStage;
+  verdict: string;
+  variants: LifecycleVariant[];
+  listings: Record<string, number>;
+  findings: ReadinessFinding[];
+  systems: string[];
+  correction: LifecycleCorrection | null;
+  redactions: LifecycleRedaction[];
+}
+
+export interface LifecycleLane {
+  stage: LifecycleStage;
+  description: string;
+  count: number;
+  products: LifecycleProduct[];
+}
+
+export interface LifecycleBoard {
+  lanes: LifecycleLane[];
+  totals: Record<LifecycleStage, number>;
+  products: number;
+  checks_complete: boolean;
+  caveat: string | null;
+}
+
+export interface TimelineEvent {
+  kind: "submission" | "arrival" | "approval" | "release" | "ledger"
+      | "obligation";
+  at: string;
+  title: string;
+  detail: string;
+  [key: string]: unknown;
+}
+
+export interface LifecycleTimeline {
+  product: { id: string; name: string; category: string; supplier: string };
+  variants: { id: string; sku: string; name: string }[];
+  listings: string[];
+  events: TimelineEvent[];
+}
+
+export interface DownstreamListing {
+  listing_id: string;
+  sku: string;
+  channel_id: string;
+  channel: string;
+  system: string;
+  endpoint: string;
+  recallable: boolean;
+  freeze_days: number;
+  status: string;
+  published_version: string;
+  redactions: LifecycleRedaction[];
+}
+
+export interface Obligation {
+  id: string;
+  kind: "ERRATUM" | "REPRINT";
+  system_id: string;
+  channel_id: string;
+  listing_id: string;
+  attribute_path: string;
+  incident_id: string;
+  opened_at: string;
+  due_by: string | null;
+  status: string;
+  detail: Record<string, unknown>;
+}
+
+export interface DownstreamView {
+  product_id: string;
+  listings: DownstreamListing[];
+  obligations: Obligation[];
+}
+
+export interface RedactionOutcome {
+  incident_id: string;
+  entity_id: string;
+  authorised: boolean;
+  reason: string;
+  systems: {
+    channel_id: string; system: string; kind: string; outcome: string;
+    reason: string; skus: string[]; listings: string[];
+    obligation_id?: string; redacted?: boolean;
+  }[];
+  redacted: number;
+  queued: number;
+  errata: number;
+  refused: number;
+}
+
 export const api = {
   health: () => get<Health>("/api/health"),
 
@@ -1327,6 +1464,84 @@ export const api = {
     get<Preview>(
       `/api/products/${encodeURIComponent(id)}/preview` +
       `?use_model=${useModel}&actor=${encodeURIComponent(actor)}`),
+
+  /* --- the lifecycle board ---------------------------------------------- */
+
+  /** Every product, in the lane its own state puts it in.
+   *
+   *  Same filters as `products`, deliberately: a board and a list of the same
+   *  population that disagreed about what "supplier" means would be two
+   *  populations. `useModel` is off for the same reason it is off there - a
+   *  board of a hundred and fifty products would otherwise be four hundred and
+   *  fifty model calls to render a screen nobody has clicked into. */
+  lifecycle: (opts: {
+    q?: string; supplier?: string; category?: string; useModel?: boolean;
+  } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set("q", opts.q);
+    if (opts.supplier) p.set("supplier", opts.supplier);
+    if (opts.category) p.set("category", opts.category);
+    if (opts.useModel) p.set("use_model", "true");
+    const query = p.toString();
+    return get<LifecycleBoard>(`/api/lifecycle${query ? `?${query}` : ""}`);
+  },
+
+  /** One product's journey, joined from the tables that each own a part. */
+  lifecycleTimeline: (productId: string) =>
+    get<LifecycleTimeline>(`/api/lifecycle/${encodeURIComponent(productId)}`),
+
+  /** What every downstream system is carrying for this product right now. */
+  downstream: (productId: string) =>
+    get<DownstreamView>(
+      `/api/lifecycle/${encodeURIComponent(productId)}/downstream`),
+
+  /** Take a wrong value down everywhere it is carried.
+   *
+   *  The first of two gates. Authorised by the approval that already agreed
+   *  the value is wrong, and refused without one - it hides, and it cannot
+   *  publish a replacement. */
+  redact: (body: {
+    incident_id: string; entity_id: string; fields: string[];
+    actor: string; reason: string;
+  }) => post<RedactionOutcome>("/api/lifecycle/redact", body),
+
+  /** Put a hidden value back. Refuses where nothing was hidden - and where the
+   *  channel could never hide it, because a printed run has no undo. */
+  restore: (body: {
+    incident_id: string; entity_id: string; fields: string[];
+    actor: string; reason?: string;
+  }) => post<RedactionOutcome>("/api/lifecycle/restore", body),
+
+  /** The second gate: clear the corrected value for publication. */
+  release: (body: {
+    incident_id: string; scenario_id: string; decision: "APPROVE" | "REJECT";
+    actor: string; comment?: string;
+  }) => post<{ release_id: string; decision: string }>(
+    "/api/lifecycle/release", body),
+
+  /** What the estate still owes the world. */
+  obligations: (status = "OPEN") =>
+    get<{ obligations: Obligation[] }>(`/api/obligations?status=${status}`),
+
+  /** Where suppliers can send things in, and what each endpoint takes. */
+  intakeServers: () =>
+    get<{
+      servers: {
+        id: string; title: string; url: string; accepts: string[];
+        tools: string[]; mutating: string[];
+      }[];
+      suppliers: string[];
+      max_upload_bytes: number;
+    }>("/api/intake/servers"),
+
+  /** What suppliers have actually sent, newest first. */
+  submissions: (supplier = "", limit = 50) =>
+    get<{ submissions: {
+      submission_id: string; kind: string; system: string;
+      submitted_at: string; wall_at: string; doc_ref: string;
+      entities: string[]; note: string; effective_from: string | null;
+    }[] }>(`/api/intake/submissions?limit=${limit}` +
+           (supplier ? `&supplier=${encodeURIComponent(supplier)}` : "")),
 
   /* --- the publication estate ------------------------------------------ */
 

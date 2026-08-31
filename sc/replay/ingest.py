@@ -39,6 +39,18 @@ from sc.state.baseline import precedence
 
 CONSUMER = "ingest"
 
+#: One watermark per lane, and the reason is worth writing down.
+#:
+#: This consumer drops anything at or behind its cursor, which is what makes
+#: redelivery free. With a single watermark across both lanes, one submission -
+#: numbered from the live band, a hundred thousand above the recording - would
+#: set that watermark past every remaining tape event. The recording would then
+#: be dropped as already-seen for the rest of the process's life, and every
+#: batch would report success while writing nothing.
+#:
+#: The lanes are independent sequences, so they get independent cursors.
+CONSUMERS = {"TAPE": CONSUMER, "LIVE": "ingest@live"}
+
 # A numeric attribute has to move by more than this to be a correction rather
 # than noise. Everything a feed says still lands in the store; the threshold
 # only decides whether a reviewer is told about it.
@@ -55,18 +67,19 @@ LISTING_STATUS = {"ACCEPTED": "LIVE", "REJECTED": "REJECTED"}
 PRECEDENCE_POLICY = "POL-002"
 
 
-def cursor() -> int:
+def cursor(lane: str = "TAPE") -> int:
+    """How far this consumer has read the given lane."""
     row = db.one("SELECT last_seq FROM event_cursors WHERE consumer = ?",
-                 (CONSUMER,))
+                 (CONSUMERS.get(lane, CONSUMER),))
     return row["last_seq"] if row else 0
 
 
-def _advance(seq: int, conn) -> None:
+def _advance(seq: int, conn, lane: str = "TAPE") -> None:
     conn.execute(
         "INSERT INTO event_cursors (consumer, last_seq, updated_at)"
         " VALUES (?,?,?) ON CONFLICT(consumer) DO UPDATE SET"
         " last_seq = excluded.last_seq, updated_at = excluded.updated_at",
-        (CONSUMER, seq, datetime.now().isoformat()))
+        (CONSUMERS.get(lane, CONSUMER), seq, datetime.now().isoformat()))
 
 
 def ingest(events: list[Event]) -> list[CorrectionSignal]:
@@ -76,29 +89,44 @@ def ingest(events: list[Event]) -> list[CorrectionSignal]:
     interrupted batch is redelivered rather than silently skipped. Events at or
     behind the cursor are dropped first, so that redelivery writes nothing a
     second time.
+
+    A batch may span both lanes, and each lane is filtered and advanced against
+    its own watermark - see ``CONSUMERS``. The handlers do not know or care
+    which lane an event came from: a submission is judged by the same rules as
+    a taped event, which is the whole point of routing it through here rather
+    than letting a vendor write a value directly.
     """
-    last = cursor()
-    fresh = [e for e in sorted(events, key=lambda e: e.seq) if e.seq > last]
-    if not fresh:
-        return []
+    by_lane: dict[str, list[Event]] = {}
+    for event in events:
+        by_lane.setdefault(getattr(event, "lane", "TAPE") or "TAPE",
+                           []).append(event)
 
     signals: list[CorrectionSignal] = []
-    with db.transaction() as conn:
-        for event in fresh:
-            signals.extend(_handle(event, conn))
-        _advance(fresh[-1].seq, conn)
+    for lane, batch in sorted(by_lane.items()):
+        last = cursor(lane)
+        fresh = [e for e in sorted(batch, key=lambda e: e.seq) if e.seq > last]
+        if not fresh:
+            continue
+        with db.transaction() as conn:
+            for event in fresh:
+                signals.extend(_handle(event, conn))
+            _advance(fresh[-1].seq, conn, lane)
 
     return signals
 
 
 def pending(limit: int = 500) -> list[Event]:
-    """Released events this consumer has not processed yet."""
+    """Released events this consumer has not processed yet, both lanes."""
     from sc.replay import tape
 
     rows = db.query(
-        "SELECT * FROM events WHERE seq > ? AND seq <= ? ORDER BY seq LIMIT ?",
-        (cursor(), tape.cursor(), limit))
-    return [tape._row_to_event(r) for r in rows]
+        "SELECT * FROM events WHERE lane = ? AND seq > ? AND seq <= ?"
+        " ORDER BY seq LIMIT ?",
+        (tape.LANE_TAPE, cursor(tape.LANE_TAPE), tape.cursor(), limit))
+    live = db.query(
+        "SELECT * FROM events WHERE lane = ? AND seq > ? ORDER BY seq LIMIT ?",
+        (tape.LANE_LIVE, cursor(tape.LANE_LIVE), limit))
+    return [tape._row_to_event(r) for r in list(rows) + list(live)]
 
 
 def drain() -> list[CorrectionSignal]:
@@ -155,9 +183,48 @@ def _catalog_update(event: Event, conn) -> list[CorrectionSignal]:
 
     The edited attribute is a row like any other; the PIM also retires document
     versions on its own, which is a fact about the document rather than a value.
+    An imaging system may also deliver an image, which is neither.
     """
     _doc_state(event, conn)
+    _media_row(event, conn)
     return _attribute_rows(event, conn)
+
+
+#: Delivered imagery lives under its own entity type rather than as an
+#: attribute path. Two reasons, and the second is the load-bearing one: an
+#: image is not an assertion about a value, and every attribute path that
+#: enters the overlay is checked against the declared attribute set - so
+#: `media.HERO` would be reported as an attribute nobody defined.
+MEDIA_ENTITY = "media"
+
+
+def _media_row(event: Event, conn) -> None:
+    """Record an image a system delivered, by role.
+
+    Roles are the closed set in ``MediaRole``: the requirement is per role, so
+    an image filed under a name nobody checks is indistinguishable from an
+    image that never arrived. One fact per (variant, role), superseded like any
+    other - a replacement pack shot is a new assertion about the same role, not
+    a second panel.
+    """
+    media = event.payload.get("media")
+    if not isinstance(media, dict):
+        return
+    entity_id = str(media.get("entity_id") or event.payload.get("entity_id") or "")
+    role = str(media.get("role") or "").upper()
+    uri = str(media.get("uri") or "")
+    if not (entity_id and role and uri):
+        return
+
+    store.record(
+        MEDIA_ENTITY, entity_id, role,
+        {"uri": uri, "alt_text": media.get("alt_text", ""),
+         "system": media.get("system"), "sha256": media.get("sha256", "")},
+        valid_from=event.ts, recorded_at=event.ts,
+        provenance=Provenance(kind=ProvenanceKind.RECORDED,
+                              source_id=event.id,
+                              system=media.get("system"), note=event.id),
+        conn=conn)
 
 
 def _spec_doc(event: Event, conn) -> list[CorrectionSignal]:

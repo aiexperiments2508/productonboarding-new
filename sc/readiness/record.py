@@ -21,6 +21,7 @@ from sc import db
 from sc.readiness.checks import Record
 from sc.state import baseline as baseline_mod
 from sc.state import overlay as overlay_mod
+from sc.state import store
 
 
 def _instant(as_of: str | None) -> datetime:
@@ -56,7 +57,8 @@ def _by_entity(pairs) -> dict[str, list[tuple[str, object]]]:
 
 def build(entity_id: str, as_of: str | None = None, *,
           overlay=None, base=None, _defer_facts: bool = False,
-          _baseline_index=None, _overlay_index=None) -> Record | None:
+          _baseline_index=None, _overlay_index=None,
+          _media_index=None) -> Record | None:
     """One variant's record at an instant, or None if the catalog has no such
     variant.
 
@@ -86,7 +88,7 @@ def build(entity_id: str, as_of: str | None = None, *,
         product_id=product.id,
         category=product.category,
         regulated=product.regulated,
-        media=list(base.media_by_entity.get(entity_id, [])),
+        media=_media_for(entity_id, valid, base, _media_index),
         listings=sorted(base.listings_of.get(entity_id, [])),
     )
 
@@ -123,6 +125,51 @@ def build(entity_id: str, as_of: str | None = None, *,
     return record
 
 
+def _media_for(entity_id: str, valid, base, index=None) -> list:
+    """The imagery held against a variant: seeded, plus whatever has arrived.
+
+    The seed pack is what the estate delivered before the horizon opened.
+    Anything delivered since is a fact like any other and has to be read here,
+    or the readiness check cannot see it - which would mean a supplier could
+    upload the missing ingredient panel and be told, correctly formatted and in
+    detail, that no ingredient panel is held.
+
+    A delivered image supersedes a seeded one in the same role. A replacement
+    pack shot is a new assertion about one role, not a second pack shot.
+    """
+    from sc.contracts import MediaAsset
+
+    seeded = list(base.media_by_entity.get(entity_id, []))
+    rows = (index.get(entity_id, ()) if index is not None
+            else _media_rows(valid, [entity_id]).get(entity_id, ()))
+    if not rows:
+        return seeded
+
+    delivered = {}
+    for attr, value in rows:
+        if not isinstance(value, dict) or not value.get("uri"):
+            continue
+        delivered[attr] = MediaAsset(
+            id=f"MED-{entity_id}-{attr}", entity_id=entity_id, role=attr,
+            uri=str(value["uri"]), alt_text=str(value.get("alt_text") or ""),
+            system=value.get("system"))
+
+    kept = [a for a in seeded if str(a.role) not in delivered]
+    return sorted(kept + list(delivered.values()),
+                  key=lambda a: (str(a.role), a.id))
+
+
+def _media_rows(valid, entity_ids=None) -> dict[str, list]:
+    """Delivered imagery, in one query. Keyed by variant."""
+    from sc.replay import ingest as ingest_mod
+
+    found: dict[str, list] = {}
+    for fact in store.get_many(ingest_mod.MEDIA_ENTITY, valid, None,
+                               entity_ids=entity_ids):
+        found.setdefault(fact.entity_id, []).append((fact.attr, fact.value))
+    return found
+
+
 def build_many(entity_ids: list[str], as_of: str | None = None,
                *, overlay=None, base=None) -> dict[str, Record]:
     """Many variants' records at one instant, in a fixed number of queries.
@@ -143,12 +190,14 @@ def build_many(entity_ids: list[str], as_of: str | None = None,
     wanted = [e for e in entity_ids if e in base.variants]
     baseline_index = _by_entity(base.attr_values)
     overlay_index = _by_entity(overlay.attr_values)
+    media_index = _media_rows(valid, wanted)
 
     records: dict[str, Record] = {}
     for entity_id in wanted:
         record = build(entity_id, as_of, overlay=overlay, base=base,
                        _defer_facts=True, _baseline_index=baseline_index,
-                       _overlay_index=overlay_index)
+                       _overlay_index=overlay_index,
+                       _media_index=media_index)
         if record is not None:
             records[entity_id] = record
     if not records:

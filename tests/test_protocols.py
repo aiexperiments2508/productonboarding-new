@@ -267,3 +267,101 @@ def test_the_copywriter_refuses_an_ambiguous_literal(seeded):
     # The values it could not place travel with it, so the model that picks the
     # work up is handed the table rather than asked to recall it.
     assert table["targets"] == {"VAR-01B:specs.power_w": 65}
+
+
+# ---------------------------------------------------------------------------
+# The vendor intake
+#
+# The estate is read-only into the catalog, and this surface is the one place
+# that accepts anything. What keeps that safe is not a permission check - it is
+# that the module has no way to write a value: it appends events, and the
+# platform's own ingestion judges them.
+#
+# That is an argument about imports, so it is checked by reading them. A
+# comment saying "this cannot reach the fact store" stops being true the first
+# time somebody adds a convenient import, and nothing else in the suite would
+# notice.
+# ---------------------------------------------------------------------------
+
+#: Modules that would give the intake a way to write a value directly, and the
+#: two functions that publish. `store` and `overlay` are the fact plane;
+#: `remediation` dispatches to live channels.
+FORBIDDEN_TO_INTAKE = {
+    "sc.state.store", "sc.state.overlay", "sc.estate.remediation",
+}
+FORBIDDEN_NAMES = {"commit_plan", "rollback", "commit_redaction", "record"}
+
+INTAKE_MODULES = ("sc/estate/intake.py", "sc/estate/intake_server.py")
+
+
+@pytest.mark.parametrize("path", INTAKE_MODULES)
+def test_the_intake_surface_cannot_reach_the_fact_store(path):
+    """A supplier appends an event. It does not write a value.
+
+    Enforced structurally rather than by a check somebody could route around:
+    there is no function in this surface that takes an entity, an attribute and
+    a value, and there is no import that would let one be written.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path(path)
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=path)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name not in FORBIDDEN_TO_INTAKE, (
+                    f"{path} imports {alias.name}")
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            assert node.module not in FORBIDDEN_TO_INTAKE, (
+                f"{path} imports from {node.module}")
+            for alias in node.names:
+                full = f"{node.module}.{alias.name}"
+                assert full not in FORBIDDEN_TO_INTAKE, f"{path} imports {full}"
+                if node.module.startswith("sc."):
+                    assert alias.name not in FORBIDDEN_NAMES, (
+                        f"{path} imports {alias.name} from {node.module}")
+
+
+def test_the_only_write_the_intake_makes_is_an_appended_event():
+    """One write path, and it takes an event rather than a triple.
+
+    ``tape.append_live`` is the whole of it. Anything else that reached the
+    store would be a second way in, and the first thing it would skip is the
+    precedence policy.
+    """
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path("sc/estate/intake.py").read_text(encoding="utf-8"))
+    called = {
+        node.func.attr for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert "append_live" in called
+    assert "record" not in called, "the intake wrote a fact directly"
+
+
+def test_no_intake_tool_shadows_a_built_in_toolset_name():
+    """The rule the connection registry already enforces for a system somebody
+    plugs in applies just as much to one that ships here."""
+    from sc.estate import intake_server
+
+    built_in = {tool for toolset in mcp_registry.BY_ID.values()
+                for tool in toolset.tools}
+    for system in intake_server.vendor_facing():
+        assert not (set(intake_server.tools_for(system)) & built_in)
+
+
+def test_intake_endpoints_are_not_registered_as_outbound_connections():
+    """A connection record means "a system we reach out to". An intake endpoint
+    is an address others reach us at, and folding the two together would make
+    "what can this platform reach" unanswerable."""
+    from sc.estate import intake_server, server as estate_server
+
+    intake_ids = {s.id for s in intake_server.vendor_facing()}
+    for system_id in intake_ids:
+        # The read-only estate server owns that identifier for connections.
+        assert estate_server.endpoint(system_id, "") != \
+            intake_server.endpoint(system_id, "")

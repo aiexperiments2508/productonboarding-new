@@ -391,6 +391,20 @@ class EventType(StrEnum):
 
 
 class Event(BaseModel):
+    """One thing that happened, from inside or outside.
+
+    ``lane`` separates the two ways an event can exist. TAPE is the recorded
+    flight - eight weeks generated once and released on a controllable clock,
+    which the replay transport may rewind, step and re-release at will. LIVE is
+    what a supplier submitted through a vendor intake while the process was
+    running: it is visible the moment it lands, and the transport does not get
+    to rewind it, because rewinding a recording is not the same act as
+    retracting somebody's submission.
+
+    Defaulted, so every construction site that predates the distinction keeps
+    meaning what it meant.
+    """
+
     id: str
     seq: int      # monotonic ordering key within the tape
     ts: datetime  # simulated wall-clock of the event
@@ -398,6 +412,7 @@ class Event(BaseModel):
     source: str   # "SUPPLIER_PORTAL" | "MAILBOX" | "PIM" | "CHANNEL_GATEWAY"
     payload: dict[str, object]
     body: str | None = None  # raw text for COMMS and SPEC_DOC events
+    lane: str = "TAPE"       # TAPE | LIVE - see the docstring
 
 
 class CorrectionKind(StrEnum):

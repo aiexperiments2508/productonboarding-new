@@ -54,7 +54,15 @@ CREATE TABLE IF NOT EXISTS events (
   source        TEXT NOT NULL,
   payload       TEXT NOT NULL,            -- JSON
   body          TEXT,                     -- raw prose for COMMS events
-  released_at   TEXT                      -- when the replayer made it visible
+  released_at   TEXT,                     -- when the replayer made it visible
+  -- TAPE is the recorded flight, replayed on a controllable clock. LIVE is
+  -- what arrived through a vendor intake while the process was running, and it
+  -- is visible the instant it lands - a submission is not something the
+  -- replay transport gets to rewind. Every query that means "the recorded
+  -- flight" says `lane = 'TAPE'` rather than inferring it from the sequence,
+  -- because a magic number four modules have to agree about is a number they
+  -- will eventually disagree about.
+  lane          TEXT NOT NULL DEFAULT 'TAPE'   -- TAPE | LIVE
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_seq ON events (seq);
@@ -309,3 +317,90 @@ CREATE TABLE IF NOT EXISTS connections (
   connected_at     TEXT NOT NULL,
   last_seen        TEXT
 );
+
+-- ---------------------------------------------------------------------------
+-- Vendor submissions - the supplier's side of the ledger
+-- ---------------------------------------------------------------------------
+-- `arrivals` is the retailer's record of what landed. This is the supplier's
+-- record of what it sent, and they are not the same question: one submission
+-- can carry several events, plus bytes on disk, plus the idempotency key the
+-- portal generated.
+--
+-- It holds only the submission's own facts and JOINS for everything the
+-- platform decided. There is deliberately no `status` column and no `verdict`
+-- column: a stored verdict that can disagree with the record is the thing this
+-- system spends most of its design avoiding.
+
+CREATE TABLE IF NOT EXISTS submissions (
+  id              TEXT PRIMARY KEY,       -- SUB-<hex12>
+  supplier_id     TEXT NOT NULL,
+  system_id       TEXT NOT NULL,          -- the carrier, bound by the mount path
+  kind            TEXT NOT NULL,          -- SPEC_CHANGE|DOCUMENT|IMAGE|PRODUCT_DRAFT
+  submitted_at    TEXT NOT NULL,          -- simulated clock, like every fact
+  wall_at         TEXT NOT NULL,          -- real clock, like arrivals.arrived_at
+  event_ids       TEXT NOT NULL DEFAULT '[]',
+  entity_ids      TEXT NOT NULL DEFAULT '[]',
+  doc_ref         TEXT NOT NULL DEFAULT '',
+  files           TEXT NOT NULL DEFAULT '[]',   -- [{path,bytes,sha256,role}]
+  note            TEXT NOT NULL DEFAULT '',
+  effective_from  TEXT,
+  idempotency_key TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_submissions_supplier
+  ON submissions (supplier_id, submitted_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_idem
+  ON submissions (idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Obligations - work somebody still owes the world
+-- ---------------------------------------------------------------------------
+-- A redaction hides a wrong value. On a channel whose artefact cannot be
+-- recalled there is nothing to hide: 214,000 catalogues are already printed.
+-- The only truthful outcome is an obligation - open, owned and dated - and
+-- that is not a fact about content, so it does not belong in the fact store.
+-- Conflating the two would make "is it done yet?" a query over provenance
+-- strings.
+
+CREATE TABLE IF NOT EXISTS obligations (
+  id             TEXT PRIMARY KEY,
+  kind           TEXT NOT NULL,           -- ERRATUM | REPRINT
+  system_id      TEXT NOT NULL,
+  channel_id     TEXT NOT NULL,
+  listing_id     TEXT NOT NULL,
+  entity_id      TEXT NOT NULL,
+  attribute_path TEXT NOT NULL,
+  incident_id    TEXT NOT NULL,
+  opened_at      TEXT NOT NULL,
+  due_by         TEXT,
+  status         TEXT NOT NULL,           -- OPEN | DISCHARGED | VOID
+  detail         TEXT NOT NULL DEFAULT '{}',
+  discharged_by  TEXT,
+  discharged_at  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_obligations_open ON obligations (status, system_id);
+CREATE INDEX IF NOT EXISTS idx_obligations_listing ON obligations (listing_id);
+
+-- ---------------------------------------------------------------------------
+-- Release decisions - the second gate
+-- ---------------------------------------------------------------------------
+-- Deliberately NOT a row in `approvals` with a stage column. `commit_plan`
+-- reads the newest approval for an incident and tests only that its decision
+-- is APPROVE - so a release recorded there would, by itself, satisfy the
+-- resolution gate. The feature meant to add a second approval would have
+-- removed the first one.
+
+CREATE TABLE IF NOT EXISTS releases (
+  id           TEXT PRIMARY KEY,
+  incident_id  TEXT NOT NULL,
+  scenario_id  TEXT NOT NULL,
+  decision     TEXT NOT NULL,             -- APPROVE | REJECT
+  actor        TEXT NOT NULL,
+  comment      TEXT NOT NULL DEFAULT '',
+  decided_at   TEXT NOT NULL,
+  redactions   TEXT NOT NULL DEFAULT '[]' -- the listing:path pairs being released
+);
+
+CREATE INDEX IF NOT EXISTS idx_releases_incident
+  ON releases (incident_id, scenario_id, decided_at);

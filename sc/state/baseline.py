@@ -199,9 +199,80 @@ def precedence(base: Baseline, doc_id: str) -> int:
     return doc.precedence if doc else 0
 
 
+#: Lines a reviewer has accepted since the pack was generated.
+#:
+#: The seed pack is generated, byte-identical from its seed, and rewritten
+#: wholesale by ``scripts/generate_data.py``. A product accepted from a
+#: supplier's proposal cannot live in it: the next regeneration would delete
+#: it, and editing a generated file is a way of making a reproducible artefact
+#: stop being one.
+#:
+#: So accepted lines live beside it in their own file and are merged here.
+#: Merged rather than layered at read time, because a hundred call sites read
+#: ``base.products`` and a second lookup path is a hundred chances to consult
+#: only one of them. The generator deletes this file, which is right: a reseed
+#: is a new world, and a proposal accepted into the old one did not happen in
+#: it.
+EXTENSION = "catalog.live.json"
+
+
+def _extend(raw: dict, directory: Path) -> dict:
+    """Merge accepted lines into the generated catalog.
+
+    Additive only, and deliberately so. The extension may add products and
+    variants; it may not redefine a channel, a rule or an attribute
+    definition, because those are the things every validation is computed
+    against and a second source for them would be a second rulebook.
+    """
+    path = directory / EXTENSION
+    if not path.exists():
+        return raw
+
+    try:
+        extra = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        # A malformed extension must not stop the application starting. The
+        # catalog it describes is an addition; the pack beneath it is intact.
+        return raw
+
+    merged = dict(raw)
+    for key in ("products", "variants", "nodes", "listings", "media"):
+        held = {row.get("id") for row in merged.get(key, [])}
+        merged[key] = list(merged.get(key, [])) + [
+            row for row in extra.get(key, []) if row.get("id") not in held]
+    return merged
+
+
+def accepted_lines(directory: Path | None = None) -> dict:
+    """What the extension currently holds. Empty when there is no extension."""
+    path = (directory or data_dir()) / EXTENSION
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
+
+
+def write_accepted(payload: dict, directory: Path | None = None) -> Path:
+    """Replace the extension. The caller is responsible for clearing the cache.
+
+    Deliberately not clearing it here: the write and the cache invalidation
+    belong to one transaction in the caller's judgement, and a function that
+    silently dropped a process-wide cache as a side effect of writing a file
+    would be a surprising thing to call twice.
+    """
+    path = (directory or data_dir()) / EXTENSION
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True),
+                    encoding="utf-8")
+    return path
+
+
 def load(directory: Path | None = None) -> Baseline:
     d = directory or data_dir()
-    raw = json.loads((d / "catalog.json").read_text(encoding="utf-8"))
+    raw = _extend(
+        json.loads((d / "catalog.json").read_text(encoding="utf-8")), d)
     catalog = Catalog.model_validate(raw)
 
     attr_values: dict[tuple[str, str], object] = {}

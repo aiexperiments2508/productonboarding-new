@@ -12,17 +12,28 @@ const api = (path) => fetch(path).then((r) => r.json());
 
 /* Money is not modelled anywhere in this system, and inventing a price feed
  * would be inventing data. These are the seed pack's own prices, written here
- * because a product page without a price does not read as a product page. */
+ * because a product page without a price does not read as a product page.
+ *
+ * Keyed by variant id and not by SKU, which is how the generator keys them
+ * too. A SKU is a brand's name for a thing and changes when the brand does -
+ * these were keyed by SKU, the assortment was rebranded, and every price
+ * silently became blank. A variant id is the catalog's own name for it and
+ * does not move. A line with no price here shows none, which is the honest
+ * rendering of a price we do not have. */
 const PRICES = {
-  "OVF-GRC-300": "£3.75",
-  "CAS-KET-17": "£34.50",
-  "AER-300-STD": "£149.00",
-  "AER-300-MAX": "£199.00",
-  "OVF-TMB-40": "£1.25",
-  "OVF-TMB-6PK": "£6.00",
-  "BRL-BT200": "£59.00",
-  "VLT-FAN-V2": "£27.00",
+  "VAR-01A": "£149.00",
+  "VAR-01B": "£199.00",
+  "VAR-02A": "£1.25",
+  "VAR-02B": "£6.00",
+  "VAR-03A": "£59.00",
+  "VAR-04A": "£34.50",
+  "VAR-05A": "£3.75",
+  "VAR-06A": "£27.00",
 };
+
+/** The price for a listing, by the id the catalog knows it by. */
+const priceOf = (listing) =>
+  PRICES[(listing && listing.variant && listing.variant.id) || ""] || "";
 
 const LABELS = {
   "specs.power_w": "Power",
@@ -91,7 +102,7 @@ async function shelf() {
       return `<div class="tile" data-sku="${p.sku}">
         <div class="shot">${hero ? `<img src="${hero}" alt="">` : ""}</div>
         <b>${p.product.name}</b>
-        <div class="p">${PRICES[p.sku] || ""}</div>
+        <div class="p">${priceOf(p)}</div>
         ${held ? `<span class="flag">information being updated</span>` : ""}
       </div>`;
     })
@@ -135,7 +146,7 @@ async function openProduct(sku) {
   $("crumb").textContent = (page.product.category || "").split(".").join(" › ");
   $("title").textContent = page.variant.name || page.product.name;
   $("sku").textContent = sku;
-  $("price").textContent = PRICES[sku] || "";
+  $("price").textContent = priceOf(page);
 
   const hero = pickImage(page.media);
   $("hero").src = hero || "";

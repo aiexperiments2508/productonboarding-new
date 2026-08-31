@@ -46,7 +46,7 @@ from sc.estate.redaction import NOTICE
 #: ability to change it.
 TOOLS: tuple[str, ...] = (
     # reads
-    "describe_channel", "impact", "current_listing", "delivery_log",
+    "describe_channel", "impact", "shelf", "current_listing", "delivery_log",
     "pending_corrections", "changes_since",
     # writes - every one of them goes through the planning boundary
     "publish_correction", "redact_field", "withdraw_listing",
@@ -169,6 +169,53 @@ def _listing_for(system, sku: str) -> str | None:
         if variant is not None and (variant.sku or "").upper() == wanted:
             return listing_id
     return None
+
+
+def _shelf(system, limit: int) -> dict:
+    """The SKUs this channel is carrying, newest listing first.
+
+    Scoped to the asking system, like ``impact`` and for the same reason. That
+    is what makes this safe to add beside a ``current_listing`` that
+    deliberately will not confirm a SKU it does not carry: refusing to say
+    whether *another* channel has a line is a boundary, and refusing to tell a
+    channel what is on its own shelf is not - it published it.
+
+    A downstream application needs this or it needs a list of SKUs written down
+    somewhere, and a list written down is a list that is wrong the first time a
+    product is renamed. Ours was: the storefront's front page named four SKUs
+    that stopped existing when the assortment was rebranded, so the shop showed
+    an empty shelf on every channel and nothing anywhere said why.
+    """
+    from sc.state import baseline as baseline_mod
+
+    base = baseline_mod.get()
+    # The catalog's own order, which is the order the retailer's lines were
+    # authored in - so the products the assortment leads with come first and a
+    # shop showing six of them shows the six worth showing. Sorting by SKU
+    # would order the shelf by brand prefix, which is alphabetical rather than
+    # meaningful.
+    rank = {product_id: index
+            for index, product_id in enumerate(base.products)}
+    skus: list[dict] = []
+    for listing_id in _listings_of(system):
+        listing = base.listings.get(listing_id)
+        if listing is None:
+            continue
+        variant = base.variants.get(listing.variant_id)
+        if variant is None or not variant.sku:
+            continue
+        product = base.products.get(variant.product_id)
+        skus.append({
+            "sku": variant.sku,
+            "variant_id": variant.id,
+            "name": getattr(product, "name", variant.name),
+            "category": getattr(product, "category", ""),
+        })
+    skus.sort(key=lambda row: (rank.get(
+        base.variants[row["variant_id"]].product_id, len(rank)),
+        row["sku"]))
+    return {"channel_id": system.channel_id, "total": len(skus),
+            "skus": skus[:max(0, limit)]}
 
 
 def _current_listing(system, sku: str) -> dict:
@@ -438,6 +485,11 @@ def build(system) -> Any:
         which still bind.
         """
         return _publish(system, incident_id, scenario_id, entity_id)
+
+    @mcp.tool()
+    def shelf(limit: int = 24) -> dict:
+        """The SKUs this channel is carrying. Its own shelf, nothing else."""
+        return _shelf(system, limit)
 
     @mcp.tool()
     def current_listing(sku: str) -> dict:

@@ -44,6 +44,14 @@ log = logging.getLogger(__name__)
 CALL_LOG_SIZE = 200
 
 
+#: How long a caller will wait for one tool call before giving up on it. The
+#: platform answers in a quarter of a second warm and about a second cold, so
+#: this is not a latency budget - it is the difference between an endpoint that
+#: recovers from a broken session and one that hangs until somebody restarts
+#: the process.
+CALL_TIMEOUT = 30.0
+
+
 class Endpoint:
     """One MCP server, and a session held open to it.
 
@@ -51,19 +59,111 @@ class Endpoint:
     in another process that a demonstrator may well restart mid-sentence, and
     an application that needed restarting alongside it would be a worse
     demonstration of a boundary, not a better one.
+
+    **The session is owned by a task of its own, and that is not a style
+    preference.** The streamable-HTTP transport runs a background reader inside
+    the task that opened it, so a session opened while serving one HTTP request
+    belongs to that request's task - and the moment the request finishes, the
+    reader is inside a scope nobody is in any more. The next call gets a
+    session whose replies are not being read, and waits for them for ever.
+
+    That failure needs two calls to overlap, which is why it survived three
+    releases: one page load made one call, and the background poller only
+    overlapped it when a supplier had something being watched. It is not a rare
+    bug, it is a bug with a narrow trigger, and a second call on page load is
+    all it takes to make it certain.
+
+    So one worker task per endpoint owns the session for its whole life,
+    callers hand it work and wait for an answer, and a caller that goes away -
+    a browser that navigated, a request that timed out - takes nothing down
+    with it.
     """
 
     def __init__(self, name: str, url: str) -> None:
         self.name = name
         self.url = url
-        self._session: Any = None
-        self._stack: contextlib.AsyncExitStack | None = None
-        self._lock = asyncio.Lock()
         self.tools: list[str] = []
         self.state = "unknown"
         self.detail = ""
+        self._inbox: asyncio.Queue | None = None
+        self._worker: asyncio.Task | None = None
 
-    async def _open(self) -> Any:
+    # -- the caller's half ---------------------------------------------------
+
+    async def call(self, tool: str, arguments: dict | None = None) -> Any:
+        """Call one tool. Opens or reopens the session as needed."""
+        inbox = self._ensure_worker()
+        answer: asyncio.Future = asyncio.get_running_loop().create_future()
+        await inbox.put((tool, arguments, answer))
+        try:
+            # Shielded, so a caller that is cancelled - and a browser cancels
+            # by navigating - leaves the call to finish rather than reaching
+            # into the session that is servicing it.
+            return await asyncio.wait_for(asyncio.shield(answer), CALL_TIMEOUT)
+        except asyncio.TimeoutError:
+            self.state = "unreachable"
+            self.detail = (f"{tool} did not answer within {CALL_TIMEOUT:.0f}s; "
+                           f"the session will be reopened")
+            self._restart()
+            raise RuntimeError(self.detail) from None
+
+    async def close(self) -> None:
+        worker, self._worker, self._inbox = self._worker, None, None
+        if worker is not None and not worker.done():
+            worker.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await worker
+        self.state = "closed"
+
+    def _ensure_worker(self) -> asyncio.Queue:
+        if self._worker is None or self._worker.done():
+            self._inbox = asyncio.Queue()
+            self._worker = asyncio.create_task(
+                self._serve(self._inbox), name=f"mcp:{self.name}")
+        assert self._inbox is not None
+        return self._inbox
+
+    def _restart(self) -> None:
+        """Abandon a session that stopped answering. The next call reopens."""
+        worker, self._worker, self._inbox = self._worker, None, None
+        if worker is not None and not worker.done():
+            worker.cancel()
+
+    # -- the worker's half ---------------------------------------------------
+
+    async def _serve(self, inbox: asyncio.Queue) -> None:
+        """Own one session and answer from it, one call at a time."""
+        stack: contextlib.AsyncExitStack | None = None
+        session: Any = None
+        try:
+            while True:
+                tool, arguments, answer = await inbox.get()
+                if answer.done():          # the caller gave up before we began
+                    continue
+                for attempt in (1, 2):
+                    try:
+                        if session is None:
+                            stack, session = await self._open()
+                        result = await session.call_tool(tool, arguments or {})
+                        if not answer.done():
+                            answer.set_result(_unwrap(result))
+                        break
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 - reported, not raised
+                        await _shut(stack)
+                        stack = session = None
+                        if attempt == 2:
+                            self.state = "unreachable"
+                            self.detail = str(exc)[:300]
+                            if not answer.done():
+                                answer.set_exception(exc)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            await _shut(stack)
+
+    async def _open(self) -> tuple[contextlib.AsyncExitStack, Any]:
         from mcp import ClientSession
         from mcp.client.streamable_http import streamable_http_client
 
@@ -78,32 +178,17 @@ class Endpoint:
         except BaseException:
             await stack.aclose()
             raise
-        self._stack, self._session = stack, session
         self.tools = sorted(t.name for t in listing.tools)
         self.state, self.detail = "connected", ""
-        return session
+        return stack, session
 
-    async def close(self) -> None:
-        if self._stack is not None:
-            with contextlib.suppress(Exception):
-                await self._stack.aclose()
-        self._stack = self._session = None
-        self.state = "closed"
 
-    async def call(self, tool: str, arguments: dict | None = None) -> Any:
-        """Call one tool. Opens or reopens the session as needed."""
-        async with self._lock:
-            for attempt in (1, 2):
-                try:
-                    session = self._session or await self._open()
-                    result = await session.call_tool(tool, arguments or {})
-                    return _unwrap(result)
-                except Exception as exc:  # noqa: BLE001 - reported, not raised
-                    await self.close()
-                    if attempt == 2:
-                        self.state, self.detail = "unreachable", str(exc)[:300]
-                        raise
-        raise RuntimeError("unreachable")
+async def _shut(stack: contextlib.AsyncExitStack | None) -> None:
+    """Close a session, from the task that opened it and nowhere else."""
+    if stack is None:
+        return
+    with contextlib.suppress(Exception):
+        await stack.aclose()
 
 
 def _unwrap(result: Any) -> Any:

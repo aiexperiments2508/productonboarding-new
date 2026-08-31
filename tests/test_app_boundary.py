@@ -18,6 +18,7 @@ the boundary, and this file is what stops somebody helpfully removing it.
 from __future__ import annotations
 
 import ast
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -97,3 +98,108 @@ def test_the_web_pages_do_not_reach_past_their_own_server():
                 continue
             assert "http://" not in line and "https://" not in line, (
                 f"{page.name} fetches an absolute URL: {line.strip()[:90]}")
+
+
+# ---------------------------------------------------------------------------
+# The client's own failure mode
+# ---------------------------------------------------------------------------
+
+
+def test_two_calls_at_once_do_not_wedge_an_endpoint():
+    """The bug that made the vendor portal hang, pinned.
+
+    The streamable-HTTP transport runs its reader inside the task that opened
+    the session. A session opened while serving one HTTP request therefore
+    belongs to that request's task, and the moment the request finishes the
+    reader is in a scope nobody is in any more - so the next call waits for a
+    reply nobody is reading, for ever, holding the endpoint with it.
+
+    It needed two calls to overlap, which is why it survived three releases:
+    one page load made one call, and the background poller only overlapped it
+    when a supplier had something being watched. A second call on page load
+    made it certain.
+
+    The session is now owned by a task of its own. What this test pins is that
+    contract - overlapping calls are all answered, and the endpoint is still
+    usable afterwards. It does *not* reproduce the original deadlock, which
+    needed the real transport's task affinity to happen at all; reproducing
+    that would mean a live platform, which this suite deliberately does without.
+    So this guards the half that can be guarded here, and the docstring in
+    ``apps/_mcp.Endpoint`` carries the other half.
+    """
+    import asyncio
+
+    from apps._mcp import Client
+
+    answered: list[str] = []
+
+    async def exercise() -> None:
+        client = Client("http://127.0.0.1:1")     # never dialled; see below
+        endpoint = client.endpoint("probe", "/mcp/nothing/")
+
+        # A session that answers instantly and records the order it was asked,
+        # standing in for the platform. What is under test is the client's own
+        # task and lifetime handling, not the transport.
+        class Session:
+            async def call_tool(self, tool, arguments):
+                await asyncio.sleep(0.01)
+                answered.append(tool)
+                return _Result(tool)
+
+        async def _open():
+            return contextlib.AsyncExitStack(), Session()
+
+        endpoint._open = _open                    # type: ignore[method-assign]
+
+        results = await asyncio.gather(
+            endpoint.call("one"), endpoint.call("two"), endpoint.call("three"))
+        assert sorted(results) == ["one", "three", "two"]
+        await endpoint.close()
+
+    asyncio.run(asyncio.wait_for(exercise(), 20))
+    assert sorted(answered) == ["one", "three", "two"]
+
+
+def test_a_caller_that_gives_up_does_not_take_the_session_with_it():
+    """A browser cancels by navigating, and used to cancel the call with it.
+
+    The call is shielded, so a caller going away leaves the work to finish
+    against a session that stays usable for whoever asks next.
+    """
+    import asyncio
+
+    from apps._mcp import Client
+
+    async def exercise() -> None:
+        client = Client("http://127.0.0.1:1")
+        endpoint = client.endpoint("probe", "/mcp/nothing/")
+
+        class Session:
+            async def call_tool(self, tool, arguments):
+                await asyncio.sleep(0.2)
+                return _Result(tool)
+
+        async def _open():
+            return contextlib.AsyncExitStack(), Session()
+
+        endpoint._open = _open                    # type: ignore[method-assign]
+
+        abandoned = asyncio.create_task(endpoint.call("slow"))
+        await asyncio.sleep(0.05)
+        abandoned.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await abandoned
+
+        # The endpoint is still good. Before the fix this hung for ever.
+        assert await endpoint.call("after") == "after"
+        await endpoint.close()
+
+    asyncio.run(asyncio.wait_for(exercise(), 20))
+
+
+class _Result:
+    """What the SDK hands back: structured content under `result`."""
+
+    def __init__(self, value: str) -> None:
+        self.structuredContent = {"result": value}
+        self.content: list = []

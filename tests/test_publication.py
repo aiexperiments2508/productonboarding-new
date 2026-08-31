@@ -346,3 +346,61 @@ def test_a_publisher_endpoint_is_distinct_from_an_ingest_one():
     assert not (publishers & ingest)
     assert all("/publish/" in path for path in publishers)
     assert not any("/publish/" in path for path in ingest)
+
+
+def test_a_channel_can_be_asked_what_it_is_carrying():
+    """A downstream application should not hold a copy of the catalog.
+
+    The storefront's front page named four SKUs in a constant. The assortment
+    was rebranded, all four stopped existing, and every channel showed an empty
+    shelf under a heading that said "featured" - true, useless, and silent. A
+    channel can be asked what it has instead.
+    """
+    from sc.estate import publication_server
+
+    base = baseline_mod.get()
+    for system in publication.systems(base):
+        carried = publication_server._shelf(system, 6)
+        assert carried["channel_id"] == system.channel_id
+        assert carried["total"] >= len(carried["skus"])
+        assert len(carried["skus"]) <= 6
+        for row in carried["skus"]:
+            variant = base.variants[row["variant_id"]]
+            assert variant.sku == row["sku"]
+            # And it is genuinely on this channel, not merely in the catalog.
+            assert any(base.listings[l].variant_id == variant.id
+                       for l in publication_server._listings_of(system))
+
+
+def test_a_shelf_leads_with_the_lines_the_catalog_leads_with():
+    """Catalog order, not alphabetical.
+
+    Ordering by SKU orders a shop by brand prefix, which puts whichever
+    supplier's name sorts first at the top of every channel.
+    """
+    from sc.estate import publication_server
+
+    base = baseline_mod.get()
+    order = {product_id: index for index, product_id in enumerate(base.products)}
+    for system in publication.systems(base):
+        carried = publication_server._shelf(system, 8)
+        ranks = [order[base.variants[row["variant_id"]].product_id]
+                 for row in carried["skus"]]
+        assert ranks == sorted(ranks)
+
+
+def test_a_shelf_never_names_another_channels_line():
+    """Scoped to the asking system, like `impact`.
+
+    Telling a channel what is on its own shelf is not a leak - it published it.
+    Telling it what the print channel carries would be, which is why
+    `current_listing` will not confirm a SKU this channel does not have.
+    """
+    from sc.estate import publication_server
+
+    base = baseline_mod.get()
+    for system in publication.systems(base):
+        mine = {row["sku"] for row in publication_server._shelf(system, 500)["skus"]}
+        listed = {base.variants[base.listings[l].variant_id].sku
+                  for l in publication_server._listings_of(system)}
+        assert mine <= listed

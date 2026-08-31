@@ -37,10 +37,16 @@ CHANNELS = {
     "ch-mkt-b": {"title": "Marketplace B", "kind": "Marketplace listing"},
 }
 
-#: What the shop offers. A storefront does not enumerate a catalog of a hundred
-#: and fifty products to make its point; it shows the shelf the demonstration
-#: is about, and lets anything else be reached by SKU.
-FEATURED = ["OVF-GRC-300", "CAS-KET-17", "AER-300-STD", "OVF-TMB-40"]
+#: How many lines the front page shows. A storefront does not enumerate a
+#: catalog of a hundred and fifty products to make its point; it shows the
+#: shelf the demonstration is about, and lets anything else be reached by SKU.
+#:
+#: *Which* lines is asked of the channel rather than written down here. It used
+#: to be a list of four SKUs, and when the assortment was rebranded all four
+#: stopped existing - so every channel showed an empty shelf, and the page said
+#: "this channel is not carrying any of these lines", which was true and
+#: useless. A downstream application should not hold a copy of the catalog.
+SHELF_SIZE = 6
 
 client = Client(_env.platform_url())
 bus = _serve.Broadcaster()
@@ -66,7 +72,7 @@ async def _call(channel: str, tool: str, arguments: dict) -> dict:
 @app.get("/shop-api/channels")
 async def channels() -> dict:
     return {"channels": [{"id": k, **v} for k, v in CHANNELS.items()],
-            "featured": FEATURED, "platform": client.base_url}
+            "shelf_size": SHELF_SIZE, "platform": client.base_url}
 
 
 @app.get("/shop-api/{channel}/product/{sku}")
@@ -76,14 +82,33 @@ async def product(channel: str, sku: str) -> dict:
 
 
 @app.get("/shop-api/{channel}/shelf")
-async def shelf(channel: str) -> dict:
-    """The featured products this channel carries, for the landing page."""
+async def shelf(channel: str, limit: int = SHELF_SIZE) -> dict:
+    """The front page: what this channel is actually carrying.
+
+    Two calls rather than one because they answer different questions. The
+    channel says which lines it has; ``current_listing`` says what each of them
+    is showing *right now*, redactions included - and the second is the whole
+    reason this shop exists, so it is not something to skip for a round trip.
+    """
+    carried = await _call(channel, "shelf", {"limit": limit})
+    if not isinstance(carried, dict) or carried.get("error"):
+        # A platform older than this tool answers with text rather than a
+        # record, so the shape is checked before it is read. Saying which
+        # channel and what came back beats a five hundred: the commonest cause
+        # is a platform that has not been restarted, and that is a sentence
+        # somebody can act on.
+        detail = (carried.get("error") if isinstance(carried, dict)
+                  else str(carried or "")[:200])
+        return {"channel": channel, "products": [], "carrying": 0,
+                "error": detail or f"{channel} did not say what it carries"}
+
     found = []
-    for sku in FEATURED:
-        listing = await _call(channel, "current_listing", {"sku": sku})
+    for row in carried.get("skus", []):
+        listing = await _call(channel, "current_listing", {"sku": row["sku"]})
         if isinstance(listing, dict) and listing.get("found"):
             found.append(listing)
-    return {"channel": channel, "products": found}
+    return {"channel": channel, "products": found,
+            "carrying": carried.get("total", len(found))}
 
 
 @app.get("/shop-api/{channel}/log")

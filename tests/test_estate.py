@@ -341,3 +341,86 @@ def test_a_systems_endpoint_ends_in_a_slash():
     for entry in [e for e in [{"url": estate_server.endpoint(s.id)}
                               for s in manifest.SYSTEMS]]:
         assert not entry["url"].endswith("//")
+
+
+# ---------------------------------------------------------------------------
+# The map's systems tier
+# ---------------------------------------------------------------------------
+
+
+def test_every_system_that_has_delivered_draws_an_edge():
+    """The regression test for six boxes with no lines.
+
+    The map resolves a system-to-source edge by reading the product out of an
+    event's payload, and the tape names products five different ways: a
+    supplier feed says ``entity_id``, a channel acknowledgement says
+    ``variant_id``, a document and an email say ``entities``. Only the first was
+    read, so six of the eleven systems had delivered dozens of events and drew
+    as islands - not because they were silent, but because nobody was listening
+    in their dialect.
+
+    A system that has genuinely delivered nothing is still allowed to draw no
+    edge. That is the estate showing a source that has gone quiet, which is a
+    thing somebody needs to see.
+    """
+    from sc import db
+    from sc.estate import reach as reach_mod
+    from sc.estate import topology
+    from sc.replay import ingest, tape
+    from sc.state import baseline as baseline_mod
+
+    db.init_db(drop=True)
+    baseline_mod.get.cache_clear()
+    tape.load_tape(reset=True)
+    ingest.ingest(tape.jump_to(10_000))
+
+    base = baseline_mod.get()
+    # The reach, not `nodes_and_edges`. The systems *tier* is built from the
+    # connection records, which only exist once the application has dialled
+    # each system at startup - so asserting on the drawn nodes here would test
+    # whether the app had booted rather than whether the payload reader works.
+    drawn = {system for system, sources in topology._supplier_reach().items()
+             if sources}
+
+    delivered: dict[str, bool] = {}
+    rows = db.query(
+        "SELECT a.system_id AS system_id, e.payload AS payload"
+        "  FROM arrivals a JOIN events e ON e.id = a.event_id")
+    for row in rows:
+        payload = db.loads(row["payload"])
+        delivered[row["system_id"]] = (
+            delivered.get(row["system_id"], False)
+            or bool(reach_mod.suppliers_of(base, payload)))
+
+    silent = sorted(s for s, any_product in delivered.items()
+                    if any_product and s not in drawn)
+    assert not silent, f"these systems delivered product data and drew no edge: {silent}"
+
+
+def test_the_payload_reader_understands_every_spelling_the_tape_uses():
+    """One reader, shared by the map and the arrival window.
+
+    Two copies would drift, and the first thing they would drift about is the
+    spelling nobody remembered to add.
+    """
+    from sc.estate import reach as reach_mod
+    from sc.state import baseline as baseline_mod
+
+    base = baseline_mod.get()
+    variant = sorted(base.variants)[0]
+    product = base.product_of_variant[variant]
+    listing = base.listings_of[variant][0]
+
+    for payload in (
+        {"entity_id": variant},
+        {"variant_id": variant},
+        {"product": product},
+        {"entities": [variant]},
+        {"listing_id": listing},
+    ):
+        assert reach_mod.products_of(base, payload) == {product}, payload
+        assert reach_mod.suppliers_of(base, payload) == {
+            base.products[product].supplier}, payload
+
+    # A payload about a document is not a payload about a product.
+    assert reach_mod.products_of(base, {"doc_id": "DOC-01"}) == set()

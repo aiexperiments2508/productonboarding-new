@@ -141,7 +141,7 @@ def get_network_state(as_of: str | None = None,
     base = baseline_mod.get()
     valid = _instant(as_of)
     recorded = datetime.fromisoformat(as_of_recorded) if as_of_recorded else None
-    ov = overlay_mod.build(valid, recorded)
+    ov = overlay_mod.cached(valid, recorded)
 
     # Four tiers, so the edges are derived rather than stored: a listing is the
     # only join between a variant and a channel, and it carries its own state.
@@ -222,6 +222,148 @@ def get_network_state(as_of: str | None = None,
                          if k in base.channels},
             "summary": overlay_mod.summarise(ov),
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# The map, scoped
+# ---------------------------------------------------------------------------
+# ``get_network_state`` answers "what is the catalog", and four sections read it
+# for their products, listings, rules and corrections. It is deliberately not
+# the thing that gets truncated: a map showing ten of a hundred and fifty
+# products is a reasonable map, and a Blast Radius view showing ten of a
+# hundred and fifty products is a wrong answer.
+#
+# So the map gets its own read. It selects a *product set* first and derives
+# everything else from it - the variants of those products, the listings of
+# those variants, the suppliers of those products, and the systems that fed
+# those suppliers. Channels stay whole, because they are a small closed set and
+# a tier that gained and lost members while somebody paged through would be
+# unreadable.
+#
+# The count of what was left out travels with the answer. A map that quietly
+# showed ten would be read as an estate that has ten.
+
+
+def get_map_view(as_of: str | None = None, as_of_recorded: str | None = None,
+                 *, limit: int = 10, offset: int = 0, q: str = "",
+                 suppliers: list[str] | None = None,
+                 categories: list[str] | None = None,
+                 focus: str | None = None) -> dict:
+    """The Ingest Fabric's own view of the catalog: a page of products, and
+    everything structurally attached to them."""
+    from sc.readiness import search as search_mod
+
+    base = baseline_mod.get()
+    valid = _instant(as_of)
+    recorded = datetime.fromisoformat(as_of_recorded) if as_of_recorded else None
+    ov = overlay_mod.cached(valid, recorded)
+
+    chosen, total = search_mod.rank_products(
+        q, suppliers=suppliers, categories=categories,
+        limit=max(1, limit), offset=max(0, offset))
+
+    # Whatever the reviewer is tracing survives paging. Without this, clicking a
+    # node and then stepping to the next page silently drops the highlight, and
+    # the blast radius appears to have been cleared by a page turn.
+    if focus:
+        anchor = base.product_of_variant.get(focus, focus)
+        listing = base.listings.get(focus)
+        if listing is not None:
+            anchor = base.product_of_variant.get(listing.variant_id, anchor)
+        if anchor in base.products and anchor not in chosen:
+            chosen = [anchor, *chosen]
+
+    selected = set(chosen)
+    variants = [v for v in base.catalog.variants if v.product_id in selected]
+    variant_ids = {v.id for v in variants}
+    listings = [base.listings[l] for l in sorted(base.listings)
+                if base.listings[l].variant_id in variant_ids]
+    supplier_ids = {base.products[p].supplier for p in selected
+                    if p in base.products}
+
+    edges: list[dict] = [
+        {"from": base.products[p].supplier, "to": p, "relation": "supplies"}
+        for p in sorted(selected) if p in base.products
+    ]
+    edges += [{"from": v.product_id, "to": v.id, "relation": "contains"}
+              for v in sorted(variants, key=lambda v: v.id)]
+    for listing in listings:
+        edges.append({
+            "from": listing.variant_id, "to": listing.channel_id,
+            "relation": "lists_on", "listing": listing.id,
+            "status": ov.channel_status.get(listing.id, listing.status),
+        })
+
+    try:
+        from sc.estate import topology as estate_topology
+
+        system_nodes, system_edges = estate_topology.nodes_and_edges()
+    except Exception:  # noqa: BLE001 - the map must draw regardless
+        system_nodes, system_edges = [], []
+    # Restrict the lines to sources on this page, then decide which boxes to
+    # keep - and the distinction matters.
+    #
+    # A system whose sources are all off this page is not part of what is on
+    # screen, so drawing it would put a lone box at the left edge implying a
+    # connection to nothing. A system that has delivered *nothing at all* is a
+    # different thing entirely: it is connected and silent, and the estate has
+    # always drawn it, because a source that has gone quiet three days before a
+    # launch is exactly what somebody needs to see. Dropping both would have
+    # made the whole Systems tier disappear at the start of a replay.
+    all_reach = {e["from"] for e in system_edges}
+    system_edges = [e for e in system_edges if e["to"] in supplier_ids]
+    on_page = {e["from"] for e in system_edges}
+    system_nodes = [n for n in system_nodes
+                    if n["id"] in on_page or n["id"] not in all_reach]
+
+    kept = selected | variant_ids | supplier_ids | set(base.channels)
+    nodes = [n.model_dump(mode="json") for n in base.catalog.nodes
+             if n.id in kept] + system_nodes
+
+    return {
+        "as_of": valid.isoformat(),
+        "as_of_recorded": recorded.isoformat() if recorded else None,
+        "nodes": nodes,
+        "edges": edges + system_edges,
+        "products": [base.products[p].model_dump(mode="json")
+                     for p in sorted(selected) if p in base.products],
+        "variants": [v.model_dump(mode="json") for v in variants],
+        "channels": [c.model_dump(mode="json") for c in base.catalog.channels],
+        "listings": [l.model_dump(mode="json") for l in listings],
+        "correction": {
+            "listings": {k: v for k, v in sorted(ov.channel_status.items())
+                         if k in base.listings},
+        },
+        "page": {"limit": limit, "offset": offset, "total_products": total,
+                 "returned": len(selected), "truncated": len(selected) < total},
+        "facets": _facets(base),
+    }
+
+
+def _facets(base: Baseline) -> dict:
+    """What there is to filter by, counted.
+
+    Derived from the catalog rather than configured, so a filter can never
+    offer a supplier the catalog does not have or omit one it does.
+    """
+    by_supplier: dict[str, int] = {}
+    by_branch: dict[str, int] = {}
+    for product in base.products.values():
+        by_supplier[product.supplier] = by_supplier.get(product.supplier, 0) + 1
+        # Two levels of the taxonomy, which is the granularity somebody filters
+        # at: "home" is too coarse to narrow anything and the leaf is too fine
+        # to be worth a menu entry.
+        branch = ".".join(product.category.split(".")[:2])
+        by_branch[branch] = by_branch.get(branch, 0) + 1
+
+    names = {n.id: n.name for n in base.catalog.nodes}
+    return {
+        "suppliers": [{"id": s, "name": names.get(s, s), "products": n}
+                      for s, n in sorted(by_supplier.items())],
+        "categories": [{"prefix": c, "label": c.replace(".", " / "),
+                        "products": n}
+                       for c, n in sorted(by_branch.items())],
     }
 
 

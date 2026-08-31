@@ -13,7 +13,7 @@ import { cn } from "./cn";
  */
 
 export function Panel({
-  title, subtitle, actions, children, flush, className, bodyClassName,
+  title, subtitle, actions, children, flush, scroll, className, bodyClassName,
   style, icon, tone,
 }: {
   title?: ReactNode;
@@ -22,6 +22,15 @@ export function Panel({
   children: ReactNode;
   /** Body has no padding. For content that draws to its own edge. */
   flush?: boolean;
+  /** Body scrolls inside the panel rather than lengthening the page.
+   *
+   *  A section of six dense panels used to be one column of vertical scroll,
+   *  which pushed the header off the top and made "look at the map and the
+   *  feed together" impossible. A panel that owns its own overflow keeps its
+   *  title in place and keeps its neighbours on screen. The panel already has
+   *  `flex flex-col overflow-hidden`, so this is the one class its body was
+   *  missing - bound by whatever height the caller gives it. */
+  scroll?: boolean;
   className?: string;
   bodyClassName?: string;
   style?: CSSProperties;
@@ -73,6 +82,7 @@ export function Panel({
       <div
         className={cn(
           "min-w-0 flex-1",
+          scroll && "min-h-0 overflow-y-auto",
           !flush && "p-[var(--panel-pad)]",
           bodyClassName
         )}

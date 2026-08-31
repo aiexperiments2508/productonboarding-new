@@ -245,6 +245,57 @@ def required_media(record: Record, base) -> list[Finding]:
     return findings
 
 
+def media_status(record: Record, base) -> list[dict]:
+    """Every image slot this category has, and whether it arrived.
+
+    The same question ``required_media`` answers, in the shape a page renders
+    rather than the shape a finding takes. Deliberately derived from the same
+    ``REQUIRED_MEDIA`` table: a strip that could disagree with the finding
+    beside it would be a second opinion about what this product needs.
+
+    A detail shot is listed and never required, so that "has imagery" and "has
+    the imagery it needs" stay visibly different questions on the page as well
+    as in the rules.
+
+    ``held`` is a fact about the catalog, not about the disk. A record pointing
+    at an asset the imaging system never delivered is exactly the state this is
+    for, and the page reports it as missing whichever way it is missing.
+    """
+    required: tuple[MediaRole, ...] = ()
+    for prefix, roles in REQUIRED_MEDIA.items():
+        if record.category.startswith(prefix):
+            required = roles
+            break
+
+    by_role = {str(asset.role): asset for asset in record.media}
+    slots: list[str] = [str(role) for role in required]
+    for role in sorted(by_role):
+        if role not in slots:
+            slots.append(role)
+    if str(MediaRole.DETAIL) not in slots:
+        slots.append(str(MediaRole.DETAIL))
+
+    # Who to chase when a slot is empty. Taken from whatever this product's
+    # other imagery came through rather than guessed, and left null when the
+    # record holds no imagery at all - "we do not know who owes this" is a
+    # true answer and a made-up owner is not.
+    carrier = next((a.system for a in record.media if a.system), None)
+
+    rows = []
+    for role in slots:
+        asset = by_role.get(role)
+        rows.append({
+            "role": role,
+            "required": role in {str(r) for r in required},
+            "held": asset is not None,
+            "id": getattr(asset, "id", None),
+            "uri": getattr(asset, "uri", None),
+            "alt_text": getattr(asset, "alt_text", None),
+            "system": getattr(asset, "system", None) or carrier,
+        })
+    return rows
+
+
 def contradicting_sources(record: Record, base) -> list[Finding]:
     """Two systems that both sent data and do not agree.
 

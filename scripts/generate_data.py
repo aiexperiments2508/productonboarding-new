@@ -24,6 +24,7 @@ attribute correction real rather than notional.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -35,20 +36,28 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 DOCS = DATA / "docs"
 COMMS = DATA / "comms"
+MEDIA = DATA / "media"
 GOLDEN = DATA / "golden"
 CORPUS = ROOT / "corpus"
 
 SEED = int(os.environ.get("DATA_SEED", "20802"))
-HORIZON_START = date(2026, 9, 1)
-HORIZON_DAYS = 56  # 8 weeks
+# The recorded flight: 1 July to 31 August 2026 inclusive. Two calendar months
+# rather than eight arbitrary weeks, because this is a backup snapshot being
+# replayed and a snapshot has a period somebody can name.
+HORIZON_START = date(2026, 7, 1)
+HORIZON_DAYS = 62  # 1 Jul .. 31 Aug inclusive
 
-# The main inject lands four weeks in, leaving prepared content behind it and
-# three more arcs of runway ahead.
-INJECT_DAY = 28
+# The main inject lands five weeks in, leaving prepared content behind it and
+# roughly a month of runway ahead for the three arcs that follow.
+INJECT_DAY = 33
 INJECT_DATE = HORIZON_START + timedelta(days=INJECT_DAY)
-SCENARIO2_DAY = 30   # allergen change
-REJECTION_DAY = 31   # marketplace bounce
-FINALE_DAY = 32      # "Max only" clarification
+SCENARIO2_DAY = 35   # allergen change
+REJECTION_DAY = 36   # marketplace bounce
+FINALE_DAY = 37      # "Max only" clarification
+#: The production week the allergen change takes effect from. Quoted by
+#: name in DOC-04 v2 and in the email that announces it, so it lives here
+#: rather than in three places that could disagree.
+EFFECTIVE_DAY = 39
 
 # Seed files from the supply-chain domain this pack replaced. Removed on every
 # run so a re-generate leaves no mixture of the two vocabularies on disk.
@@ -103,6 +112,20 @@ def d(offset: int) -> date:
 def ts(offset: int, hour: int, minute: int) -> str:
     return datetime.combine(d(offset), datetime.min.time()).replace(
         hour=hour, minute=minute).isoformat()
+
+
+def dw(offset: int) -> str:
+    """A date the way a supplier writes one in a document: "3 August 2026".
+
+    Derived rather than typed. Eight issue dates and four sentences of
+    narrative used to carry the month as a literal, so moving the horizon left
+    the prose describing a different autumn from the one the timestamps were
+    in - and nothing failed, which is the worst way for a document to be wrong.
+
+    ``%-d`` is not portable to Windows, hence the explicit day.
+    """
+    when = d(offset)
+    return f"{when.day} {when:%B %Y}"
 
 
 # ---------------------------------------------------------------------------
@@ -388,21 +411,21 @@ SOURCE_DOCS = [
     # id, supplier, kind, version, title, received (day offset from 2026-08-01),
     # precedence, has prose body
     ("DOC-01", "SUP-01", "SPEC_SHEET", "v1",
-     "AeroPure 300 range technical specification", "2026-08-12", 30, True),
+     "AeroPure 300 range technical specification", d(-20).isoformat(), 30, True),
     ("DOC-02", "SUP-01", "PORTAL_FEED", "v1",
-     "Voltaic Home portal attribute feed", "2026-08-14", 20, False),
+     "Voltaic Home portal attribute feed", d(-18).isoformat(), 20, False),
     ("DOC-03", "SUP-02", "LABEL_ARTWORK", "v1",
-     "Trail Mix Bar pack label artwork", "2026-08-16", 40, True),
+     "Trail Mix Bar pack label artwork", d(-16).isoformat(), 40, True),
     ("DOC-04", "SUP-02", "SPEC_SHEET", "v1",
-     "Orchard Valley allergen and ingredient notice", "2026-08-16", 30, True),
+     "Orchard Valley allergen and ingredient notice", d(-16).isoformat(), 30, True),
     ("DOC-05", "SUP-02", "SPREADSHEET", "v1",
-     "Orchard Valley portal spreadsheet export", "2026-08-17", 15, False),
+     "Orchard Valley portal spreadsheet export", d(-15).isoformat(), 15, False),
     ("DOC-06", "SUP-04", "SPEC_SHEET", "v1",
-     "Cascade Rapid Kettle dimensional drawing", "2026-08-18", 30, True),
+     "Cascade Rapid Kettle dimensional drawing", d(-14).isoformat(), 30, True),
     ("DOC-07", "SUP-03", "PORTAL_FEED", "v1",
-     "Brightline portal attribute feed", "2026-08-19", 20, False),
+     "Brightline portal attribute feed", d(-13).isoformat(), 20, False),
     ("DOC-08", "SUP-01", "CERTIFICATE", "v1",
-     "Voltaic Home declaration of conformity", "2026-08-20", 35, True),
+     "Voltaic Home declaration of conformity", d(-12).isoformat(), 35, True),
 ]
 
 LISTING_CHANNELS = {
@@ -432,6 +455,9 @@ PRICES = {
 # The supplier's routine feed document - what price and stock rows arrive on.
 PRIMARY_DOC = {"SUP-01": "DOC-02", "SUP-02": "DOC-05",
                "SUP-03": "DOC-07", "SUP-04": "DOC-06"}
+# The background suppliers each have one, added where they are declared. Kept
+# in the same mapping rather than a second one, so "which document did this
+# price arrive on" has one answer whoever is asking.
 
 
 # ---------------------------------------------------------------------------
@@ -622,6 +648,58 @@ COPY = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# The rest of the catalog
+# ---------------------------------------------------------------------------
+# Everything above is hand-authored and carries the story. Everything the
+# following block adds is background: a few hundred products the demo never
+# mentions, so that the six it does mention have a population to stand in.
+#
+# It draws from a stream of its own rather than from `rng`. The arcs consume
+# the module-level stream in a fixed order, and a background catalog drawing
+# from it would shift every draw after it - changing which system carried which
+# routine feed, and renumbering the tape. Seeded off the same seed, so the pack
+# is still byte-identical per seed; separate, so adding a product does not
+# rewrite the story.
+
+# Loaded by path rather than by name. `scripts/` is not a package, and a bare
+# import only resolves when this file is run as a script - the golden test
+# loads it by path, and would have found no such module.
+_background = importlib.util.module_from_spec(
+    importlib.util.spec_from_file_location(
+        "seed_background", Path(__file__).resolve().parent / "background.py"))
+_background.__loader__.exec_module(_background)  # type: ignore[union-attr]
+
+_BG = _background.build(Rng(SEED ^ 0x5EED))
+
+SUPPLIERS += _background.SUPPLIERS
+TAXONOMY.update(_background.TAXONOMY)
+MKT_A_CATS.update(_background.MKT_A_CATS)
+MKT_B_CATS.update(_background.MKT_B_CATS)
+
+PRODUCTS += _BG["products"]
+VARIANTS += _BG["variants"]
+SKUS.update(_BG["skus"])
+PRICES.update(_BG["prices"])
+ATTR_ROWS += _BG["attr_rows"]
+LISTING_CHANNELS.update(_BG["listing_channels"])
+COPY.update(_BG["copy"])
+MISSING_MEDIA |= _BG["media_missing"]
+PRIMARY_DOC.update({sup: doc for doc, sup, *_rest in _BG["source_docs"]})
+_background.register_docs(
+    {sup: doc for doc, sup, *_rest in _BG["source_docs"]})
+SOURCE_DOCS += [
+    (doc, sup, kind, ver, title, d(offset).isoformat(), prec, body)
+    for doc, sup, kind, ver, title, offset, prec, body in _BG["source_docs"]
+]
+
+#: What the background was asked to get wrong, by entity. Read back by
+#: `check_seeded` so the pack can assert it contains exactly the damage it
+#: declared - the same property the extraction answer key has, extended to the
+#: half of the catalog nobody hand-wrote.
+SEEDED_DEFECTS = _background.SEEDED_DEFECTS
+
+
 COMPARISON_TABLE = (
     "Model | Rated power | Coverage | Filter | Sound level\n"
     "AeroPure 300 | 45 W | 40 m² | HEPA H13 | 38 dB\n"
@@ -639,12 +717,12 @@ COMPARISON_TABLE = (
 # ---------------------------------------------------------------------------
 
 DOC_BODIES = {
-    "DOC-01-v1": """VOLTAIC HOME LIMITED
+    "DOC-01-v1": f"""VOLTAIC HOME LIMITED
 TECHNICAL SPECIFICATION - AEROPURE 300 AIR PURIFIER RANGE
 
 Document reference: DOC-01
 Revision: v1
-Issued: 12 August 2026
+Issued: {dw(-20)}
 Prepared by: Specification Control, Voltaic Home
 
 1. MODELS COVERED
@@ -668,13 +746,13 @@ model as tabulated above. Figures are taken from the test reports held by
 Specification Control.
 """,
 
-    "DOC-01-v2": """VOLTAIC HOME LIMITED
+    "DOC-01-v2": f"""VOLTAIC HOME LIMITED
 TECHNICAL SPECIFICATION - AEROPURE 300 AIR PURIFIER
 
 Document reference: DOC-01
 Revision: v2
-Supersedes: v1 (issued 12 August 2026)
-Issued: 29 September 2026
+Supersedes: v1 (issued {dw(-20)})
+Issued: {dw(INJECT_DAY)}
 Prepared by: Specification Control, Voltaic Home
 
 1. SCOPE
@@ -708,13 +786,13 @@ Please update published specifications and any derived material at the earliest
 opportunity. Queries to Specification Control.
 """,
 
-    "DOC-01-v3": """VOLTAIC HOME LIMITED
+    "DOC-01-v3": f"""VOLTAIC HOME LIMITED
 TECHNICAL SPECIFICATION - AEROPURE 300 AIR PURIFIER RANGE
 
 Document reference: DOC-01
 Revision: v3
-Supersedes: v2 (issued 29 September 2026)
-Issued: 3 October 2026
+Supersedes: v2 (issued {dw(INJECT_DAY)})
+Issued: {dw(FINALE_DAY)}
 Prepared by: Specification Control, Voltaic Home
 
 1. SCOPE
@@ -746,11 +824,11 @@ across from the base model in error and is withdrawn.
 Filter type, coverage area and energy class are unchanged for both models.
 """,
 
-    "DOC-03-v1": """ORCHARD VALLEY FOODS - PACK LABEL ARTWORK (EXTRACTED TEXT)
+    "DOC-03-v1": f"""ORCHARD VALLEY FOODS - PACK LABEL ARTWORK (EXTRACTED TEXT)
 
 Document reference: DOC-03
 Revision: v1
-Issued: 16 August 2026
+Issued: {dw(-16)}
 Product: Trail Mix Bar (PRD-02)
 
 FRONT OF PACK
@@ -765,12 +843,12 @@ BACK OF PACK
   GTIN 05098765400028 (6 x 40 g multipack)
 """,
 
-    "DOC-03-v2": """ORCHARD VALLEY FOODS - PACK LABEL ARTWORK (EXTRACTED TEXT)
+    "DOC-03-v2": f"""ORCHARD VALLEY FOODS - PACK LABEL ARTWORK (EXTRACTED TEXT)
 
 Document reference: DOC-03
 Revision: v2
-Supersedes: v1 (issued 16 August 2026)
-Issued: 19 September 2026
+Supersedes: v1 (issued {dw(-16)})
+Issued: {dw(18)}
 Product: Trail Mix Bar (PRD-02)
 
 CHANGE NOTE
@@ -789,12 +867,12 @@ BACK OF PACK
   ALLERGY ADVICE: contains almonds.
 """,
 
-    "DOC-04-v1": """ORCHARD VALLEY FOODS
+    "DOC-04-v1": f"""ORCHARD VALLEY FOODS
 ALLERGEN AND INGREDIENT NOTICE
 
 Document reference: DOC-04
 Revision: v1
-Issued: 16 August 2026
+Issued: {dw(-16)}
 Product: Trail Mix Bar (PRD-02), all pack formats
 
 1. ALLERGEN DECLARATION
@@ -820,18 +898,18 @@ Declared in descending order of weight:
   peanut-free, high-fibre
 """,
 
-    "DOC-04-v2": """ORCHARD VALLEY FOODS
+    "DOC-04-v2": f"""ORCHARD VALLEY FOODS
 ALLERGEN AND INGREDIENT NOTICE
 
 Document reference: DOC-04
 Revision: v2
-Supersedes: v1 (issued 16 August 2026)
-Issued: 1 October 2026
+Supersedes: v1 (issued {dw(-16)})
+Issued: {dw(SCENARIO2_DAY)}
 Product: Trail Mix Bar (PRD-02), all pack formats
 
 1. CHANGE OF MANUFACTURING LINE
 
-From the production week commencing 5 October 2026 the Trail Mix Bar is
+From the production week commencing {dw(EFFECTIVE_DAY)} the Trail Mix Bar is
 produced on line 4 at our Ashford site. Line 4 also runs a peanut-containing
 recipe. Changeover cleaning is validated, but cross-contact cannot be
 excluded.
@@ -857,12 +935,12 @@ Any claim of freedom from peanuts must be withdrawn from pack, shelf-edge and
 online material before the first line 4 production reaches store.
 """,
 
-    "DOC-06-v1": """CASCADE HOUSEWARES
+    "DOC-06-v1": f"""CASCADE HOUSEWARES
 DIMENSIONAL DRAWING - RAPID KETTLE 1.7L
 
 Document reference: DOC-06
 Revision: v1
-Issued: 18 August 2026
+Issued: {dw(-14)}
 Product: Cascade Rapid Kettle (PRD-04)
 
   Capacity          1.7 L
@@ -875,12 +953,12 @@ Product: Cascade Rapid Kettle (PRD-04)
   GTIN              05044556600019
 """,
 
-    "DOC-06-v2": """CASCADE HOUSEWARES
+    "DOC-06-v2": f"""CASCADE HOUSEWARES
 DIMENSIONAL DRAWING - RAPID KETTLE 1.7L
 
 Document reference: DOC-06
 Revision: v2 - PROVISIONAL, NOT FOR PUBLICATION
-Issued: 11 September 2026
+Issued: {dw(10)}
 Product: Cascade Rapid Kettle (PRD-04)
 
 This revision is issued for review only, while a tooling audit is open. The
@@ -897,12 +975,12 @@ confirming notice is issued.
   Energy class      A
 """,
 
-    "DOC-07-v2": """BRIGHTLINE ELECTRONICS
+    "DOC-07-v2": f"""BRIGHTLINE ELECTRONICS
 PORTAL ATTRIBUTE FEED - CHANGE REPORT
 
 Document reference: DOC-07
 Revision: v2
-Issued: 23 September 2026
+Issued: {dw(22)}
 Supplier: Brightline Electronics (SUP-03)
 
 Scheduled quarterly republication of the attribute feed for all Brightline
@@ -915,12 +993,12 @@ CHANGES IN THIS REVISION
   quarterly cycle, not because any value has moved.
 """,
 
-    "DOC-08-v1": """VOLTAIC HOME LIMITED
+    "DOC-08-v1": f"""VOLTAIC HOME LIMITED
 DECLARATION OF CONFORMITY
 
 Document reference: DOC-08
 Revision: v1
-Issued: 20 August 2026
+Issued: {dw(-12)}
 Manufacturer: Voltaic Home Limited (SUP-01)
 
 Products covered:
@@ -1000,13 +1078,133 @@ def build_media() -> list[dict]:
                 "id": f"IMG-{vid}-{role}",
                 "entity_id": vid,
                 "role": role,
-                "uri": f"/media/{vid.lower()}-{role.lower()}.jpg",
+                "uri": f"/media/{vid.lower()}-{role.lower()}.svg",
                 "alt_text": f"{name} - {role.replace('_', ' ').lower()}",
                 "width": 1200, "height": 1200,
                 # The imaging system, named the way the estate names it.
                 "system": "imaging-dam",
             })
     return assets
+
+
+#: Hue per taxonomy root, so a food pack and a home appliance are
+#: distinguishable at thumbnail size without anybody reading the caption.
+FAMILY_HUE = {"home": 205, "food": 96, "audio": 276}
+
+
+def _hue(vid: str, category: str) -> int:
+    """A stable hue for one variant.
+
+    From the family, nudged by the identifier so two purifiers are not the same
+    rectangle. Hashed rather than drawn from `rng`, because these are written
+    outside the tape's draw order and must not shift it.
+    """
+    base = FAMILY_HUE.get(category.split(".")[0], 210)
+    nudge = int(hashlib.sha256(vid.encode()).hexdigest()[:4], 16) % 40 - 20
+    return (base + nudge) % 360
+
+
+def _svg_escape(text: str) -> str:
+    return (str(text).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;"))
+
+
+def _shape_for(role: str, hue: int) -> str:
+    """The drawing itself, per role.
+
+    Not decoration and not a stand-in for photography nobody has: the point is
+    that a reviewer looking at the staging page can tell a pack front from an
+    ingredient panel at a glance, which is the whole reason the roles are
+    distinct in INT-001. A generic grey square in five places would have made
+    the page look complete while saying nothing.
+    """
+    ink = f"hsl({hue} 45% 32%)"
+    soft = f"hsl({hue} 40% 78%)"
+    if role == "HERO":
+        return (f'<ellipse cx="200" cy="330" rx="120" ry="14" fill="{soft}"/>'
+                f'<rect x="130" y="110" width="140" height="215" rx="18" '
+                f'fill="none" stroke="{ink}" stroke-width="5"/>'
+                f'<circle cx="200" cy="180" r="34" fill="none" '
+                f'stroke="{ink}" stroke-width="5"/>'
+                f'<path d="M160 265h80M160 288h56" stroke="{ink}" '
+                f'stroke-width="5" stroke-linecap="round"/>')
+    if role == "IN_SITU":
+        return (f'<path d="M40 300h320M70 300V150l130-70 130 70v150" '
+                f'fill="none" stroke="{soft}" stroke-width="6" '
+                f'stroke-linejoin="round"/>'
+                f'<rect x="168" y="188" width="66" height="112" rx="10" '
+                f'fill="none" stroke="{ink}" stroke-width="5"/>'
+                f'<circle cx="201" cy="222" r="17" fill="none" '
+                f'stroke="{ink}" stroke-width="5"/>')
+    if role == "PACK_FRONT":
+        return (f'<rect x="118" y="92" width="164" height="230" rx="12" '
+                f'fill="none" stroke="{ink}" stroke-width="5"/>'
+                f'<path d="M118 150h164" stroke="{ink}" stroke-width="5"/>'
+                f'<path d="M146 196h108M146 224h84M146 252h108" '
+                f'stroke="{soft}" stroke-width="8" stroke-linecap="round"/>')
+    if role == "INGREDIENT_PANEL":
+        rows = "".join(
+            f'<path d="M132 {150 + i * 26}h136" stroke="{soft}" '
+            f'stroke-width="7" stroke-linecap="round"/>' for i in range(6))
+        return (f'<rect x="112" y="86" width="176" height="242" rx="8" '
+                f'fill="none" stroke="{ink}" stroke-width="5"/>'
+                f'<path d="M132 120h96" stroke="{ink}" stroke-width="7" '
+                f'stroke-linecap="round"/>{rows}')
+    # DETAIL, and anything a later role adds.
+    return (f'<circle cx="200" cy="205" r="96" fill="none" stroke="{ink}" '
+            f'stroke-width="5"/>'
+            f'<path d="M160 205h80M200 165v80" stroke="{soft}" '
+            f'stroke-width="8" stroke-linecap="round"/>')
+
+
+def render_media_svg(asset: dict, variant_name: str, sku: str,
+                     category: str) -> str:
+    """One product image, as SVG.
+
+    These are synthetic and say so - nobody should mistake them for
+    photography. What they are not is *absent*: the catalog has always carried
+    a uri for every asset it holds, the staging page has always been the last
+    surface before publication, and until now that page rendered the word
+    "hero" where the picture goes. A page that cannot show what it holds cannot
+    show what it is missing either, because both look the same.
+
+    Deterministic from the identifier alone, so a regenerated pack is
+    byte-identical and a rehearsal cannot drift.
+    """
+    hue = _hue(asset["entity_id"], category)
+    role = asset["role"]
+    words = role.replace("_", " ").lower()
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" '
+        f'width="400" height="400" role="img" '
+        f'aria-label="{_svg_escape(asset["alt_text"])}">'
+        f'<rect width="400" height="400" fill="hsl({hue} 30% 96%)"/>'
+        f'<rect x="10" y="10" width="380" height="380" rx="16" fill="none" '
+        f'stroke="hsl({hue} 30% 84%)" stroke-width="2"/>'
+        f'{_shape_for(role, hue)}'
+        f'<text x="200" y="360" text-anchor="middle" font-family="system-ui, '
+        f'sans-serif" font-size="17" fill="hsl({hue} 35% 30%)">'
+        f'{_svg_escape(variant_name)}</text>'
+        f'<text x="200" y="382" text-anchor="middle" font-family="ui-monospace, '
+        f'monospace" font-size="13" fill="hsl({hue} 20% 52%)">'
+        f'{_svg_escape(sku)} - {_svg_escape(words)}</text>'
+        f'</svg>'
+    )
+
+
+def build_media_files(media: list[dict]) -> dict[str, str]:
+    """Every held asset, drawn. Keyed by the path its uri resolves to."""
+    files: dict[str, str] = {}
+    for asset in media:
+        vid = asset["entity_id"]
+        variant = VARIANT_BY_ID[vid]
+        category = PRODUCT_BY_ID[variant[1]][2]
+        # The uri is the authority on the filename. Deriving it twice is how a
+        # catalog ends up pointing at a file the generator wrote elsewhere.
+        name = asset["uri"].removeprefix("/media/")
+        files[f"media/{name}"] = render_media_svg(
+            asset, variant[2], SKUS[vid], category)
+    return files
 
 
 def build_nodes() -> list[dict]:
@@ -1115,7 +1313,13 @@ def channel_view(variant_id: str, channel_id: str) -> dict:
 
     view: dict = {"category": category_map.get(category, category)}
     for path in applicable_paths(variant_id):
-        view[attribute_map.get(path, path)] = attrs[path]
+        # An attribute that applies to the category and has no value is the
+        # single most common thing wrong with a supplier's data, and it is what
+        # `applicable_attributes` exists to report. The channel view renders
+        # what is held; a missing optional value is a gap in the record, not a
+        # failure to build the page.
+        if path in attrs:
+            view[attribute_map.get(path, path)] = attrs[path]
 
     # Fields the channel expects as prose or as codes rather than as the raw
     # internal value.
@@ -1137,8 +1341,8 @@ def feed_row(variant_id: str, channel_id: str, title: str) -> tuple[str, list[st
     paths = []
     for path in applicable_paths(variant_id):
         field = attribute_map.get(path)
-        if field is None:
-            continue  # not part of this marketplace's schema
+        if field is None or field not in view:
+            continue  # not in this marketplace's schema, or not held
         fields[field] = view[field]
         paths.append(path)
     text = json.dumps(fields, sort_keys=True, ensure_ascii=False,
@@ -1147,15 +1351,46 @@ def feed_row(variant_id: str, channel_id: str, title: str) -> tuple[str, list[st
 
 
 def facet_text(variant_id: str) -> tuple[str, list[str]]:
+    """Search facets, from whatever the record actually holds.
+
+    Written for the one food product that had a search listing, and so it
+    assumed a net weight and a hand-authored pack format. Neither is true of an
+    iron, and neither is true of a product whose weight nobody sent - so it
+    builds from what is present and names only the paths it used. A facet
+    string that quoted an attribute the record does not hold would put a value
+    on a search page that no document asserts.
+    """
     attrs = attrs_for(variant_id)
-    tokens = [f"allergen:{a}" for a in attrs.get("food.allergens.contains") or []]
-    tokens += [f"may-contain:{a}" for a in attrs.get("food.allergens.may_contain") or []]
-    tokens += [f"dietary:{c}" for c in attrs.get("claims") or []]
-    tokens.append(f"weight:{attrs['food.net_weight_g']}g")
-    tokens.append(f"format:{COPY[variant_id]['facet_format']}")
-    paths = ["food.allergens.contains", "food.allergens.may_contain",
-             "food.net_weight_g", "claims"]
-    return " | ".join(sorted(tokens)), paths
+    tokens: list[str] = []
+    paths: list[str] = []
+
+    def add(path: str, prefix: str, each: bool = False) -> None:
+        if path not in attrs:
+            return
+        value = attrs[path]
+        if each:
+            tokens.extend(f"{prefix}:{v}" for v in value or [])
+        else:
+            tokens.append(f"{prefix}:{value}")
+        paths.append(path)
+
+    add("food.allergens.contains", "allergen", each=True)
+    add("food.allergens.may_contain", "may-contain", each=True)
+    add("claims", "dietary", each=True)
+    if "food.net_weight_g" in attrs:
+        tokens.append(f"weight:{attrs['food.net_weight_g']}g")
+        paths.append("food.net_weight_g")
+    if "specs.power_w" in attrs:
+        tokens.append(f"power:{attrs['specs.power_w']}W")
+        paths.append("specs.power_w")
+
+    pack_format = COPY[variant_id].get("facet_format")
+    if pack_format:
+        tokens.append(f"format:{pack_format}")
+    if not tokens:
+        tokens.append(f"category:{category_of(variant_id)}")
+
+    return " | ".join(sorted(tokens)), sorted(set(paths))
 
 
 def build_assets(listings: list[dict]) -> list[dict]:
@@ -1268,13 +1503,37 @@ def build_events(listings: list[dict]) -> list[dict]:
                    {**payload, "subject": subject, "from": sender, "to": MAILBOX_TO},
                    body, ref)
 
+    # Arc 0 is the *story's* routine traffic and stays on the story's entities.
+    # Left unscoped it would draw from the whole catalog, so the six products
+    # the demo is about would get a fiftieth of the feed they used to - the
+    # hero products would go quiet on a screen whose whole subject is which
+    # products are moving. The rest of the catalog has its own traffic, emitted
+    # above from its own stream.
+    hero = {v for v, _p, _n, _b in VARIANTS if not v.startswith("VAR-1")}
     confirmable = sorted(
         (vid, path) for (vid, path) in ATTR_VALUES
-        if (vid, path) not in FROZEN_BY_ARC and applies(path, category_of(vid))
+        if vid in hero and (vid, path) not in FROZEN_BY_ARC
+        and applies(path, category_of(vid))
     )
-    variant_ids = [v[0] for v in VARIANTS]
-    listing_ids = [l["id"] for l in listings]
+    variant_ids = [v for v in hero]
+    variant_ids.sort()
+    listing_ids = [l["id"] for l in listings if l["variant_id"] in hero]
     listing_by_id = {l["id"]: l for l in listings}
+
+    # The rest of the catalog's routine traffic. Emitted from a stream of its
+    # own and touching only background entities, so every draw the six arcs
+    # below make is the draw they made before any of this existed - the volume
+    # grew and the story did not move.
+    _hero_variants = {v for v, _p, _n, _b in VARIANTS if not v.startswith("VAR-1")}
+    _background.traffic(
+        Rng(SEED ^ 0xBACC), add, email, days=HORIZON_DAYS,
+        variants=[v for v in VARIANTS if v[0] not in _hero_variants],
+        listings=[l for l in listings if l["variant_id"] not in _hero_variants],
+        prices=PRICES,
+        product_of=lambda vid: VARIANT_BY_ID[vid][1],
+        supplier_of=lambda vid: PRODUCT_BY_ID[VARIANT_BY_ID[vid][1]][3],
+        name_of=lambda vid: VARIANT_BY_ID[vid][2],
+    )
 
     # --- arc 0: routine traffic on every day of the horizon -----------------
     for offset in range(HORIZON_DAYS):
@@ -1333,9 +1592,10 @@ def build_events(listings: list[dict]) -> list[dict]:
           "and no product data changes.\n\nSupplier Portal Operations",
           {"material_hint": False})
 
-    email(16, 13, 40, "Autumn newsletter - what is landing in October",
+    email(16, 13, 40, f"Summer range newsletter - what is landing in {d(46):%B}",
           "marketing@internal",
-          "Team,\n\nThe autumn newsletter goes out on Friday. The featured lines are "
+          f"Team,\n\nThe {d(20):%B} newsletter goes out on Friday. The featured lines "
+          f"are "
           "the AeroPure 300 range and the Trail Mix Bar multipack. Copy is already "
           "signed off and we are not asking for any change to product data here - "
           "this note is for visibility only.\n\nMarketing",
@@ -1415,6 +1675,26 @@ def build_events(listings: list[dict]) -> list[dict]:
         "kind": "ATTRIBUTE_CONFIRM", "supplier": "SUP-01", "entity_id": "VAR-01A",
         "path": "specs.power_w", "value": 45, "unit": "W", "unchanged": True,
         "certified": True, "doc_id": "DOC-02", "doc_version": "v1",
+    })
+
+    # --- arc 0 anchor, restated on the range's own document ------------------
+    # The portal's certification above is corroboration, and it must not by
+    # itself separate the two models. Before the clarification the record has
+    # to be genuinely ambiguous about which AeroPure the 65 W applies to - that
+    # ambiguity is the whole scenario - and a base model whose wattage stands
+    # on a different document from the Max's is a record that has quietly
+    # resolved it. So the spec sheet restates the base model's 45 W after the
+    # certification, putting both variants back on DOC-01 until v3 separates
+    # them on purpose.
+    #
+    # Authored rather than left to the noise generator. It used to happen by
+    # chance - routine traffic re-confirming this attribute somewhere in the
+    # fortnight before the inject - and a scenario that turns on a coin flip is
+    # a scenario that will one day come up tails in front of an audience.
+    add(24, 11, 5, "SUPPLIER_FEED", "SUPPLIER_PORTAL", {
+        "kind": "ATTRIBUTE_CONFIRM", "supplier": "SUP-01", "entity_id": "VAR-01A",
+        "path": "specs.power_w", "value": 45, "unit": "W", "unchanged": True,
+        "doc_id": "DOC-01", "doc_version": "v1",
     })
 
     # --- arc 2: two sources disagree about one number ------------------------
@@ -1501,7 +1781,7 @@ def build_events(listings: list[dict]) -> list[dict]:
         "entities": ["VAR-02A", "VAR-02B"], "is_correction": True, "safety": True,
         "changes": allergen_changes, "claims_withdrawn": ["peanut-free"],
         "doc_id": "DOC-04", "doc_version": "v2", "supersedes_version": "v1",
-        "supplier": "SUP-02", "effective_from": "2026-10-05", "material_hint": True,
+        "supplier": "SUP-02", "effective_from": d(EFFECTIVE_DAY).isoformat(), "material_hint": True,
     }
 
     add(SCENARIO2_DAY, 8, 10, "SPEC_DOC", "SUPPLIER_PORTAL",
@@ -1513,7 +1793,8 @@ def build_events(listings: list[dict]) -> list[dict]:
           "quality@sup-02.example",
           "Dear Content Team,\n\n"
           "We are moving the Trail Mix Bar onto line 4 at Ashford from the week "
-          "commencing 5 October. Line 4 also runs a peanut recipe. Our changeover "
+          f"commencing {dw(EFFECTIVE_DAY)}. Line 4 also runs a peanut recipe. Our "
+          f"changeover "
           "cleaning is validated, but we cannot exclude cross-contact, so from that "
           "production week the pack must carry \"may contain peanuts\".\n\n"
           "This applies to every format of the bar - the 40 g single and the 6 x 40 g "
@@ -1567,7 +1848,8 @@ def build_events(listings: list[dict]) -> list[dict]:
           "AeroPure 300 - rev v3, the 65 W applies to the Max only",
           "specs@sup-01.example",
           "Dear Content Team,\n\n"
-          "Following your question on my note of 29 September: I am sorry, revision "
+          f"Following your question on my note of {dw(INJECT_DAY)}: I am sorry, "
+          f"revision "
           "v2 was not clear and I should have said which model it referred to.\n\n"
           "The 65 W rating is the AeroPure 300 Max. The standard AeroPure 300 draws "
           "45 W and always has - the figure in revision v1 was right for that model "
@@ -1754,13 +2036,30 @@ def _golden_label(payload: dict, material: bool) -> str:
     return "correction" if payload.get("is_correction") else "notice"
 
 
+#: How many immaterial background documents the answer key keeps.
+#:
+#: The key needs negatives - a category note that asserts nothing must not be
+#: read as a correction, and an extractor that hallucinates one should score
+#: badly for it. It does not need three hundred of them: a class that outnumbers
+#: the positives thirty to one turns any aggregate score into a measure of how
+#: often the model correctly says "nothing here", which is not the question the
+#: eval is asking. So the negatives are sampled and the positives are all kept.
+GOLDEN_NEGATIVES = 40
+
+
 def build_golden(events: list[dict]) -> list[dict]:
     """The answer key, one row per document the extractor is asked to read."""
     rows = []
+    negatives = 0
     for event in events:
         if event["type"] not in READ_BY_EXTRACT:
             continue
         payload = event["payload"]
+        # Every material document, and a bounded sample of the rest.
+        if not payload.get("material_hint", True):
+            negatives += 1
+            if negatives > GOLDEN_NEGATIVES:
+                continue
         material = bool(payload.get("material_hint", True))
         applies_to, acceptable = _applies_to_truth(payload, material)
         scope = _scope_truth(payload)
@@ -1842,6 +2141,8 @@ def build_pack(seed: int) -> tuple[dict[str, str], dict]:
     source_docs = build_source_docs()
     events = build_events(listings)
 
+    media = build_media()
+
     catalog = {
         "nodes": nodes,
         "products": [{"id": p, "name": n, "category": c, "supplier": s, "regulated": r}
@@ -1849,7 +2150,7 @@ def build_pack(seed: int) -> tuple[dict[str, str], dict]:
         "variants": [{"id": v, "product_id": p, "name": n, "is_base": b,
                       "sku": SKUS[v]}
                      for v, p, n, b in VARIANTS],
-        "media": build_media(),
+        "media": media,
         "channels": [{"id": c, "name": n, "kind": k, "taxonomy": t, "freeze_days": f,
                       "attribute_map": am, "category_map": cm}
                      for c, n, k, t, f, am, cm in CHANNELS],
@@ -1887,6 +2188,7 @@ def build_pack(seed: int) -> tuple[dict[str, str], dict]:
         # Regenerated with the data it grades, so it cannot rot behind it.
         "golden/extractions.jsonl": _jsonl_text(golden),
     }
+    files.update(build_media_files(media))
     for name, body in DOC_BODIES.items():
         files[f"docs/{name}.txt"] = body
     for event in events:
@@ -1926,9 +2228,12 @@ REQUIRED_ASSET_FIELDS = {
     "CH-SEARCH": {"title", "bullets", "description", "facets"},
 }
 
+# Widths, not shapes: a catalog of a hundred and fifty products has three-digit
+# product ids and four-digit assets, and a pattern that only matched two would
+# silently stop checking most of the pack rather than failing loudly.
 ID_PATTERN = re.compile(
-    r"\b(?:PRD-\d{2}|VAR-\d{2}[A-Z]|LST-\d{2}|AST-\d{3}|DOC-\d{2}"
-    r"|RUL-[A-Z]\d{2}|SUP-\d{2}|CH-[A-Z][A-Z-]*)\b"
+    r"\b(?:PRD-\d{2,}|VAR-\d{2,}[A-Z]|LST-\d{2,}|AST-\d{3,}|DOC-\d{2,}"
+    r"|RUL-[A-Z]\d{2}|SUP-\d{2,}|CH-[A-Z][A-Z-]*)\b"
 )
 
 
@@ -2078,10 +2383,30 @@ def check_golden(events: list[dict], golden: list[dict]) -> list[str]:
     on are asserted here rather than assumed to survive an edit to an arc.
     """
     problems = []
-    expected = [e["id"] for e in events if e["type"] in READ_BY_EXTRACT]
-    if [g["event_id"] for g in golden] != expected:
-        problems.append("the answer key does not cover exactly the documents "
-                        "extract reads")
+    readable = [e for e in events if e["type"] in READ_BY_EXTRACT]
+    on_tape = {e["id"] for e in readable}
+    keyed = [g["event_id"] for g in golden]
+
+    # Every material document is keyed. This is the half that must not slip:
+    # a correction the tape carries and the key has forgotten is a correction
+    # the eval will mark a model wrong for finding.
+    material = [e["id"] for e in readable
+                if e["payload"].get("material_hint", True)]
+    missing = [e for e in material if e not in set(keyed)]
+    if missing:
+        problems.append(f"the answer key is missing {len(missing)} material "
+                        f"document(s), first {missing[0]}")
+
+    # The other half is that the key cannot invent one, or drift out of tape
+    # order - both of which would make it a second account of the tape rather
+    # than a view of it. The immaterial documents are deliberately sampled; see
+    # GOLDEN_NEGATIVES.
+    stray = [g for g in keyed if g not in on_tape]
+    if stray:
+        problems.append(f"the answer key names {len(stray)} document(s) the "
+                        f"tape does not carry, first {stray[0]}")
+    if keyed != sorted(keyed):
+        problems.append("the answer key is not in tape order")
     if len(golden) < 12:
         problems.append(f"answer key has {len(golden)} rows, wanted at least 12")
 
@@ -2153,10 +2478,94 @@ def check_ids(model: dict, files: dict[str, str]) -> tuple[list[str], list[str]]
     return problems, corpus_notes
 
 
+def check_seeded(media: list[dict], assets: list[dict],
+                 listings: list[dict]) -> list[str]:
+    """The background contains exactly the damage it declared.
+
+    The background is generated, so "some products are broken" is easy to say
+    and impossible to rely on: a refactor that silently stopped seeding
+    anything would leave a catalog where every product is clean and a demo
+    where the readiness screen has nothing to show, and nothing would fail.
+
+    So the damage has an answer key of its own, written as it is seeded and
+    read back here - the same property `check_golden` gives the extraction key,
+    extended to the half of the catalog nobody hand-wrote. Both directions are
+    checked: everything declared is present, and the counts are large enough to
+    be worth having.
+    """
+    problems: list[str] = []
+    held = {(a["entity_id"], a["role"]) for a in media}
+    by_variant: dict[str, set[str]] = {}
+    variant_of = {l["id"]: l["variant_id"] for l in listings}
+    for asset in assets:
+        by_variant.setdefault(variant_of[asset["listing_id"]], set()).add(
+            asset["text"])
+
+    counts: dict[str, int] = {}
+    for entity_id, declared in sorted(SEEDED_DEFECTS.items()):
+        for kind, subject in declared:
+            counts[kind] = counts.get(kind, 0) + 1
+            if kind == "required_media":
+                if (entity_id, subject) in held:
+                    problems.append(
+                        f"{entity_id} declares a missing {subject} image and "
+                        f"the catalog holds one")
+            elif kind == "applicable_attributes":
+                if (entity_id, subject) in ATTR_VALUES:
+                    problems.append(
+                        f"{entity_id} declares {subject} missing and the "
+                        f"catalog holds a value for it")
+            elif kind == "forbidden_content":
+                texts = by_variant.get(entity_id, set())
+                if not any(_has_forbidden(t) for t in texts):
+                    problems.append(
+                        f"{entity_id} declares forbidden copy and none of its "
+                        f"assets carries any")
+            else:
+                problems.append(f"{entity_id} declares unknown defect {kind!r}")
+
+    # Contrast, not just presence. An estate where three products are wrong
+    # measures nothing, and one where all of them are measures nothing either.
+    for kind, least in (("applicable_attributes", 20), ("required_media", 20),
+                        ("forbidden_content", 5)):
+        if counts.get(kind, 0) < least:
+            problems.append(f"only {counts.get(kind, 0)} seeded {kind} "
+                            f"defect(s), wanted at least {least}")
+    seeded = len(SEEDED_DEFECTS)
+    if not 0.15 * len(VARIANTS) <= seeded <= 0.65 * len(VARIANTS):
+        problems.append(
+            f"{seeded} of {len(VARIANTS)} variants carry a seeded defect, "
+            f"which is either too few to find or too many to contrast against")
+    return problems
+
+
+#: The phrases the readiness check refuses, mirrored here so the generator can
+#: assert it planted one. Kept short and matched on whole words, the same way
+#: `checks.FORBIDDEN_PHRASES` is.
+_FORBIDDEN = ("cures", "treats", "prevents", "clinically proven",
+              "completely safe", "harmless", "guaranteed to", "100% effective")
+
+
+def _has_forbidden(text: str) -> bool:
+    haystack = f" {text.lower()} "
+    return any(f" {phrase} " in haystack or f" {phrase}." in haystack
+               for phrase in _FORBIDDEN)
+
+
 def check_tape(events: list[dict]) -> list[str]:
+    """The tape is the right size, in order, and still carries every arc.
+
+    The size band is derived from the catalog rather than written down. It used
+    to be "250 to 320", which was a true statement about six products and
+    became a false one the moment there were a hundred and fifty - and the
+    interesting property was never the number, it was that routine traffic had
+    not swamped the story or dried up.
+    """
     problems = []
-    if not 250 <= len(events) <= 320:
-        problems.append(f"tape has {len(events)} events, wanted 250-320")
+    low = 200 + 25 * HORIZON_DAYS
+    high = 200 + 130 * HORIZON_DAYS
+    if not low <= len(events) <= high:
+        problems.append(f"tape has {len(events)} events, wanted {low}-{high}")
     previous = ""
     for i, event in enumerate(events, start=1):
         if event["seq"] != i:
@@ -2200,7 +2609,7 @@ def write_pack(files: dict[str, str]) -> None:
     DATA.mkdir(parents=True, exist_ok=True)
     for name in STALE_FILES:
         (DATA / name).unlink(missing_ok=True)
-    for directory in (DOCS, COMMS, GOLDEN):
+    for directory in (DOCS, COMMS, GOLDEN, MEDIA):
         if directory.exists():
             shutil.rmtree(directory)
         directory.mkdir(parents=True)
@@ -2227,6 +2636,8 @@ def main() -> None:
     problems += check_rules(model["listings"], model["assets"])
     problems += check_claims(model["listings"], model["assets"])
     problems += check_landmine(model["listings"], model["assets"])
+    problems += check_seeded(model["catalog"]["media"], model["assets"],
+                             model["listings"])
     problems += check_tape(model["events"])
     problems += check_golden(model["events"], model["golden"])
     id_problems, notes = check_ids(model, files)

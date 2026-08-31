@@ -86,8 +86,8 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
         }
       />
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-3">
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-2">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
           <Panel
             title="Replay transport"
             actions={
@@ -328,7 +328,7 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
           </Panel>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
           <Panel title="Service health">
             {!health ? (
               <div className="flex flex-col gap-2">

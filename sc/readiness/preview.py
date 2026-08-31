@@ -31,6 +31,7 @@ from sc.llm import gateway
 from sc.llm.gateway import GatewayError
 from sc.rag import retrieve
 from sc.readiness import verdict as verdict_mod
+from sc.readiness import checks as checks_mod
 from sc.readiness.checks import FORBIDDEN_PHRASES, Record
 
 #: Attributes worth leading with, by category prefix. Drawn from MKT-002, which
@@ -246,7 +247,7 @@ def _reasoning() -> str:
 
 
 def build(entity_id: str, assessment: dict, *, use_model: bool = True,
-          run_id: str = "") -> dict:
+          run_id: str = "", record=None) -> dict:
     """The staging page for a ready record, or a refusal with its reasons.
 
     A page that renders a blocked product is a page somebody screenshots, so
@@ -267,7 +268,11 @@ def build(entity_id: str, assessment: dict, *, use_model: bool = True,
         }
 
     base = baseline_mod.get()
-    record = record_mod.build(entity_id)
+    # Handed in by the route, which has already built it to assess the record.
+    # Building it again here was a second pass over the fact store to produce
+    # an identical object, on the slowest interaction in the application.
+    if record is None:
+        record = record_mod.build(entity_id)
     if record is None:
         return {"entity_id": entity_id, "rendered": False,
                 "reason": "no such product"}
@@ -286,8 +291,10 @@ def build(entity_id: str, assessment: dict, *, use_model: bool = True,
         # publication and a figure that appears here and nowhere in the record
         # is a figure nobody can trace.
         "specification": salient(record, base),
-        "media": [{"role": str(a.role), "uri": a.uri, "alt_text": a.alt_text}
-                  for a in record.media],
+        # Every slot this category has, held or not, from the same table the
+        # required_media check binds on. A staging page that silently omitted
+        # the panel it is missing would be a page that looks finished.
+        "media": checks_mod.media_status(record, base),
         "claims": _substantiated_claims(record, base),
         "differentiator": differentiator(record, base, use_model=use_model,
                                          run_id=run_id),

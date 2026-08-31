@@ -607,8 +607,15 @@ def extract(state: FactoryState) -> dict:
             # One line, not one per document: the gateway being down is a
             # single fact about the run, and repeating it fourteen times buries
             # the extraction errors that are worth reading.
+            #
+            # Deduplicated on the *fact* rather than on the sentence. The
+            # gateway phrases the same outage two ways - the first document
+            # meets a refused connection, and every document after it meets the
+            # circuit breaker refusing to try again - so a membership test
+            # against the text let one outage through twice, and would let it
+            # through a third time the next time the wording changed.
             message = f"extract: {outage}"
-            if message not in errors:
+            if not any(_same_outage(message, e) for e in errors):
                 errors.append(message)
             traces.append(step("extract", f"{event_id} read from its structured "
                                           f"hint - no model available",
@@ -857,6 +864,22 @@ def _coerce(value, dtype: str):
         return str(value), ""
     except (TypeError, ValueError):
         return None, f"{value!r} does not parse as {dtype}"
+
+
+def _same_outage(message: str, existing: str) -> bool:
+    """Are these two lines the same outage, reported twice?
+
+    Same stage, and both of them the gateway being unreachable. That is the
+    whole test: an outage is a fact about the run, and the run has either met
+    one or it has not - which of the gateway client's two phrasings the first
+    worker happened to get is not something a reviewer should have to reason
+    about.
+    """
+    if message.split(":", 1)[0] != existing.split(":", 1)[0]:
+        return False
+    unreachable = ("cannot reach", "unreachable")
+    return (any(w in message for w in unreachable)
+            and any(w in existing for w in unreachable))
 
 
 def _extraction_rows(base, event, extracted: dict,
@@ -2959,7 +2982,9 @@ def _rewrite(state, row, listing, channel, budget, table, standards, source,
         spent.append(usage)
     except GatewayError as exc:
         outage = f"regenerate: {exc}"
-        if outage not in errors:
+        # Same rule as the extract stage: one outage is one fact about the run,
+        # whichever of the gateway's two phrasings this worker happened to meet.
+        if not any(_same_outage(outage, e) for e in errors):
             errors.append(outage)
         return templated()
 

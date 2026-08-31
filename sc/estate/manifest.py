@@ -8,7 +8,8 @@ question "why is this attribute wrong" is answered by the second one at least
 as often as by the first.
 
 So the estate is declared here, as data, and nothing else in the application
-names one. Ten systems, each standing for something a retailer genuinely runs:
+names one. Eleven systems, each standing for something a retailer genuinely
+runs:
 
     supplier-portal        where a supplier types its own data
     supplier-pim           the supplier's master data, sent machine to machine
@@ -20,6 +21,7 @@ names one. Ten systems, each standing for something a retailer genuinely runs:
     translation-service    localised copy, always a little behind
     imaging-dam            photography and asset management
     market-signals         category management's view of what sells
+    logistics-tms          how a thing ships, from transport operations
 
 Two properties are deliberate and load-bearing.
 
@@ -224,6 +226,25 @@ SYSTEMS: tuple[System, ...] = (
         batch_size=(1, 4),
         interval=(2.0, 6.0),
         precedence=5,
+    ),
+    System(
+        id="logistics-tms",
+        title="Transport and Logistics",
+        owner="Supply chain operations",
+        why="Carrier bookings, pack configuration and dispatch confirmations. "
+            "Authoritative about how a thing ships and indifferent to how it "
+            "is described - so it sends a case dimension in whatever unit the "
+            "carrier's booking screen wanted and rounds it on the way through.",
+        emits=("CATALOG_UPDATE", "PUBLISH_TELEMETRY"),
+        # Both reuse detectors that already exist. A defect kind with no
+        # deterministic check behind it would be an assertion rather than a
+        # finding, and `test_every_stamped_defect_is_detected` is there to stop
+        # exactly that.
+        defects=(Defect.WRONG_TYPE, Defect.BROKEN_FORMAT),
+        defect_rate=0.15,
+        batch_size=(2, 6),
+        interval=(1.0, 3.5),
+        precedence=18,
     ),
 )
 

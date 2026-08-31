@@ -30,6 +30,13 @@ import type { SectionId } from "./nav";
 
 const NAV_KEY = "sc.navCollapsed";
 
+/** Milliseconds of quiet before the catalog is re-read after events land.
+ *
+ *  Long enough that a burst of arrivals is one read rather than forty, short
+ *  enough that a reviewer watching a correction land sees the map follow it
+ *  within a beat. */
+const CATALOG_COALESCE_MS = 800;
+
 export function App() {
   return (
     <TooltipProvider>
@@ -122,9 +129,41 @@ function Shell() {
     refreshCore().catch((e) => toast.error("Could not load the catalog", String(e)));
   }, [refreshCore, toast]);
 
-  // The event stream is the live wire: the replay clock pushes supplier
-  // documents and channel responses as it releases them, so the feed and the
-  // map update without polling.
+  /* The event stream is the live wire: the replay clock pushes supplier
+   * documents and channel responses as it releases them, so the feed and the
+   * map update without polling.
+   *
+   * The catalog re-read is coalesced, and that is load bearing rather than
+   * tidy. Every released event used to trigger a full `/api/network` - the
+   * entire catalog, every listing, every rule, the whole correction overlay.
+   * At two hundred and seventy events over eight weeks that was merely
+   * wasteful. At several thousand, released as fast as the simulated gaps
+   * allow, it is a continuous stream of full-catalog fetches, each one
+   * superseded before it lands.
+   *
+   * So: one trailing read per quiet moment, one in flight at a time, and none
+   * at all while the tab is in the background. The event feed itself is
+   * unaffected - it is pushed, not fetched, and stays instant. */
+  const catalogTimer = useRef<number | null>(null);
+  const catalogInFlight = useRef(false);
+
+  const refreshCatalog = useCallback(() => {
+    if (catalogTimer.current != null) window.clearTimeout(catalogTimer.current);
+    catalogTimer.current = window.setTimeout(() => {
+      catalogTimer.current = null;
+      // A hidden tab is not being read, and a demo left open on another screen
+      // must not keep the machine busy re-reading a catalog nobody is looking
+      // at.
+      if (document.visibilityState !== "visible") return;
+      if (catalogInFlight.current) return;
+      catalogInFlight.current = true;
+      api.network()
+        .then(setCatalog)
+        .catch(() => undefined)
+        .finally(() => { catalogInFlight.current = false; });
+    }, CATALOG_COALESCE_MS);
+  }, []);
+
   useEffect(() => {
     const stop = subscribe((m) => {
       if (m.kind === "events") {
@@ -133,19 +172,25 @@ function Shell() {
         setReplay(m.replay as ReplayState);
         // Facts change as documents land, so which corrections are in force -
         // and which listings they hold back - moves with the tape.
-        api.network().then(setCatalog).catch(() => undefined);
+        refreshCatalog();
       } else if (m.kind === "topology") {
         // A system joined or left. The map derives its systems tier from the
         // connection records, so the picture is stale until it is re-read -
         // and re-reading is the whole update, because the message deliberately
-        // carries what happened rather than a copy of the estate.
+        // carries what happened rather than a copy of the estate. Rare enough
+        // to be worth reading promptly, so it skips the wait.
         api.network().then(setCatalog).catch(() => undefined);
       } else if (m.kind === "hello") {
         setReplay(m.replay as ReplayState);
       }
     });
-    return stop;
-  }, []);
+    return () => {
+      stop();
+      if (catalogTimer.current != null) {
+        window.clearTimeout(catalogTimer.current);
+      }
+    };
+  }, [refreshCatalog]);
 
   // Restore an in-flight run across a reload - the graph is checkpointed
   // server-side, so a refreshed browser must not lose the pending approval.
@@ -344,10 +389,16 @@ function Shell() {
         )}
 
         {/* Keyed so switching section replays the entrance rather than
-            cross-fading two unrelated layouts into each other. */}
+            cross-fading two unrelated layouts into each other.
+
+            The shell is not the scroller. It used to be, and a dense section
+            became one long column: the page header scrolled away, and reading
+            the bottom of a list meant losing sight of the thing it belonged
+            to. Sections now fill the viewport and their panels scroll inside
+            themselves, so what is on screen stays on screen. */}
         <main
           key={section}
-          className="min-h-0 flex-1 animate-rise-in overflow-y-auto p-4"
+          className="flex min-h-0 flex-1 animate-rise-in flex-col overflow-hidden p-4"
         >
           {/* Keyed with the section, so navigating away from a view that threw
               gives it a clean mount rather than a stuck error. The shell -

@@ -209,6 +209,25 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 
 CREATE INDEX IF NOT EXISTS idx_llm_run ON llm_calls (run_id, created_at);
 
+-- The same idea, for embeddings. Retrieval embeds the *query*, not the corpus,
+-- so it is a live call on the read path rather than a build step - and it was
+-- the only model call in the platform that was not cached, which made every
+-- readiness check pay a network round trip to ask the same question again.
+--
+-- Keyed on (model, text) rather than on a temperature: an embedding has no
+-- sampling to vary. Stored as JSON rather than a blob because the vectors are
+-- small, the row count is bounded by the number of distinct questions this
+-- system asks, and a readable cache is one an operator can inspect.
+
+CREATE TABLE IF NOT EXISTS llm_embeddings (
+  cache_key   TEXT PRIMARY KEY,           -- sha256(model|text)
+  model       TEXT NOT NULL,
+  text        TEXT NOT NULL,
+  vector      TEXT NOT NULL,              -- JSON array of floats
+  created_at  TEXT NOT NULL,
+  hits        INTEGER NOT NULL DEFAULT 0
+);
+
 -- ---------------------------------------------------------------------------
 -- Retrieval corpus (vectors live in a sidecar .npy, keyed by chunk id order)
 -- ---------------------------------------------------------------------------

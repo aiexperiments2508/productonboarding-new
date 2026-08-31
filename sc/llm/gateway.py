@@ -259,17 +259,70 @@ def _object(parsed, model: str, cleaned: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _embed_key(model: str, text: str) -> str:
+    payload = db.dumps({"m": model, "x": text})
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def embed(texts: Sequence[str], model: str | None = None) -> list[list[float]]:
-    """Embed a batch. Used only by the RAG indexer, which caches to a .npy."""
+    """Embed a batch, cached the same way completions are.
+
+    This was the one model call in the platform that was not cached, on the
+    assumption in its old docstring that only the RAG indexer used it. It is
+    not: retrieval embeds the *query* on every search, so each readiness check
+    paid a network round trip to ask a question it had already asked - three
+    per product view, and the reason opening a product felt slow.
+
+    Only the misses are sent. A batch where two of five texts are new posts one
+    request for two inputs and reassembles the batch in order, so a caller
+    always gets one vector per text in the order it asked.
+    """
     model = model or embed_model()
-    data = _post("/v1/embeddings", {"model": model, "input": list(texts)})
-    items = sorted(data.get("data", []), key=lambda d: d.get("index", 0))
-    vectors = [item["embedding"] for item in items]
-    if len(vectors) != len(texts):
-        raise GatewayError(
-            f"embedding count mismatch: asked for {len(texts)}, got {len(vectors)}"
-        )
-    return vectors
+    wanted = list(texts)
+    if not wanted:
+        return []
+
+    want_cache = cache_enabled()
+    vectors: list[list[float] | None] = [None] * len(wanted)
+    keys = [_embed_key(model, text) for text in wanted]
+
+    if want_cache:
+        conn = db.connect()
+        for i, key in enumerate(keys):
+            hit = db.one("SELECT vector FROM llm_embeddings WHERE cache_key = ?",
+                         (key,))
+            if hit is not None:
+                vectors[i] = db.loads(hit["vector"])
+                conn.execute(
+                    "UPDATE llm_embeddings SET hits = hits + 1 WHERE cache_key = ?",
+                    (key,))
+        conn.commit()
+
+    missing = [i for i, vector in enumerate(vectors) if vector is None]
+    if missing:
+        data = _post("/v1/embeddings",
+                     {"model": model, "input": [wanted[i] for i in missing]})
+        items = sorted(data.get("data", []), key=lambda d: d.get("index", 0))
+        fresh = [item["embedding"] for item in items]
+        if len(fresh) != len(missing):
+            raise GatewayError(
+                f"embedding count mismatch: asked for {len(missing)}, "
+                f"got {len(fresh)}"
+            )
+        for position, vector in zip(missing, fresh):
+            vectors[position] = vector
+        if want_cache:
+            conn = db.connect()
+            now = datetime.now().isoformat(timespec="seconds")
+            conn.executemany(
+                "INSERT OR REPLACE INTO llm_embeddings"
+                " (cache_key, model, text, vector, created_at, hits)"
+                " VALUES (?, ?, ?, ?, ?, 0)",
+                [(keys[i], model, wanted[i], db.dumps(vectors[i]), now)
+                 for i in missing])
+            conn.commit()
+
+    return [vector for vector in vectors if vector is not None]
 
 
 # ---------------------------------------------------------------------------

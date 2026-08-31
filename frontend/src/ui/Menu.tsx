@@ -64,16 +64,27 @@ export function MenuSeparator() {
 }
 
 export function MenuItem({
-  children, onSelect, icon, disabled, shortcut,
+  children, onSelect, icon, disabled, shortcut, keepOpen,
 }: {
   children: ReactNode;
   onSelect?: () => void;
   icon?: ReactNode;
   disabled?: boolean;
   shortcut?: ReactNode;
+  /** Stay open after this item is chosen. For a menu that is a multi-select
+   *  rather than a command list: picking three suppliers should be three
+   *  clicks, not three round trips through a menu that shut itself. */
+  keepOpen?: boolean;
 }) {
   return (
-    <DropdownMenu.Item className={ITEM} onSelect={onSelect} disabled={disabled}>
+    <DropdownMenu.Item
+      className={ITEM}
+      disabled={disabled}
+      onSelect={(event) => {
+        if (keepOpen) event.preventDefault();
+        onSelect?.();
+      }}
+    >
       {icon && <span className="shrink-0 text-faint">{icon}</span>}
       <span className="flex-1 truncate">{children}</span>
       {shortcut && <span className="shrink-0 text-xs text-faint">{shortcut}</span>}

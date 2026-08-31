@@ -69,11 +69,27 @@ def events() -> dict:
 
 
 @needs_key
-def test_key_covers_exactly_the_documents_extract_reads(key, events):
-    """A key that has fallen behind the tape grades the wrong corpus."""
-    expected = [e.id for e in events.values()
+def test_key_covers_every_material_document_and_invents_none(key, events):
+    """A key that has fallen behind the tape grades the wrong corpus.
+
+    It used to cover the readable tape exactly, which was the right assertion
+    when the tape carried a few dozen documents. It now carries hundreds of
+    routine category notes that assert nothing, and a key where the negatives
+    outnumber the positives thirty to one measures how often a model correctly
+    says "nothing here" rather than whether it finds the correction. So the
+    negatives are sampled, and the two halves of the old assertion are made
+    separately: every material document is keyed, and nothing is keyed that the
+    tape does not carry.
+    """
+    readable = [e for e in events.values()
                 if str(e.type) in GEN.READ_BY_EXTRACT]
-    assert [g["event_id"] for g in key] == expected
+    keyed = [g["event_id"] for g in key]
+
+    material = [e.id for e in readable
+                if (e.payload or {}).get("material_hint", True)]
+    assert set(material) <= set(keyed),         "a material document the tape carries is missing from the key"
+    assert set(keyed) <= {e.id for e in readable},         "the key names a document the tape does not carry"
+    assert keyed == sorted(keyed), "the key is not in tape order"
 
 
 @needs_key

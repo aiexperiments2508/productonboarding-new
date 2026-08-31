@@ -286,8 +286,8 @@ The main diagram & Five columns of boxes: \ui{SYSTEMS}, \ui{SOURCES},
 \ui{PRODUCTS}, \ui{VARIANTS}, \ui{CHANNELS}. \\[4pt]
 The right-hand panel & The words \ui{The catalog is clean}. If it does not say
 this, you did not use \texttt{--reset}. Stop and start again. \\[4pt]
-The bar along the bottom & A date reading \ui{2026-09-01} and a counter
-reading \ui{0/274}. \\
+The bar along the bottom & A date reading \ui{2026-07-01} and a counter
+reading \ui{0/5211}. \\
 \bottomrule
 \end{longtable}
 
@@ -355,9 +355,11 @@ you which is which).
 Wait about five seconds. The screen fills up.
 
 \begin{say}[Say this]
-``That is eight weeks of supplier traffic. Two hundred and seventy-four
-events, delivered by ten systems in batches, at irregular times, overlapping
-each other --- which is what a real morning looks like.
+``That is two months of supplier traffic --- the first of July to the thirty-first
+of August, replayed off a snapshot the way a flight recorder is read back.
+Five thousand two hundred events across a hundred and fifty products,
+delivered by eleven systems in batches, at irregular times, overlapping each
+other --- which is what a real morning looks like.
 
 ``The systems are now reporting how much they sent, and how much of it was
 defective.''
@@ -532,7 +534,7 @@ The system disappears from the \ui{SYSTEMS} column immediately.
 \begin{say}[Say this]
 ``Systems can be added and removed while it is running, and the map follows.
 Adding one is pasting an address --- there is a box for it just there. Nothing
-about the ten systems is written into the application.''
+about the eleven systems is written into the application.''
 \end{say}
 
 \textbf{Do this:} click \ui{System Control} in the menu and point at the
@@ -648,7 +650,7 @@ approving it.''
 \subsection{``How does it connect to our systems?''}
 
 \begin{say}
-``Through an open standard called MCP. Each of the ten systems is a separate
+``Through an open standard called MCP. Each of the eleven systems is a separate
 endpoint, and connecting a new one is pasting an address --- no code change.
 The same on the publishing side.''
 \end{say}
@@ -734,13 +736,13 @@ Tear this page off and keep it next to you.
 \texttt{cd C:\textbackslash Users\textbackslash Sauris\textbackslash Downloads\textbackslash productonboarding-new}\\
 \texttt{python run.py --reset}\\
 Browser: \texttt{http://127.0.0.1:8000}\\
-Check: green \ui{gateway} dot, \ui{The catalog is clean}, counter \ui{0/274}
+Check: green \ui{gateway} dot, \ui{The catalog is clean}, counter \ui{0/5211}
 \end{tcolorbox}
 
 \vspace{0.4em}
 \begin{tcolorbox}[colback=white,colframe=accent,boxrule=1pt,arc=2pt]
 \textbf{The five acts}\\[4pt]
-\textbf{1.} \ui{Ingest Fabric} --- ``ten systems, catalogue is clean'' \\[3pt]
+\textbf{1.} \ui{Ingest Fabric} --- ``eleven systems, catalogue is clean'' \\[3pt]
 \textbf{2.} \ui{Jump to the correction} (bottom bar) --- ``eight weeks of
 traffic'' \\[3pt]
 \textbf{3.} \ui{Run the correction loop} (blue, top right) --- wait 20s ---

@@ -285,3 +285,51 @@ def test_findings_are_ordered_so_two_reads_agree():
     # Blocking first: it is the one a reviewer must not scroll past.
     assert summary["findings"][0]["check"] == "saleability"
     assert summary["blocking"]
+
+
+# ---------------------------------------------------------------------------
+# A narrow assessment is never reported as a clean one
+# ---------------------------------------------------------------------------
+# The product view now opens on the six rule checks alone, because the three
+# that read prose are three model round trips and running them on every click
+# made the page a wait rather than a look. That trade is only defensible while
+# the response says what it did not do - so these are the assertions the new
+# default rests on.
+
+
+def test_the_rule_checks_alone_always_report_themselves_as_narrow():
+    """Every product, not one. A single surface that forgot to say so is the
+    whole risk of the faster default."""
+    from sc.state import baseline as baseline_mod
+
+    base = baseline_mod.get()
+    for entity_id in sorted(base.variants):
+        summary = readiness.assess(entity_id, use_model=False,
+                                   include_record=False)
+        assert summary["checks_complete"] is False
+        assert summary["caveat"], f"{entity_id} reports narrowly and says nothing"
+        assert "narrower" in summary["caveat"]
+
+
+def test_a_narrow_assessment_can_still_be_ready_which_is_why_it_must_say_so():
+    """The dangerous case, stated as a test.
+
+    A record with no rule findings comes back READY_TO_LAUNCH from six checks
+    of nine. The verdict is correct - nothing found it unready - and rendering
+    it as "ready to launch" without the caveat would be reporting the absence
+    of three checks as the presence of a clean result.
+    """
+    summary = readiness.assess(CLEAN, use_model=False, include_record=False)
+
+    assert summary["verdict"] == verdict_mod.READY
+    assert summary["ready"] is True
+    assert summary["checks_complete"] is False
+
+
+def test_findings_are_not_weakened_by_the_assessment_being_narrow():
+    """A missing allergen declaration found by a rule is a missing allergen
+    declaration whether or not a model also looked."""
+    narrow = readiness.assess(NO_PANEL, use_model=False, include_record=False)
+
+    assert narrow["verdict"] == verdict_mod.RETURN
+    assert narrow["findings"], "the rule checks found nothing to return for"

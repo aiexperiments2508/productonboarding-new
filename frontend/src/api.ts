@@ -192,6 +192,28 @@ export interface CatalogState {
   };
 }
 
+/** What the Ingest Fabric draws: a page of products and what attaches to them.
+ *
+ *  Deliberately not `CatalogState`. Four sections read the full catalog and a
+ *  map showing ten of a hundred and fifty products is a reasonable map while a
+ *  blast radius showing ten of a hundred and fifty is a wrong answer. */
+export interface MapView {
+  as_of: string;
+  as_of_recorded: string | null;
+  nodes: CatalogNode[];
+  edges: CatalogEdge[];
+  products: Product[];
+  variants: Variant[];
+  channels: Channel[];
+  listings: Listing[];
+  correction: { listings: Record<string, string> };
+  page: {
+    limit: number; offset: number; total_products: number;
+    returned: number; truncated: boolean;
+  };
+  facets: Facets;
+}
+
 /* --- events ------------------------------------------------------------- */
 
 export type EventType =
@@ -731,7 +753,118 @@ export interface ProductHit {
    *  holding a launch up, so a row without one is a row nobody can act on. */
   verdict?: string;
   findings?: number;
+  /** False when only the six rule checks ran. A row that renders a verdict
+   *  without consulting this is a row that can say "ready" about an assessment
+   *  that never read a regulation. */
   checks_complete?: boolean;
+  /** Only when an arrival window was asked for. */
+  first_seen?: string;
+  last_seen?: string;
+  events_in_window?: number;
+  systems_in_window?: string[];
+}
+
+/** One image slot a category has, and whether it arrived.
+ *
+ *  Derived server-side from the same table the required_media check binds on,
+ *  so the strip on the page and the finding beside it cannot disagree about
+ *  what this product needs. */
+export interface MediaSlot {
+  role: string;
+  required: boolean;
+  held: boolean;
+  id?: string | null;
+  uri?: string | null;
+  alt_text?: string | null;
+  system?: string | null;
+}
+
+/** Which products arrived in the window, and where the window is measured.
+ *
+ *  `source` is on the wire deliberately: the window runs on the simulated
+ *  arrival clock, not on the wall clock the replayer happens to be running at,
+ *  and a caption that did not say so would be ambiguous in the one way that
+ *  matters. */
+export interface ProductWindow {
+  start: string | null;
+  end: string | null;
+  include_untouched: boolean;
+  source: string;
+}
+
+export interface ProductPage {
+  limit: number; offset: number; total: number; returned: number;
+}
+
+export interface Facets {
+  suppliers: { id: string; name: string; products: number }[];
+  categories: { prefix: string; label: string; products: number }[];
+}
+
+/** How much went downstream clean, and how much went back to its source.
+ *
+ *  `checks_complete` is false if it is false for *any* product counted. A
+ *  headline number reported as clear, when it was cleared by six checks of
+ *  nine and the caption did not say so, is the same omission as on one product
+ *  and a more dangerous one - a number on a dashboard gets repeated by people
+ *  who never saw the product. */
+export interface ProductRollup {
+  window: ProductWindow;
+  filters: { query: string; suppliers: string[]; categories: string[] };
+  assessed: number;
+  cleared: number;
+  returned: number;
+  blocked: number;
+  untouched: number;
+  checks_complete: boolean;
+  caveat?: string | null;
+  by_supplier: {
+    supplier: string; name: string; assessed: number;
+    cleared: number; returned: number; blocked: number;
+  }[];
+  by_category: {
+    prefix: string; label: string; assessed: number;
+    cleared: number; returned: number; blocked: number;
+  }[];
+  by_system: {
+    system: string; owner?: string | null; products: number; findings: number;
+  }[];
+  by_check: { check: string; products: number; findings: number }[];
+}
+
+/** Why a finding happened and who has to fix it.
+ *
+ *  Produced after the verdict and unable to reach it. `written_by_model` is
+ *  false when the account came from the estate manifest alone, which is what a
+ *  venue with no gateway gets - and the grounding is identical either way. */
+export interface RootCause {
+  check: string;
+  subject: string;
+  severity: string;
+  detail: string;
+  system?: string | null;
+  owner?: string | null;
+  likely_defect?: string | null;
+  defect_explanation: string;
+  defect_rate?: number | null;
+  basis: string;
+  narrative: string;
+  remedy: string;
+  citation: string;
+  source: string;
+  written_by_model: boolean;
+  note: string;
+}
+
+export interface RCAReport {
+  entity_id: string;
+  verdict?: string;
+  checks_complete: boolean;
+  causes: RootCause[];
+  /** Findings past the limit. A panel showing three of eleven without saying
+   *  so reads as a product with three problems. */
+  not_explained: number;
+  unattributed: number;
 }
 
 export interface RecordAttribute {
@@ -782,6 +915,8 @@ export interface Readiness {
   checks_complete: boolean;
   caveat?: string | null;
   record?: ProductRecord;
+  /** Every image slot this category has, held or not. */
+  media?: MediaSlot[];
 }
 
 export interface Differentiator {
@@ -800,7 +935,7 @@ export interface Preview {
   category?: string;
   specification?: { path: string; label: string; value: unknown;
                     unit?: string | null }[];
-  media?: ProductMedia[];
+  media?: MediaSlot[];
   claims?: string[];
   differentiator?: Differentiator | null;
 }
@@ -991,8 +1126,47 @@ export interface A2ACall {
 
 /* --- endpoints ---------------------------------------------------------- */
 
+/** One query string for the product list and its summary.
+ *
+ *  Shared so the two can never disagree about what is being counted: a
+ *  headline built from different filters than the list under it is worse than
+ *  no headline. */
+function productQuery(opts: {
+  q?: string; limit?: number; offset?: number;
+  suppliers?: string[]; categories?: string[]; verdicts?: string[];
+  start?: string; end?: string; includeUntouched?: boolean;
+}): string {
+  const p = new URLSearchParams();
+  if (opts.q) p.set("q", opts.q);
+  if (opts.limit != null) p.set("limit", String(opts.limit));
+  if (opts.offset) p.set("offset", String(opts.offset));
+  if (opts.suppliers?.length) p.set("supplier", opts.suppliers.join(","));
+  if (opts.categories?.length) p.set("category", opts.categories.join(","));
+  if (opts.verdicts?.length) p.set("verdict", opts.verdicts.join(","));
+  if (opts.start) p.set("start", opts.start);
+  if (opts.end) p.set("end", opts.end);
+  if (opts.includeUntouched) p.set("include_untouched", "true");
+  const query = p.toString();
+  return query ? `?${query}` : "";
+}
+
 export const api = {
   health: () => get<Health>("/api/health"),
+
+  /** A page of the catalog for the Ingest Fabric to draw. */
+  networkMap: (opts: {
+    limit?: number; offset?: number; q?: string;
+    suppliers?: string[]; categories?: string[]; focus?: string | null;
+  } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.limit != null) p.set("limit", String(opts.limit));
+    if (opts.offset) p.set("offset", String(opts.offset));
+    if (opts.q) p.set("q", opts.q);
+    if (opts.suppliers?.length) p.set("supplier", opts.suppliers.join(","));
+    if (opts.categories?.length) p.set("category", opts.categories.join(","));
+    if (opts.focus) p.set("focus", opts.focus);
+    return get<MapView>(`/api/network/map?${p.toString()}`);
+  },
 
   network: (asOf?: string, asOfRecorded?: string) => {
     const q = new URLSearchParams();
@@ -1102,17 +1276,45 @@ export const api = {
   /* --- product 360 ------------------------------------------------------ */
 
   /** Find a product by SKU, internal identifier or name. An empty query lists
-   *  everything: a page that stays blank until you type looks broken. */
-  products: (q = "", limit = 20) =>
-    get<{ query: string; results: ProductHit[] }>(
-      `/api/products?q=${encodeURIComponent(q)}&limit=${limit}`),
+   *  everything: a page that stays blank until you type looks broken.
+   *
+   *  The window narrows to what actually arrived between those dates, on the
+   *  simulated clock the horizon runs on. */
+  products: (opts: {
+    q?: string; limit?: number; offset?: number;
+    suppliers?: string[]; categories?: string[]; verdicts?: string[];
+    start?: string; end?: string; includeUntouched?: boolean;
+  } = {}) =>
+    get<{
+      query: string; results: ProductHit[];
+      page: ProductPage; window: ProductWindow;
+    }>(`/api/products${productQuery(opts)}`),
+
+  /** How much was fit to push downstream, and how much went back to source. */
+  productSummary: (opts: {
+    q?: string; suppliers?: string[]; categories?: string[];
+    start?: string; end?: string; includeUntouched?: boolean;
+  } = {}) =>
+    get<ProductRollup>(`/api/products/summary${productQuery(opts)}`),
+
+  /** Why this product's findings happened, and who has to fix them. Fetched
+   *  separately from the assessment so the fast path stays fast. */
+  rca: (id: string, useModel = true, limit = 3) =>
+    get<RCAReport>(
+      `/api/products/${encodeURIComponent(id)}/rca` +
+      `?use_model=${useModel}&limit=${limit}`),
 
   /** One product's merged record - values, media, carriers, disagreements. */
   productRecord: (id: string) =>
     get<ProductRecord>(`/api/products/${encodeURIComponent(id)}`),
 
-  /** The nine checks and the verdict. */
-  readiness: (id: string, useModel = true) =>
+  /** The checks and the verdict.
+   *
+   *  Six by default, in milliseconds and with no gateway traffic. Pass
+   *  `useModel` to add the three that read regulation, internal documentation
+   *  and copy meaning - and until you have, the response says so and the UI
+   *  must not render the word "ready". */
+  readiness: (id: string, useModel = false) =>
     get<Readiness>(
       `/api/products/${encodeURIComponent(id)}/readiness?use_model=${useModel}`),
 

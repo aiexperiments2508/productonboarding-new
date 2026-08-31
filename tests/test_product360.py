@@ -97,9 +97,45 @@ def test_a_search_with_no_match_is_empty_not_an_error():
 
 def test_an_empty_query_lists_everything():
     """The product view opens on this. A page that stays empty until somebody
-    types looks broken rather than ready."""
-    results = search_mod.find("", limit=100)
-    assert len(results) == len(baseline_mod.get().variants)
+    types looks broken rather than ready.
+
+    "Everything" is bounded by the limit, and asserting that is the point: a
+    catalog of a few hundred variants must come back paged rather than whole,
+    and the count of what matched has to travel with the page or the caller
+    cannot tell a short list from a truncated one.
+    """
+    total_variants = len(baseline_mod.get().variants)
+
+    page, matched = search_mod.find("", limit=25, count=True)
+    assert len(page) == min(25, total_variants)
+    assert matched == total_variants, "the count is of matches, not of the page"
+
+    everything = search_mod.find("", limit=10_000)
+    assert len(everything) == total_variants
+
+
+def test_paging_walks_the_whole_list_without_repeating_itself():
+    """A second page is the next products, not the same ones again."""
+    first = search_mod.find("", limit=10)
+    second = search_mod.find("", limit=10, offset=10)
+
+    assert len(first) == len(second) == 10
+    assert not ({r["entity_id"] for r in first}
+                & {r["entity_id"] for r in second})
+
+
+def test_filters_narrow_without_reordering():
+    """A facet filter removes rows; it does not rerank the ones it keeps."""
+    base = baseline_mod.get()
+    supplier = base.products[next(iter(sorted(base.products)))].supplier
+
+    unfiltered = [r["entity_id"] for r in search_mod.find("", limit=10_000)]
+    filtered = search_mod.find("", limit=10_000, suppliers=[supplier])
+
+    assert filtered, "a supplier in the catalog matched nothing"
+    assert all(r["supplier"] == supplier for r in filtered)
+    kept = [r["entity_id"] for r in filtered]
+    assert kept == [e for e in unfiltered if e in set(kept)]
 
 
 def test_search_is_ordered_so_two_queries_agree():

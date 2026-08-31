@@ -47,6 +47,25 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def one_overlay_per_request(request, call_next):
+    """Let everything in one request share one projection of the fact store.
+
+    Building the overlay is six windowed scans, and it is built once per
+    product assessed - so a list of four hundred variants rebuilt the same
+    overlay four hundred times from the same rows. Scoped here rather than
+    cached globally because a request has exactly one instant, and an overlay
+    that outlived its request would answer a later question at an earlier one.
+    """
+    from sc.state import overlay as overlay_mod
+
+    token = overlay_mod.open_scope()
+    try:
+        return await call_next(request)
+    finally:
+        overlay_mod.close_scope(token)
+
+
 # ---------------------------------------------------------------------------
 # Live broadcast - replaces the broker's fan-out to subscribers
 # ---------------------------------------------------------------------------
@@ -228,6 +247,24 @@ def get_network(as_of: str | None = None,
     """The factory map: suppliers, products, variants, channels and listings,
     plus whatever corrections are in force at the instant asked for."""
     return network_tools.get_network_state(as_of, as_of_recorded)
+
+
+@app.get("/api/network/map")
+def get_map(as_of: str | None = None, as_of_recorded: str | None = None,
+            limit: int = 10, offset: int = 0, q: str = "",
+            supplier: str | None = None, category: str | None = None,
+            focus: str | None = None) -> dict:
+    """The Ingest Fabric's view: a page of products and what attaches to them.
+
+    Separate from ``/api/network`` on purpose. Four sections read that route for
+    the whole catalog, and a map that showed ten of a hundred and fifty products
+    would be a reasonable map and a wrong blast radius. This one selects a
+    product page and derives the rest, and reports how much it left out - a map
+    that quietly showed ten would be read as an estate that has ten.
+    """
+    return network_tools.get_map_view(
+        as_of, as_of_recorded, limit=limit, offset=offset, q=q,
+        suppliers=_csv(supplier), categories=_csv(category), focus=focus)
 
 
 @app.get("/api/network/trace/{entity_id}")
@@ -758,21 +795,128 @@ def mcp_servers() -> dict:
 
 
 @app.get("/api/products")
-def product_search(q: str = "", limit: int = 20) -> dict:
+def product_search(q: str = "", limit: int = 20, offset: int = 0,
+                   supplier: str | None = None, category: str | None = None,
+                   verdict: str | None = None,
+                   start: str | None = None, end: str | None = None,
+                   include_untouched: bool = False,
+                   use_model: bool = False) -> dict:
     """Find a product by SKU, internal identifier or name.
 
     An empty query lists everything rather than refusing: the product view opens
     on this, and a page that opens empty until you type is a page that looks
     broken.
+
+    ``start``/``end`` narrow to what actually *arrived* in that window, on the
+    simulated clock the horizon runs on - see ``sc.readiness.window`` for why
+    that is deliberately not the arrivals table. ``include_untouched`` keeps the
+    products nothing arrived for, because a supplier that went quiet three days
+    before a launch is itself the finding.
+
+    Verdicts come alongside, because the list exists to show which products are
+    holding a launch up and a row without one is a row nobody can act on. The
+    reading checks stay off here: a page of products would otherwise be three
+    model calls a row to render a list nobody has clicked into.
     """
     from sc.readiness import search as product_search_mod
+    from sc.readiness import window as window_mod
 
-    # Verdicts alongside, because the list view exists to show which products
-    # are holding a launch up and a row without one is a row nobody can act on.
-    # The reading checks stay off here: twenty products would otherwise be sixty
-    # model calls to render a page nobody has clicked into.
-    return {"query": q,
-            "results": product_search_mod.with_readiness(q, limit)}
+    scope = None
+    arrivals: dict[str, dict] = {}
+    if window_mod.bounded(start, end):
+        arrivals = window_mod.touched(start, end)
+        if not include_untouched:
+            base = baseline_mod.get()
+            scope = {v.id for v in base.catalog.variants
+                     if v.product_id in arrivals}
+
+    rows, total = product_search_mod.find(
+        q, limit=max(1, limit), offset=max(0, offset),
+        suppliers=_csv(supplier), categories=_csv(category),
+        entity_ids=scope, count=True)
+    results = product_search_mod.with_readiness(q, use_model=use_model,
+                                                rows=rows)
+
+    for row in results:
+        seen = arrivals.get(row["product_id"])
+        if seen:
+            row["first_seen"] = seen["first_seen"]
+            row["last_seen"] = seen["last_seen"]
+            row["events_in_window"] = seen["events"]
+            row["systems_in_window"] = seen["systems"]
+
+    if verdict:
+        wanted = {v.strip().upper() for v in verdict.split(",") if v.strip()}
+        results = [r for r in results if r.get("verdict") in wanted]
+
+    return {"query": q, "results": results,
+            "page": {"limit": limit, "offset": offset, "total": total,
+                     "returned": len(results)},
+            "window": {"start": start, "end": end,
+                       "include_untouched": include_untouched,
+                       "source": "events.ts - the simulated arrival clock"}}
+
+
+@app.get("/api/products/summary")
+def product_summary(q: str = "", supplier: str | None = None,
+                    category: str | None = None,
+                    start: str | None = None, end: str | None = None,
+                    include_untouched: bool = False,
+                    use_model: bool = False) -> dict:
+    """How much went downstream clean, and how much went back to its source.
+
+    The question the product screen exists to answer, asked of a population
+    rather than of one product. It counts verdicts the assessment already
+    reached and reaches none of its own, because two things deciding whether a
+    product is ready is one thing too many.
+    """
+    import sc.readiness as readiness
+    from sc.readiness import record as record_mod
+    from sc.readiness import rollup as rollup_mod
+    from sc.readiness import search as product_search_mod
+    from sc.readiness import window as window_mod
+    from sc.state import overlay as overlay_mod
+
+    base = baseline_mod.get()
+    scope = None
+    untouched = 0
+    if window_mod.bounded(start, end):
+        arrivals = window_mod.touched(start, end)
+        in_window = {v.id for v in base.catalog.variants
+                     if v.product_id in arrivals}
+        if include_untouched:
+            untouched = len([v for v in base.catalog.variants
+                             if v.id not in in_window])
+        else:
+            scope = in_window
+
+    rows = product_search_mod.find(
+        q, limit=10_000, suppliers=_csv(supplier), categories=_csv(category),
+        entity_ids=scope)
+    overlay = overlay_mod.cached(record_mod._instant(None), None)
+    records = record_mod.build_many([r["entity_id"] for r in rows],
+                                    overlay=overlay, base=base)
+
+    assessments = []
+    for row in rows:
+        record = records.get(row["entity_id"])
+        if record is None:
+            continue
+        summary = readiness.assess(row["entity_id"], use_model=use_model,
+                                   include_record=False, record=record,
+                                   base=base)
+        if summary is not None:
+            assessments.append((row, summary))
+
+    return {
+        "window": {"start": start, "end": end,
+                   "include_untouched": include_untouched,
+                   "source": "events.ts - the simulated arrival clock"},
+        "filters": {"query": q, "suppliers": _csv(supplier) or [],
+                    "categories": _csv(category) or []},
+        "untouched": untouched,
+        **rollup_mod.tally(assessments, base),
+    }
 
 
 @app.get("/api/products/{entity_id}")
@@ -786,14 +930,46 @@ def product_record(entity_id: str) -> dict:
     return record_mod.as_dict(record, baseline_mod.get())
 
 
+@app.get("/api/products/{entity_id}/rca")
+def product_rca(entity_id: str, use_model: bool = True, limit: int = 3) -> dict:
+    """Why this product's findings happened, and who has to fix them.
+
+    Runs after the verdict and cannot reach it. What it adds is the join
+    between a finding and the declared behaviour of the system that carried the
+    value - the difference between "the data is incomplete" and "the industry
+    data pool sends net content in its own vocabulary, and the team that owns
+    that integration has to remap it".
+    """
+    import sc.readiness as readiness
+    from sc.readiness import rca as rca_mod
+    from sc.readiness import record as record_mod
+
+    record = record_mod.build(entity_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="no such product")
+    summary = readiness.assess(entity_id, use_model=False,
+                               include_record=False, record=record)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="no such product")
+    return rca_mod.explain(entity_id, summary, record, use_model=use_model,
+                           limit=limit)
+
+
 @app.get("/api/products/{entity_id}/readiness")
-def product_readiness(entity_id: str, use_model: bool = True) -> dict:
+def product_readiness(entity_id: str, use_model: bool = False) -> dict:
     """The nine checks, their findings, and the verdict.
 
-    ``use_model=false`` runs the six deterministic checks only, and the response
-    says so. An assessment that could not reach a model has found fewer things,
-    and reporting that as clean is the most dangerous thing this surface could
-    do.
+    **The default is six of them.** The three that read regulation, internal
+    documentation and copy meaning need a model, and running them on every
+    click made opening a product a wait rather than a look. They now run when
+    somebody asks for them.
+
+    That is a defensible default only because the response says so. An
+    assessment that did not run the reading checks has found fewer things, and
+    reporting that as clean is the most dangerous thing this surface could do -
+    so ``checks_complete`` is false and ``caveat`` explains it, and every
+    surface that renders a verdict has to consult both before choosing its
+    word.
     """
     import sc.readiness as readiness
 
@@ -834,11 +1010,23 @@ def product_preview(entity_id: str, use_model: bool = True,
             detail="a named actor is required to preview unpublished content, "
                    "the same as for an approval decision")
 
-    summary = readiness.assess(entity_id, use_model=use_model)
+    from sc.readiness import record as record_mod
+
+    record = record_mod.build(entity_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="no such product")
+
+    # One assessment and one record, handed to the page rather than rebuilt by
+    # it. The route used to assess, and then `preview.build` assessed the same
+    # product again from scratch - two model rounds and two fact-store passes
+    # to answer one question, on the slowest interaction in the application.
+    summary = readiness.assess(entity_id, use_model=use_model,
+                               include_record=False, record=record)
     if summary is None:
         raise HTTPException(status_code=404, detail="no such product")
 
-    page = preview_mod.build(entity_id, summary, use_model=use_model)
+    page = preview_mod.build(entity_id, summary, use_model=use_model,
+                             record=record)
     # Recorded whether or not it rendered. "Somebody tried to preview a blocked
     # product" is at least as interesting as somebody previewing a ready one.
     planning.audit(
@@ -1241,6 +1429,27 @@ def fact_lineage(fact_id: str) -> dict:
 # ---------------------------------------------------------------------------
 # Static UI - mounted last so it never shadows an API route
 # ---------------------------------------------------------------------------
+
+
+# Product imagery, mounted before the SPA catch-all below. Registration order
+# is what matters: `@app.get("/{path:path}")` would otherwise answer every
+# image request with index.html, and a browser renders that as a broken-image
+# glyph - a missing asset reported as a corrupt one.
+MEDIA_DIR = Path(__file__).resolve().parents[1] / "data" / "media"
+if MEDIA_DIR.exists():
+    app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+
+
+@app.get("/media/{path:path}")
+def media_missing(path: str) -> FileResponse:
+    """An image the catalog points at and the disk does not have.
+
+    Only reached when the mount above did not serve it. A 404 rather than the
+    application shell, so that "the imaging system never delivered this" is
+    distinguishable from "the page is broken" - which is the distinction the
+    whole readiness surface is built on.
+    """
+    raise HTTPException(status_code=404, detail="no such media asset")
 
 
 if DIST.exists():

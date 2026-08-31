@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { UNSCOPED_CASE, api, fmt } from "../api";
 import type {
-  AffectedScope, AttributeDef, CatalogState, CorrectionKind, KPIs, OpenCase,
-  RunSnapshot, SCEvent,
+  AffectedScope, AttributeDef, CatalogState, CorrectionKind, KPIs, MapView,
+  OpenCase, RunSnapshot, SCEvent,
 } from "../api";
 import { applyEvents, emptyImpact, impactFrom, prunePulses } from "../liveImpact";
 import type { LiveImpact } from "../liveImpact";
@@ -21,6 +21,8 @@ import {
 } from "./common";
 import type { ChannelState } from "./common";
 import { EstatePanel } from "./EstatePanel";
+import { DEFAULT_MAP_FILTERS, MapControls } from "./MapControls";
+import type { MapFilters } from "./MapControls";
 import { MapLegend, NetworkMap, listingStatusMap } from "./NetworkMap";
 
 /* The ingest fabric.
@@ -110,6 +112,44 @@ export function ControlTower({
   const [live, setLive] = useState<LiveImpact>(emptyImpact);
   const seenRef = useRef<string>("");
 
+  /* The map draws a page of the catalog rather than all of it.
+   *
+   * It used to draw `catalog`, which is the whole estate - correct at six
+   * products and unreadable at a hundred and fifty, and refetched in full on
+   * every event the replay released. This is its own scoped read: ten products
+   * by default, chosen by the filters, and re-read only when those change or
+   * when something material lands. */
+  const [mapFilters, setMapFilters] = useState<MapFilters>(DEFAULT_MAP_FILTERS);
+  const [mapView, setMapView] = useState<MapView | null>(null);
+  const [mapBusy, setMapBusy] = useState(false);
+  const mapTicket = useRef(0);
+
+  const loadMap = useCallback(() => {
+    const ticket = ++mapTicket.current;
+    setMapBusy(true);
+    api.networkMap({ ...mapFilters, focus: selected })
+      .then((view) => { if (ticket === mapTicket.current) setMapView(view); })
+      .catch(() => { if (ticket === mapTicket.current) setMapView(null); })
+      .finally(() => { if (ticket === mapTicket.current) setMapBusy(false); });
+  }, [mapFilters, selected]);
+
+  // Debounced, so typing in the map search is one request rather than one per
+  // character.
+  useEffect(() => {
+    const timer = setTimeout(loadMap, 220);
+    return () => clearTimeout(timer);
+  }, [loadMap]);
+
+  // The catalog moving is what makes a drawn listing status stale. Coalesced
+  // hard: the replay releases events continuously, and re-reading the map on
+  // each one was the single most expensive thing this screen did.
+  const catalogStamp = catalog?.as_of ?? "";
+  useEffect(() => {
+    if (!catalogStamp) return;
+    const timer = setTimeout(loadMap, 800);
+    return () => clearTimeout(timer);
+  }, [catalogStamp, loadMap]);
+
   // Fold newly-arrived events into the decaying highlight state. The feed is
   // prepend-ordered, so the newest event id is enough to tell whether anything
   // actually arrived - re-applying the whole list on every render would keep
@@ -133,6 +173,30 @@ export function ControlTower({
     const timer = setInterval(() => setLive((prev) => prunePulses(prev)), 250);
     return () => clearInterval(timer);
   }, [live.pulses.size]);
+
+  /* The page the map draws, in the shape the renderer expects.
+   *
+   * NetworkMap takes a CatalogState because that is what it has always taken,
+   * and it reads five fields of it. Adapting here rather than reworking the
+   * renderer keeps one drawing routine: the map does not need to know whether
+   * it was handed the whole catalog or ten products of it, and a second
+   * renderer for "the same picture but smaller" is a second thing to keep
+   * right. Falls back to the full catalog until the first page lands, so the
+   * screen never opens on an empty frame. */
+  const mapCatalog = useMemo<CatalogState | null>(() => {
+    if (!mapView) return catalog;
+    if (!catalog) return null;
+    return {
+      ...catalog,
+      nodes: mapView.nodes,
+      edges: mapView.edges,
+      products: mapView.products,
+      variants: mapView.variants,
+      channels: mapView.channels,
+      listings: mapView.listings,
+      correction: { ...catalog.correction, ...mapView.correction },
+    };
+  }, [mapView, catalog]);
 
   /* --- lookups ---------------------------------------------------------- */
 
@@ -342,8 +406,8 @@ export function ControlTower({
         }
       />
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
-        <div className="flex min-w-0 flex-col gap-3">
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
           <Panel
             title="Product catalog"
             flush
@@ -362,12 +426,19 @@ export function ControlTower({
               </div>
             }
           >
-            {catalog ? (
+            {catalog && mapCatalog ? (
               <>
-                <div className="overflow-x-auto">
+                <MapControls
+                  filters={mapFilters}
+                  onChange={setMapFilters}
+                  facets={mapView?.facets}
+                  page={mapView?.page}
+                  busy={mapBusy}
+                />
+                <div className="max-h-[52vh] overflow-auto">
                   <div className="min-w-[720px]">
                     <NetworkMap
-                      catalog={catalog}
+                      catalog={mapCatalog}
                       affected={traced}
                       live={live}
                       selected={selected}
@@ -497,7 +568,7 @@ export function ControlTower({
           </Panel>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
           {/* The four figures a reviewer opens this page for. */}
           <div className="grid grid-cols-2 gap-2">
             <Kpi

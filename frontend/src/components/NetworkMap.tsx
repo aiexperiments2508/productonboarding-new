@@ -48,7 +48,30 @@ import { cn } from "../ui";
  */
 
 const W = 1000;
-const H = 460;
+
+/* Height is derived from the busiest tier, not fixed.
+ *
+ * It used to be a constant 460, with each tier spread evenly across whatever
+ * room that left. That is exactly right for a catalog of six products and
+ * silently wrong for one of a hundred and fifty: the nodes do not overlap
+ * gracefully, they just stack until the labels are mud, and nothing on screen
+ * says the picture has stopped being readable.
+ *
+ * So the frame grows with what is in it, up to a bound. Past that bound the
+ * tier is truncated *visibly* - see MAX_ROWS - because a map that quietly drew
+ * the first thirty of a hundred and fifty would be read as an estate of
+ * thirty. */
+const MIN_H = 360;
+const MAX_H = 1400;
+
+/** Vertical room one node needs: the body, its label above it, and air. */
+const ROW_H = 34;
+
+/** The most members any one tier will draw. Beyond this the tier shows a
+ *  "+N more" marker and the filters are how you see the rest - which is the
+ *  honest answer, because the alternative is a column of overlapping text
+ *  that looks like a rendering fault rather than a full estate. */
+const MAX_ROWS = Math.floor((MAX_H - 68) / ROW_H);
 // Left padding carries the widest caption in the leftmost column. That used to
 // be a six-character supplier code; it is now a system name, so the column
 // needs room a short id never did.
@@ -118,6 +141,8 @@ interface Placed {
   detail: string;
   /** Systems only: the connection has stopped answering. */
   degraded?: boolean;
+  /** False when the rows are too tight for text to be legible. */
+  showLabel?: boolean;
 }
 
 interface Edge {
@@ -146,9 +171,8 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
 }) {
   const [hover, setHover] = useState<Placed | null>(null);
 
-  const { placed, edges, tiers } = useMemo(() => {
+  const { placed, edges, tiers, H, overflow } = useMemo(() => {
     const innerW = W - PAD.left - PAD.right;
-    const innerH = H - PAD.top - PAD.bottom;
 
     const productById = new Map(catalog.products.map((p) => [p.id, p]));
     const variantById = new Map(catalog.variants.map((v) => [v.id, v]));
@@ -232,15 +256,42 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
     const columnOf = new Map(occupied.map((t, i) => [t.kind, i]));
     const lastColumn = Math.max(occupied.length - 1, 1);
 
-    const placed: Placed[] = catalog.nodes.map((n) => {
-      const peers = membership.get(n.kind) ?? [n.id];
+    // What each tier will actually draw, and what it had to leave out.
+    const drawn = new Map<CatalogNodeKind, string[]>();
+    const overflow = new Map<CatalogNodeKind, number>();
+    for (const [kind, ids] of membership) {
+      drawn.set(kind, ids.slice(0, MAX_ROWS));
+      if (ids.length > MAX_ROWS) overflow.set(kind, ids.length - MAX_ROWS);
+    }
+
+    const busiest = Math.max(
+      1, ...[...drawn.values()].map((ids) => ids.length));
+    const H = Math.min(
+      MAX_H, Math.max(MIN_H, PAD.top + PAD.bottom + busiest * ROW_H));
+    const innerH = H - PAD.top - PAD.bottom;
+
+    /* One pitch for every tier, rather than each tier spreading itself over
+       the full height.
+       Before, a tier of four and a tier of eight had different vertical
+       spacings, so their connecting edges fanned and crossed for no reason
+       anybody could read - the geometry was saying something about the data
+       that was not true. A shared pitch makes the picture a grid: rows line up
+       across columns, and a crossing edge means a real crossing. */
+    const rowPitch = innerH / busiest;
+
+    const placed: Placed[] = catalog.nodes.flatMap((n) => {
+      const peers = drawn.get(n.kind) ?? [];
       const seat = peers.indexOf(n.id);
-      return {
+      if (seat < 0) return [];  // past the tier's cap, counted in `overflow`
+      // Centred as a block, so a tier of three in a frame sized for twelve
+      // sits in the middle rather than clinging to the top.
+      const offset = (innerH - peers.length * rowPitch) / 2;
+      return [{
         id: n.id,
         kind: n.kind,
         name: n.name,
         x: PAD.left + ((columnOf.get(n.kind) ?? 0) / lastColumn) * innerW,
-        y: PAD.top + ((seat + 1) / (peers.length + 1)) * innerH,
+        y: PAD.top + offset + (seat + 0.5) * rowPitch,
         regulated: n.regulated,
         single: n.single_source,
         detail: detailOf(n.id, n.kind),
@@ -249,7 +300,10 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
         // delivered it, and a bitemporal store does not retract history
         // because a socket closed.
         degraded: n.kind === "SYSTEM" && n.state !== "connected",
-      };
+        // Labels turn to mud long before nodes collide. Below this pitch the
+        // hover card carries identity instead.
+        showLabel: rowPitch >= 26,
+      }];
     });
 
     const byId = new Map(placed.map((p) => [p.id, p]));
@@ -306,7 +360,7 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
       return { ...t, x, n: xs.length };
     }).filter((t) => t.n > 0);
 
-    return { placed, edges, tiers };
+    return { placed, edges, tiers, H, overflow };
   }, [catalog]);
 
   const hitNodes = affected?.nodes ?? new Set<string>();
@@ -317,6 +371,7 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
       <svg
         className="block w-full bg-sunken"
         viewBox={`0 0 ${W} ${H}`}
+        style={{ minHeight: Math.min(H, 520) }}
         role="img"
         aria-label="Product catalog, from supplier sources through to sales channels, with the blast radius of the correction highlighted"
       >
@@ -359,6 +414,12 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
             className="fill-faint font-mono text-[11px] uppercase tracking-caps"
           >
             {t.label}
+            {/* Said in the caption rather than left implicit. A column that
+                quietly drew the first forty of a hundred and fifty would be
+                read as a column that has forty. */}
+            {overflow.get(t.kind)
+              ? ` +${overflow.get(t.kind)} not drawn`
+              : ""}
           </text>
         ))}
 
@@ -560,8 +621,11 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
               />
 
               {/* Id first, then the name. The id is what a reviewer searches
-                  by; the name is what the correction is actually about. */}
-              <text
+                  by; the name is what the correction is actually about.
+                  Dropped entirely when the rows are too tight to read - three
+                  overlapping labels say less than none, and the hover card
+                  still names everything. */}
+              {n.showLabel !== false && <text
                 x={n.x}
                 y={n.y - NODE_R - 6}
                 textAnchor="middle"
@@ -586,7 +650,7 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
                     <tspan dx="4.5" opacity="0.72">{trim(n.name)}</tspan>
                   </>
                 )}
-              </text>
+              </text>}
 
               {/* Hit target. Larger than the body so a node this small stays
                   clickable, and it is the element that owns focus. */}

@@ -29,19 +29,44 @@ from sc.state import store  # noqa: E402
 
 FEED = EventType.SUPPLIER_FEED
 
-# After the fixture the replay clock stands at 1 October; a synthetic event has
-# to arrive after everything the tape has already said.
-NOW = datetime(2026, 10, 5, 9)
+# A synthetic event has to arrive after everything the tape has already said.
+# Derived from the horizon rather than written down: the clock the fixture
+# leaves behind moves whenever the recorded flight does, and a literal date
+# here would quietly start reading a window the tape has not reached.
+def _after_the_tape() -> datetime:
+    from datetime import timedelta
+
+    base = baseline_mod.get()
+    return datetime.combine(
+        base.horizon_start + timedelta(days=base.horizon_days + 4),
+        datetime.min.time()).replace(hour=9)
+
+
+NOW = _after_the_tape()
 
 
 @pytest.fixture(autouse=True)
 def fresh():
     db.init_db(drop=True)
     tape.load_tape(reset=True)
-    released = tape.jump_to(tape.inject_seq() + 12)
+    # As far as the allergen change, which is the last arc these tests read
+    # against. Named rather than counted: "twelve events past the inject" is a
+    # statement about traffic density, and the density is not what is under
+    # test here.
+    released = tape.jump_to(_seq_of(doc_id="DOC-04", version="v2"))
     ingest.ingest(released)
     yield
     db.close()
+
+
+def _seq_of(*, doc_id: str, version: str) -> int:
+    """Where an arc sits on the tape, by what it carries rather than by count."""
+    for row in db.query("SELECT seq, payload FROM events ORDER BY seq"):
+        payload = db.loads(row["payload"])
+        if (payload.get("doc_id") == doc_id
+                and payload.get("doc_version") == version):
+            return int(row["seq"])
+    raise AssertionError(f"no {doc_id} {version} on the tape")
 
 
 def _event(offset: int, type_: EventType, payload: dict,
@@ -152,7 +177,16 @@ def test_a_required_attribute_arriving_empty_is_a_data_gap():
 
 def test_a_lower_precedence_source_does_not_overwrite_a_higher_one():
     """Arc 2: the portal spreadsheet disagrees with the pack label."""
-    event = _event(1, FEED, {"kind": "ATTRIBUTE", "entity_id": "VAR-02A",
+    # The pack label speaks first, and this test writes that itself rather than
+    # relying on the tape having happened to confirm the attribute inside the
+    # fixture's window. What is under test is which of two sources wins, so
+    # both of them belong in the test.
+    ingest.ingest([_event(1, FEED, {
+        "kind": "ATTRIBUTE", "entity_id": "VAR-02A",
+        "path": "identifiers.gtin", "value": "05098765400011",
+        "doc_id": "DOC-03", "doc_version": "v1", "supplier": "SUP-02"})])
+
+    event = _event(2, FEED, {"kind": "ATTRIBUTE", "entity_id": "VAR-02A",
                              "path": "identifiers.gtin",
                              "value": "05098765499999", "doc_id": "DOC-05",
                              "doc_version": "v1", "supplier": "SUP-02"})

@@ -19,7 +19,7 @@ export function PageHeader({
 }) {
   const current = sectionById(section);
   return (
-    <div className="mb-3 flex items-start gap-4">
+    <div className="mb-3 flex shrink-0 items-start gap-4">
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-xl font-semibold tracking-tight text-fg">
           {current.label}

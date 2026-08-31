@@ -427,7 +427,9 @@ def test_get_derivation_of_a_listing_covers_every_asset_on_it(base):
 
 
 def test_get_derivation_of_an_unknown_id_is_an_error_not_an_exception():
-    assert "error" in network.get_derivation("AST-999")
+    # Not "AST-999" - the catalog has thousands of assets now and that is a
+    # real one. An unknown id has to be unknowable, not merely unlikely.
+    assert "error" in network.get_derivation("AST-NO-SUCH-THING")
 
 
 def test_channel_rules_returns_only_what_binds_on_the_named_field():

@@ -47,6 +47,7 @@ data/*.jsonl
 data/*.npy
 data/comms/
 data/docs/
+data/media/
 # The extraction answer key is written by the same generator, out of the same
 # payloads, so it is rebuilt rather than carried - that is the whole reason it
 # cannot rot. The eval's own output goes beside it; the numbers worth keeping

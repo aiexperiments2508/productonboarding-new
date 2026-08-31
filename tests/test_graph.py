@@ -71,11 +71,37 @@ def fresh():
 
     tape.load_tape(reset=True)
     rag_index.build(include_comms=True, embed=False)
-    # Advance past the inject so there is a correction to propagate.
-    released = tape.jump_to(tape.inject_seq() + 12)
+    # Advance past the inject so there is a correction to propagate - as far as
+    # the allergen change, which is what the signal assertions below rest on.
+    released = tape.jump_to(_seq_of(doc_id="DOC-04", version="v2"))
     ingest.ingest(released)
     yield
     db.close()
+
+
+def _seq_of(*, doc_id: str | None = None, version: str | None = None,
+            code: str | None = None) -> int:
+    """Where an arc sits on the tape, by what it carries rather than by count.
+
+    The arcs are fixed points in the story; their sequence numbers are not,
+    because ids are assigned after the tape is sorted and any change to routine
+    traffic renumbers everything. A test that says "twelve events past the
+    inject" is asserting a traffic density it does not care about.
+    """
+    from sc import db
+
+    for row in db.query("SELECT seq, payload FROM events ORDER BY seq"):
+        payload = db.loads(row["payload"])
+        if doc_id and payload.get("doc_id") != doc_id:
+            continue
+        if version and payload.get("doc_version") != version:
+            continue
+        if code and payload.get("code") != code:
+            continue
+        return int(row["seq"])
+    raise AssertionError(
+        f"no event on the tape carries doc_id={doc_id} version={version} "
+        f"code={code}")
 
 
 def _run(thread: str = THREAD) -> dict:
@@ -89,7 +115,7 @@ def _release_the_clarification() -> list:
     level that has never been published. It lands four days after the notice
     this run was started on.
     """
-    released = tape.jump_to(tape.inject_seq() + 26)
+    released = tape.jump_to(_seq_of(doc_id="DOC-01", version="v3"))
     ingest.ingest(released)
     assert any((e.payload or {}).get("doc_version") == "v3" for e in released), \
         "the finale revision is not in the released window"
@@ -697,7 +723,10 @@ def test_a_withdrawn_notice_is_not_an_open_correction():
     """The kettle dimensions were flagged provisional and the audit closed
     three days later. Both are on the tape; only one of them is live."""
     values = _run()["values"]
-    released = tape.released(limit=400)
+    # The whole released window, not its last few hundred events. The tape
+    # carries thousands now, and "the last 400" stopped reaching back as far as
+    # the notice this test is about.
+    released = tape.released(limit=100_000)
 
     assert any((e.payload or {}).get("withdraws") == "DOC-06:v2"
                for e in released), "the withdrawal is not in the released window"
@@ -829,7 +858,10 @@ def _reset_world() -> None:
             candidate.unlink()
     tape.load_tape(reset=True)
     rag_index.build(include_comms=True, embed=False)
-    ingest.ingest(tape.jump_to(tape.inject_seq() + 12))
+    # The same window the fixture opened. It has to be the same one, or the
+    # two runs this exists to compare are reading different worlds - which is
+    # what "put the store back where the fixture found it" means.
+    ingest.ingest(tape.jump_to(_seq_of(doc_id="DOC-04", version="v2")))
 
 
 #: The fields of a rewrite record that describe *what was decided*, as opposed

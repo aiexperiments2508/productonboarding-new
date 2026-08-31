@@ -24,21 +24,51 @@ from sc.state import overlay as overlay_mod
 
 
 def _instant(as_of: str | None) -> datetime:
+    """The instant to read the record at.
+
+    ``tape.sim_now`` rather than ``tape.state().sim_clock``: the latter is None
+    until the replay has released its first event, so on a freshly reset
+    database - which is the state a presenter opens on - every product read
+    failed with an AttributeError. `sim_now` falls back to the start of the
+    horizon, which is the right answer to "what time is it" when the recorded
+    flight has not started playing yet.
+    """
     if as_of:
         return datetime.fromisoformat(as_of)
     from sc.replay import tape
 
-    return tape.state().sim_clock
+    return tape.sim_now()
 
 
-def build(entity_id: str, as_of: str | None = None) -> Record | None:
+def _by_entity(pairs) -> dict[str, list[tuple[str, object]]]:
+    """Group a ``(entity, path) -> value`` mapping by entity.
+
+    The baseline and the overlay are both keyed on the pair, which is the right
+    shape for "what is this one attribute" and the wrong shape for "everything
+    about this one product". Scanning the whole mapping per record is invisible
+    at eight variants and is four hundred full scans at four hundred.
+    """
+    grouped: dict[str, list[tuple[str, object]]] = {}
+    for (entity, path), value in pairs.items():
+        grouped.setdefault(entity, []).append((path, value))
+    return grouped
+
+
+def build(entity_id: str, as_of: str | None = None, *,
+          overlay=None, base=None, _defer_facts: bool = False,
+          _baseline_index=None, _overlay_index=None) -> Record | None:
     """One variant's record at an instant, or None if the catalog has no such
     variant.
 
     Returns None rather than raising: a reader asking about something that does
     not exist has made a typo, and a 404 is a better answer than a stack trace.
+
+    ``overlay`` and ``base`` are injectable so that a caller building many
+    records - the product list, the rollup - assembles the projection once and
+    hands the same one to every record. Left out, this behaves exactly as it
+    always did.
     """
-    base = baseline_mod.get()
+    base = base if base is not None else baseline_mod.get()
     variant = base.variants.get(entity_id)
     if variant is None:
         return None
@@ -48,7 +78,8 @@ def build(entity_id: str, as_of: str | None = None) -> Record | None:
         return None
 
     valid = _instant(as_of)
-    overlay = overlay_mod.build(valid, None)
+    if overlay is None:
+        overlay = overlay_mod.cached(valid, None)
 
     record = Record(
         entity_id=entity_id,
@@ -62,17 +93,18 @@ def build(entity_id: str, as_of: str | None = None) -> Record | None:
     # Baseline first, then whatever the overlay has put in force. The order
     # matters: the overlay is corrections *on top of* the seeded record, and
     # reversing it would show a corrected product as uncorrected.
-    for (entity, path), value in base.attr_values.items():
-        if entity != entity_id:
-            continue
+    if _baseline_index is None:
+        _baseline_index = _by_entity(base.attr_values)
+    if _overlay_index is None:
+        _overlay_index = _by_entity(overlay.attr_values)
+
+    for path, value in _baseline_index.get(entity_id, ()):
         record.values[path] = value
-        source = base.attr_sources.get((entity, path))
+        source = base.attr_sources.get((entity_id, path))
         if source:
             record.sources[path] = f"{source.doc_id} {source.version}".strip()
 
-    for (entity, path), state in overlay.attr_values.items():
-        if entity != entity_id:
-            continue
+    for path, state in _overlay_index.get(entity_id, ()):
         # The overlay holds a value *and everything needed to defend it* -
         # version, fact id, provenance, confidence - because every gate
         # downstream is a question about where the number came from. The
@@ -85,9 +117,46 @@ def build(entity_id: str, as_of: str | None = None) -> Record | None:
             document = existing.split(" ")[0] if existing else ""
             record.sources[path] = f"{document} {version}".strip()
 
-    _attach_provenance(record)
-    _attach_superseded(record)
+    if not _defer_facts:
+        _attach_provenance(record)
+        _attach_superseded(record)
     return record
+
+
+def build_many(entity_ids: list[str], as_of: str | None = None,
+               *, overlay=None, base=None) -> dict[str, Record]:
+    """Many variants' records at one instant, in a fixed number of queries.
+
+    ``build`` issues two queries per entity - one for provenance, one for the
+    values that lost. Correct for one product and quadratic-looking for a list:
+    four hundred variants was eight hundred round trips to answer one question.
+    This asks both once, for the whole set, and deals the rows out.
+
+    Same records, same content. The only thing that changes is how many times
+    the fact store is asked.
+    """
+    base = base if base is not None else baseline_mod.get()
+    valid = _instant(as_of)
+    if overlay is None:
+        overlay = overlay_mod.cached(valid, None)
+
+    wanted = [e for e in entity_ids if e in base.variants]
+    baseline_index = _by_entity(base.attr_values)
+    overlay_index = _by_entity(overlay.attr_values)
+
+    records: dict[str, Record] = {}
+    for entity_id in wanted:
+        record = build(entity_id, as_of, overlay=overlay, base=base,
+                       _defer_facts=True, _baseline_index=baseline_index,
+                       _overlay_index=overlay_index)
+        if record is not None:
+            records[entity_id] = record
+    if not records:
+        return {}
+
+    _attach_provenance_many(records)
+    _attach_superseded_many(records)
+    return records
 
 
 def _attach_provenance(record: Record) -> None:
@@ -144,6 +213,65 @@ def _attach_superseded(record: Record) -> None:
             "system": provenance.get("system"),
             "source": provenance.get("source_id"),
         })
+
+
+def _chunks(items: list[str], size: int = 400):
+    """SQLite caps a statement at 999 host parameters by default."""
+    for start in range(0, len(items), size):
+        yield items[start:start + size]
+
+
+def _attach_provenance_many(records: dict[str, Record]) -> None:
+    """``_attach_provenance`` for a whole set, in one query per chunk.
+
+    Same ordering as the single-record form - most recent fact per attribute
+    wins - so a record built here and a record built alone carry the same
+    carriers and the same defects.
+    """
+    ids = list(records)
+    for chunk in _chunks(ids):
+        holes = ",".join("?" * len(chunk))
+        rows = db.query(
+            f"SELECT entity_id, attr, provenance FROM facts"
+            f" WHERE entity_id IN ({holes})"
+            f" ORDER BY recorded_at DESC, id DESC", tuple(chunk))
+        for row in rows:
+            record = records.get(row["entity_id"])
+            if record is None or row["attr"] in record.systems:
+                continue
+            try:
+                provenance = db.loads(row["provenance"])
+            except Exception:  # noqa: BLE001 - a bad row is not a bad record
+                continue
+            record.systems[row["attr"]] = provenance.get("system")
+            defects = provenance.get("defects") or ()
+            if defects:
+                record.defects[row["attr"]] = tuple(defects)
+
+
+def _attach_superseded_many(records: dict[str, Record]) -> None:
+    """``_attach_superseded`` for a whole set, in one query per chunk."""
+    ids = list(records)
+    for chunk in _chunks(ids):
+        holes = ",".join("?" * len(chunk))
+        rows = db.query(
+            f"SELECT entity_id, attr, value, provenance FROM facts"
+            f" WHERE entity_id IN ({holes}) AND supersedes_id IS NOT NULL"
+            f" ORDER BY recorded_at, id", tuple(chunk))
+        for row in rows:
+            record = records.get(row["entity_id"])
+            if record is None:
+                continue
+            try:
+                provenance = db.loads(row["provenance"])
+                value = db.loads(row["value"])
+            except Exception:  # noqa: BLE001
+                continue
+            record.superseded.setdefault(row["attr"], []).append({
+                "value": value,
+                "system": provenance.get("system"),
+                "source": provenance.get("source_id"),
+            })
 
 
 def as_dict(record: Record, base) -> dict:

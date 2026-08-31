@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import type { Preview, ProductHit, Readiness } from "../api";
-import { IconCheck, IconSearch } from "../icons";
+import type { Facets, Preview, ProductHit, ProductRollup, Readiness } from "../api";
+import { IconCheck, IconSpark } from "../icons";
 import {
-  Badge, Button, Code, Panel, Skeleton, Tooltip, cn, useToast,
+  Badge, Button, Code, Panel, Skeleton, SkeletonTable, Tooltip, cn, useToast,
 } from "../ui";
 import { PageHeader } from "../app/shell/PageHeader";
+import { MediaStrip } from "./MediaStrip";
+import { ProductFilters, ProductRollupStrip } from "./ProductFilters";
+import type { Filters } from "./ProductFilters";
+import { EMPTY_FILTERS } from "./ProductFilters";
+import { RootCausePanel } from "./RootCausePanel";
+import { StagingDialog } from "./StagingDialog";
+import { NARROW_NOTE, tallyVerdicts, verdictBadge } from "./verdict";
 
 /* Product 360.
  *
@@ -13,83 +20,153 @@ import { PageHeader } from "../app/shell/PageHeader";
  * published. This is the question that comes first and had no home: is this
  * product fit to publish at all.
  *
- * Three things on this screen are deliberate and worth reading the code for.
+ * Four things on this screen are deliberate and worth reading the code for.
  *
  * **There is no readiness score.** A product with three open findings is not
  * seventy per cent ready - it is not ready, and the three findings are the
  * thing somebody acts on. A number would invite a threshold and a threshold
  * would invite launching at ninety.
  *
+ * **The screen opens on the rule checks alone.** Six of the nine need no model
+ * and answer in milliseconds; the other three read a regulation, a piece of
+ * internal documentation and the meaning of a sentence, and running them on
+ * every click made this page a wait rather than a look. They run when asked.
+ * The price of that is stated everywhere it could mislead - see ./verdict.ts,
+ * which is the one place allowed to decide whether the word "ready" may be
+ * used.
+ *
  * **Every finding names a system.** "The data is incomplete" is not something
  * anybody can act on; "the imaging system never sent an ingredient panel" is,
- * because it says who has to fix it. That is what the estate is for.
+ * because it says who has to fix it. That is what the estate is for, and the
+ * root-cause panel is where it pays off.
  *
  * **The preview refuses rather than warns.** A page that renders a blocked
  * product with a banner across the top is a page somebody screenshots.
  */
 
-const VERDICT_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
-  READY_TO_LAUNCH: "ok",
-  RETURN_TO_SOURCE: "warn",
-  BLOCKED: "danger",
-};
-
-const VERDICT_WORDS: Record<string, string> = {
-  READY_TO_LAUNCH: "ready to launch",
-  RETURN_TO_SOURCE: "back to source",
-  BLOCKED: "blocked",
-};
-
-function verdictLabel(verdict?: string): string {
-  return verdict ? VERDICT_WORDS[verdict] ?? verdict.toLowerCase() : "unassessed";
-}
+/** Milliseconds. Long enough that a typed SKU is one request rather than
+ *  eleven, short enough that it still feels like typing. Same value the
+ *  command palette uses. */
+const SEARCH_DEBOUNCE_MS = 220;
 
 export function Product360() {
   const toast = useToast();
-  const [query, setQuery] = useState("");
+
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [hits, setHits] = useState<ProductHit[] | null>(null);
+  const [facets, setFacets] = useState<Facets | null>(null);
+  const [rollup, setRollup] = useState<ProductRollup | null>(null);
+  const [countingBusy, setCountingBusy] = useState(false);
+
   const [selected, setSelected] = useState<string | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
-  const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The reading checks are running for the selected product. */
+  const [deepening, setDeepening] = useState(false);
+
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+
   // Who is looking. The same thing the approval gate asks for and no more -
   // neither is authenticated, and inventing a login here would protect
   // unpublished copy more carefully than the decision to publish it. What it
   // buys is a name in the ledger against "who saw this before it launched".
   const [actor, setActor] = useState("reviewer");
 
-  const search = useCallback(async (term: string) => {
-    try {
-      const answer = await api.products(term, 50);
-      setHits(answer.results);
-      // Selecting the first result keeps the detail pane populated as somebody
-      // types. An empty right-hand side beside a full left-hand one reads as a
-      // page that failed rather than one waiting.
-      setSelected((current) =>
-        current && answer.results.some((r) => r.entity_id === current)
-          ? current
-          : answer.results[0]?.entity_id ?? null);
-    } catch (e) {
-      toast.error("Could not search products", String(e));
-    }
-  }, [toast]);
+  /* --- the list ---------------------------------------------------------- */
 
-  useEffect(() => { search(query); }, [search, query]);
+  // Debounced, with a staleness guard. Every keystroke used to be one request
+  // and one full server-side assessment per row, and a fast typist could have
+  // an early response land after a later one and overwrite it.
+  const live = useRef(0);
+  useEffect(() => {
+    const ticket = ++live.current;
+    const timer = setTimeout(() => {
+      api.products({
+        q: filters.q, limit: 200,
+        suppliers: filters.suppliers, categories: filters.categories,
+        start: filters.start, end: filters.end,
+        includeUntouched: filters.includeUntouched,
+      })
+        .then((answer) => {
+          if (ticket !== live.current) return;
+          setHits(answer.results);
+          // Keep the detail pane populated as somebody types. An empty
+          // right-hand side beside a full left-hand one reads as a page that
+          // failed rather than one waiting.
+          setSelected((current) =>
+            current && answer.results.some((r) => r.entity_id === current)
+              ? current
+              : answer.results[0]?.entity_id ?? null);
+        })
+        .catch((e) => {
+          if (ticket === live.current) {
+            toast.error("Could not search products", String(e));
+          }
+        });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [filters, toast]);
+
+  // The counting question, asked of the same filters as the list. Its own
+  // request because it walks every match rather than a page of them.
+  const counting = useRef(0);
+  useEffect(() => {
+    const ticket = ++counting.current;
+    setCountingBusy(true);
+    const timer = setTimeout(() => {
+      api.productSummary({
+        q: filters.q, suppliers: filters.suppliers,
+        categories: filters.categories,
+        start: filters.start, end: filters.end,
+        includeUntouched: filters.includeUntouched,
+      })
+        .then((answer) => { if (ticket === counting.current) setRollup(answer); })
+        .catch(() => { if (ticket === counting.current) setRollup(null); })
+        .finally(() => { if (ticket === counting.current) setCountingBusy(false); });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [filters]);
+
+  // What there is to filter by. Read once from the map's facet derivation,
+  // which counts the catalog rather than being configured beside it.
+  useEffect(() => {
+    api.networkMap({ limit: 1 })
+      .then((view) => setFacets(view.facets))
+      .catch(() => setFacets(null));
+  }, []);
+
+  /* --- the selected product ---------------------------------------------- */
 
   useEffect(() => {
     if (!selected) { setReadiness(null); setPreview(null); return; }
     let cancelled = false;
     setBusy(true);
     setPreview(null);
-    // The full assessment, model-backed. The list view runs the deterministic
-    // half only; asking for the reading checks on twenty rows nobody has
-    // clicked into would be sixty model calls to render a page.
-    api.readiness(selected, true)
+    setPreviewOpen(false);
+    // The rule checks only. This is the change that made the page open: the
+    // three reading checks are three model round trips, and they now run when
+    // a reviewer asks rather than on every click.
+    api.readiness(selected, false)
       .then((r) => { if (!cancelled) setReadiness(r); })
       .catch(() => { if (!cancelled) setReadiness(null); })
       .finally(() => { if (!cancelled) setBusy(false); });
     return () => { cancelled = true; };
   }, [selected]);
+
+  /** Run the three checks that need a model, for this product only. */
+  const deepen = useCallback(async () => {
+    if (!selected) return;
+    setDeepening(true);
+    try {
+      setReadiness(await api.readiness(selected, true));
+    } catch (e) {
+      toast.error("Could not run the reading checks", String(e));
+    } finally {
+      setDeepening(false);
+    }
+  }, [selected, toast]);
 
   const openPreview = useCallback(async () => {
     if (!selected) return;
@@ -99,21 +176,28 @@ export function Product360() {
                   + "approval decision is taken under one.");
       return;
     }
+    // Opened first, filled second. The click has to change something on screen
+    // immediately or it reads as a click that did nothing.
+    setPreviewOpen(true);
+    setPreviewBusy(true);
+    setPreview(null);
     try {
       setPreview(await api.preview(selected, actor.trim(), true));
     } catch (e) {
-      toast.error("Could not build the preview", String(e));
+      toast.error("Could not build the staging page", String(e));
+      setPreviewOpen(false);
+    } finally {
+      setPreviewBusy(false);
     }
   }, [actor, selected, toast]);
 
-  const counts = useMemo(() => {
-    const tally: Record<string, number> = {};
-    for (const hit of hits ?? []) {
-      const key = hit.verdict ?? "unassessed";
-      tally[key] = (tally[key] ?? 0) + 1;
-    }
-    return tally;
-  }, [hits]);
+  const counts = useMemo(() => tallyVerdicts(hits ?? []), [hits]);
+  const badge = verdictBadge(readiness?.verdict, readiness?.checks_complete);
+  const narrow = readiness != null && !readiness.checks_complete;
+  // A staging page is the last surface before publication, and a record
+  // cleared by six checks of nine has not been cleared by the three that read
+  // the regulation. So it is offered only once the assessment is complete.
+  const canStage = Boolean(readiness?.ready && readiness?.checks_complete);
 
   return (
     <>
@@ -121,100 +205,119 @@ export function Product360() {
         section="product360"
         actions={
           <div className="flex items-center gap-2">
-            {Object.entries(counts).map(([verdict, n]) => (
-              <Badge key={verdict} tone={VERDICT_TONE[verdict] ?? "neutral"} dot>
-                {n} {verdictLabel(verdict)}
+            {counts.map((entry) => (
+              <Badge key={entry.label} tone={entry.tone} dot>
+                {entry.n} {entry.label}
               </Badge>
             ))}
           </div>
         }
       />
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(320px,1fr)_minmax(0,2fr)]">
-        <Panel
-          title="Products"
-          subtitle="Search by SKU, identifier or name"
-          flush
-        >
-          <div className="border-b border-subtle p-2">
-            <label className="flex items-center gap-2 rounded-sm border border-line bg-canvas px-2">
-              <IconSearch size={13} className="shrink-0 text-faint" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="AER-300-MAX, VAR-01B, or purifier"
-                aria-label="Search products"
-                className={cn(
-                  "min-w-0 flex-1 bg-transparent py-1.5 font-mono text-xs",
-                  "text-fg placeholder:text-faint focus:outline-none",
-                )}
-              />
-            </label>
-          </div>
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(340px,1fr)_minmax(0,2fr)]">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3">
+          <ProductRollupStrip rollup={rollup} loading={countingBusy} />
 
-          {hits === null ? (
-            <div className="p-3"><Skeleton className="h-64" /></div>
-          ) : hits.length === 0 ? (
-            <p className="p-4 text-sm text-muted">
-              Nothing matches <Code>{query}</Code>.
-            </p>
-          ) : (
-            <ul className="sc-stagger flex flex-col">
-              {hits.map((hit, i) => (
-                <li key={hit.entity_id} style={{ ["--i" as string]: i }}>
-                  <button
-                    onClick={() => setSelected(hit.entity_id)}
-                    className={cn(
-                      "flex w-full items-center gap-2 border-b border-subtle",
-                      "px-3 py-2 text-left transition-colors",
-                      selected === hit.entity_id
-                        ? "bg-accent-soft"
-                        : "hover:bg-hover",
-                    )}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-fg">
-                        {hit.name}
-                      </span>
-                      <span className="block truncate font-mono text-2xs text-faint">
-                        {hit.sku} · {hit.entity_id}
-                      </span>
-                    </span>
-                    <Badge tone={VERDICT_TONE[hit.verdict ?? ""] ?? "neutral"}>
-                      {hit.findings ? `${hit.findings}` : "clear"}
-                    </Badge>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
+          <Panel
+            title="Products"
+            subtitle={
+              rollup ? `${rollup.assessed} in scope` : "Search by SKU, identifier or name"
+            }
+            flush
+            scroll
+            className="min-h-0 flex-1"
+          >
+            <ProductFilters
+              filters={filters}
+              onChange={setFilters}
+              facets={facets}
+            />
 
-        <div className="flex min-w-0 flex-col gap-3">
+            {hits === null ? (
+              <SkeletonTable rows={8} cols={2} />
+            ) : hits.length === 0 ? (
+              <p className="p-4 text-sm text-muted">
+                Nothing matches these filters.
+              </p>
+            ) : (
+              <ul className="flex flex-col">
+                {hits.map((hit) => {
+                  const row = verdictBadge(hit.verdict, hit.checks_complete);
+                  return (
+                    <li key={hit.entity_id}>
+                      <button
+                        onClick={() => setSelected(hit.entity_id)}
+                        className={cn(
+                          "flex w-full items-center gap-2 border-b border-subtle",
+                          "px-3 py-2 text-left transition-colors",
+                          selected === hit.entity_id
+                            ? "bg-accent-soft"
+                            : "hover:bg-hover",
+                        )}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm text-fg">
+                            {hit.name}
+                          </span>
+                          <span className="block truncate font-mono text-2xs text-faint">
+                            {hit.sku} · {hit.entity_id}
+                            {hit.last_seen
+                              ? ` · last arrived ${hit.last_seen.slice(0, 10)}`
+                              : ""}
+                          </span>
+                        </span>
+                        <Tooltip content={row.label}>
+                          <span>
+                            <Badge tone={row.tone}>
+                              {hit.findings ? `${hit.findings}` : "clear"}
+                            </Badge>
+                          </span>
+                        </Tooltip>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Panel>
+        </div>
+
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
           <Panel
             title={readiness?.record?.name ?? "Readiness"}
             subtitle={
               readiness
-                ? `${readiness.findings.length} finding(s) · ${verdictLabel(readiness.verdict)}`
+                ? `${readiness.findings.length} finding(s) · ${badge.label}`
                 : "Select a product"
             }
             actions={
-              readiness?.ready ? (
+              readiness ? (
                 <div className="flex items-center gap-1.5">
-                  <input
-                    value={actor}
-                    onChange={(e) => setActor(e.target.value)}
-                    aria-label="Who is viewing this unpublished content"
-                    placeholder="your name"
-                    className={cn(
-                      "w-28 rounded-sm border border-line bg-canvas px-2 py-1",
-                      "text-xs text-fg placeholder:text-faint",
-                      "focus:outline-none focus:ring-2 focus:ring-focus",
-                    )}
-                  />
-                  <Button size="sm" tone="primary" onClick={openPreview}>
-                    Open staging page
-                  </Button>
+                  {canStage ? (
+                    <>
+                      <input
+                        value={actor}
+                        onChange={(e) => setActor(e.target.value)}
+                        aria-label="Who is viewing this unpublished content"
+                        placeholder="your name"
+                        className={cn(
+                          "w-28 rounded-sm border border-line bg-canvas px-2 py-1",
+                          "text-xs text-fg placeholder:text-faint",
+                          "focus:outline-none focus:ring-2 focus:ring-focus",
+                        )}
+                      />
+                      <Button size="sm" tone="primary" onClick={openPreview}
+                              loading={previewBusy}>
+                        Open staging page
+                      </Button>
+                    </>
+                  ) : readiness.ready && narrow ? (
+                    <Tooltip content="A staging page cleared by six checks of nine is a narrower clearance, not a clean one. Run the reading checks first.">
+                      <span>
+                        <Button size="sm" disabled>Open staging page</Button>
+                      </span>
+                    </Tooltip>
+                  ) : undefined}
                 </div>
               ) : undefined
             }
@@ -224,38 +327,49 @@ export function Product360() {
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={VERDICT_TONE[readiness.verdict] ?? "neutral"} dot>
-                    {verdictLabel(readiness.verdict)}
-                  </Badge>
+                  <Badge tone={badge.tone} dot>{badge.label}</Badge>
                   <Code>{readiness.record?.sku}</Code>
                   {readiness.record?.product.regulated && (
                     <Badge tone="warn">regulated</Badge>
                   )}
                 </div>
 
-                {/* An assessment that could not reach a model has found fewer
-                    things. Saying so is the whole point - reporting a narrower
-                    result as a clean one is the most dangerous thing this
-                    surface could do. */}
-                {readiness.caveat && (
-                  <p className="mt-2 rounded-sm border border-warn-border bg-warn-soft px-2 py-1.5 text-xs text-warn-text">
-                    {readiness.caveat}
-                  </p>
+                {/* The admission of narrowness, and the control that ends it,
+                    in the same box. An assessment that has found fewer things
+                    is narrower rather than cleaner, and the button is the
+                    answer to the sentence rather than a feature elsewhere. */}
+                {narrow && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-sm border border-warn-border bg-warn-soft px-2 py-1.5">
+                    <p className="min-w-0 flex-1 text-xs text-warn-text">
+                      {NARROW_NOTE}
+                    </p>
+                    <Button size="xs" tone="primary" onClick={deepen}
+                            loading={deepening} icon={<IconSpark size={12} />}>
+                      Run the reading checks
+                    </Button>
+                  </div>
                 )}
+
+                {/* What imagery this category needs, and what turned up. */}
+                <div className="mt-3">
+                  <MediaStrip media={readiness.media} compact />
+                </div>
 
                 {readiness.findings.length === 0 ? (
                   <p className="mt-3 flex items-center gap-2 text-sm text-muted">
                     <IconCheck size={14} className="text-ok-text" />
-                    Nothing open. Every applicable attribute is held, the
-                    imagery this category needs is present, and no claim
-                    outruns the record.
+                    {narrow
+                      ? "No rule check found anything. The three that read "
+                        + "prose have not run."
+                      : "Nothing open. Every applicable attribute is held, the "
+                        + "imagery this category needs is present, and no claim "
+                        + "outruns the record."}
                   </p>
                 ) : (
-                  <ul className="sc-stagger mt-3 flex flex-col gap-1.5">
-                    {readiness.findings.map((finding, i) => (
+                  <ul className="mt-3 flex flex-col gap-1.5">
+                    {readiness.findings.map((finding) => (
                       <li
                         key={`${finding.check}-${finding.subject}`}
-                        style={{ ["--i" as string]: i }}
                         className={cn(
                           "rounded-sm border-l-2 bg-sunken px-2 py-1.5",
                           finding.severity === "BLOCKING"
@@ -286,6 +400,14 @@ export function Product360() {
                     ))}
                   </ul>
                 )}
+
+                {selected && (
+                  <RootCausePanel
+                    key={selected}
+                    entityId={selected}
+                    findings={readiness.findings.length}
+                  />
+                )}
               </>
             )}
           </Panel>
@@ -295,6 +417,8 @@ export function Product360() {
               title="The record"
               subtitle="What the estate has said, and who said it"
               flush
+              scroll
+              className="max-h-[46vh]"
             >
               <table className="w-full text-xs">
                 <tbody>
@@ -342,102 +466,16 @@ export function Product360() {
               </table>
             </Panel>
           )}
-
-          {preview && <StagingPage preview={preview} />}
         </div>
       </div>
+
+      <StagingDialog
+        open={previewOpen}
+        onOpenChange={(open) => { if (!open) setPreviewOpen(false); }}
+        preview={preview}
+        loading={previewBusy}
+        title={readiness?.record?.name ?? selected ?? "this product"}
+      />
     </>
-  );
-}
-
-/* The staging page.
- *
- * What the listing would look like, for a record that passed. Refusals are the
- * whole response rather than a banner, because a page that renders a blocked
- * product is a page somebody screenshots. */
-function StagingPage({ preview }: { preview: Preview }) {
-  if (!preview.rendered) {
-    return (
-      <Panel title="Staging page" subtitle="Not available">
-        <p className="text-sm text-muted">
-          {preview.reason}. This product is{" "}
-          <strong className="text-warn-text">
-            {verdictLabel(preview.verdict)}
-          </strong>{" "}
-          with {preview.findings?.length ?? 0} open finding(s).
-        </p>
-      </Panel>
-    );
-  }
-
-  const differentiator = preview.differentiator;
-  return (
-    <Panel
-      title="Staging page"
-      subtitle="What the listing would look like"
-      actions={<Badge tone="ok" dot>ready</Badge>}
-    >
-      <article className="flex flex-col gap-3">
-        <header>
-          <h3 className="text-lg font-semibold text-fg">{preview.title}</h3>
-          <p className="font-mono text-2xs text-faint">
-            {preview.sku} · {preview.category}
-          </p>
-        </header>
-
-        {/* The differentiator, and its grounds shown beside it rather than
-            hidden. A claim a reviewer cannot trace is a claim they cannot
-            approve. */}
-        {differentiator && (
-          <div className="rounded-md border border-accent-border bg-accent-soft p-3">
-            <p className="text-2xs uppercase tracking-caps text-accent-text">
-              why somebody buys this
-            </p>
-            <p className="mt-1 text-sm text-fg">{differentiator.text}</p>
-            <p className="mt-2 flex flex-wrap items-center gap-1.5 text-2xs text-muted">
-              <span>grounded in</span>
-              {differentiator.attributes.map((a) => (
-                <Code key={a}>{a}</Code>
-              ))}
-              <span>and</span>
-              <Code>{differentiator.source}</Code>
-              {!differentiator.written_by_model && (
-                <Badge tone="neutral">{differentiator.note}</Badge>
-              )}
-            </p>
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          {(preview.media ?? []).map((m) => (
-            <span
-              key={m.role}
-              className="rounded-sm border border-subtle bg-sunken px-2 py-1 text-2xs text-muted"
-            >
-              {m.role.toLowerCase().replace("_", " ")}
-            </span>
-          ))}
-        </div>
-
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          {(preview.specification ?? []).map((row) => (
-            <div key={row.path} className="contents">
-              <dt className="text-muted">{row.label}</dt>
-              <dd className="font-mono text-fg">
-                {String(row.value)}{row.unit ? ` ${row.unit}` : ""}
-              </dd>
-            </div>
-          ))}
-        </dl>
-
-        {(preview.claims ?? []).length > 0 && (
-          <p className="flex flex-wrap items-center gap-1.5">
-            {(preview.claims ?? []).map((c) => (
-              <Badge key={c} tone="ok">{c}</Badge>
-            ))}
-          </p>
-        )}
-      </article>
-    </Panel>
   );
 }

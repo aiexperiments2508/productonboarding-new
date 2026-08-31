@@ -64,7 +64,27 @@ def _band(row: dict, needle: str) -> int | None:
     return None
 
 
-def find(query: str, limit: int = 20) -> list[dict]:
+def _matches(row: dict, suppliers, categories) -> bool:
+    """Does this row survive the facet filters?
+
+    Categories match on prefix rather than equality, because the taxonomy is a
+    path: somebody filtering on ``home.`` means the whole branch, and asking
+    them to enumerate its leaves would make the filter useless on the one
+    question it exists for.
+    """
+    if suppliers and row["supplier"] not in suppliers:
+        return False
+    if categories and not any(row["category"].startswith(prefix)
+                              for prefix in categories):
+        return False
+    return True
+
+
+def find(query: str, limit: int = 20, *, offset: int = 0,
+         suppliers: list[str] | None = None,
+         categories: list[str] | None = None,
+         entity_ids: set[str] | None = None,
+         count: bool = False) -> list[dict] | tuple[list[dict], int]:
     """Products matching a SKU, an identifier or words from a name.
 
     An empty query lists everything. The product view opens on this, and a page
@@ -72,14 +92,28 @@ def find(query: str, limit: int = 20) -> list[dict]:
 
     A query nothing matches returns an empty list rather than raising: a typo is
     a normal thing for a person to do and a 500 is a rude way to say so.
+
+    Facets are applied *before* banding, so filtering cannot change how the
+    remaining rows rank against each other - a supplier filter narrows the
+    list, it does not reorder it.
+
+    ``count=True`` also returns how many matched before the slice, which is
+    what lets a page say "10 of 150" rather than implying it is showing
+    everything.
     """
     from sc.state import baseline as baseline_mod
 
     base = baseline_mod.get()
     needle = (query or "").strip().lower()
+    supplier_set = set(suppliers or ())
+    category_list = list(categories or ())
 
     scored: list[tuple[int, str, dict]] = []
     for row in _rows(base):
+        if entity_ids is not None and row["entity_id"] not in entity_ids:
+            continue
+        if not _matches(row, supplier_set, category_list):
+            continue
         band = _band(row, needle)
         if band is None:
             continue
@@ -88,11 +122,30 @@ def find(query: str, limit: int = 20) -> list[dict]:
         scored.append((band, row["entity_id"], row))
 
     scored.sort(key=lambda item: (item[0], item[1]))
-    return [row for _, _, row in scored[:limit]]
+    page = [row for _, _, row in scored[offset:offset + limit]]
+    return (page, len(scored)) if count else page
+
+
+def rank_products(query: str = "", *, suppliers: list[str] | None = None,
+                  categories: list[str] | None = None,
+                  limit: int = 10, offset: int = 0) -> tuple[list[str], int]:
+    """The same ranking, answered in products rather than variants.
+
+    The map draws products; the product list draws variants. Both have to agree
+    about what "AER" matches, so they share one ranking rather than growing a
+    second one that would disagree on the first ambiguous query.
+    """
+    rows = find(query, limit=10_000, suppliers=suppliers, categories=categories)
+    ordered: list[str] = []
+    for row in rows:
+        if row["product_id"] not in ordered:
+            ordered.append(row["product_id"])
+    return ordered[offset:offset + limit], len(ordered)
 
 
 def with_readiness(query: str, limit: int = 20, *,
-                   use_model: bool = False) -> list[dict]:
+                   use_model: bool = False, as_of: str | None = None,
+                   offset: int = 0, rows: list[dict] | None = None) -> list[dict]:
     """Search results, each carrying its verdict.
 
     The list view's whole purpose is to show which products are holding a launch
@@ -101,12 +154,36 @@ def with_readiness(query: str, limit: int = 20, *,
     Model-backed checks are off by default here: a list of twenty products would
     otherwise make sixty model calls to render a page nobody has clicked into.
     The detail view asks for the full assessment.
+
+    Every row is assessed against **one** projection of the fact store and one
+    batched read of the provenance chain. Before, each row rebuilt the overlay
+    from scratch and issued two more queries of its own, then serialised a full
+    merged record so that three scalars could be taken off it and the rest
+    dropped. At eight variants that was invisible; at four hundred it was the
+    page.
     """
     import sc.readiness as readiness
+    from sc.readiness import record as record_mod
+    from sc.state import baseline as baseline_mod
+    from sc.state import overlay as overlay_mod
 
-    rows = find(query, limit)
+    if rows is None:
+        rows = find(query, limit, offset=offset)
+    if not rows:
+        return []
+
+    base = baseline_mod.get()
+    overlay = overlay_mod.cached(record_mod._instant(as_of), None)
+    records = record_mod.build_many([row["entity_id"] for row in rows], as_of,
+                                    overlay=overlay, base=base)
+
     for row in rows:
-        summary = readiness.assess(row["entity_id"], use_model=use_model)
+        record = records.get(row["entity_id"])
+        if record is None:
+            continue
+        summary = readiness.assess(row["entity_id"], as_of, use_model=use_model,
+                                   include_record=False, record=record,
+                                   base=base)
         if summary is None:
             continue
         row["verdict"] = summary["verdict"]

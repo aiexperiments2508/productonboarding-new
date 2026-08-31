@@ -31,6 +31,7 @@ Fact conventions this module reads, and the event reducer writes:
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from datetime import datetime
 
 from sc.sim.engine import AttrState, Overlay
@@ -103,6 +104,54 @@ def build(as_of_valid: datetime, as_of_recorded: datetime | None = None) -> Over
                                attr=ATTR_PUBLISHED_VERSION):
         overlay.published_version[fact.entity_id] = str(fact.value)
 
+    return overlay
+
+
+# ---------------------------------------------------------------------------
+# One overlay per request
+# ---------------------------------------------------------------------------
+# ``build`` is six windowed scans of the fact store, and it is called once per
+# product assessed. That was invisible at eight variants and is the dominant
+# cost of a product list at four hundred: one request would rebuild the same
+# overlay four hundred times from the same rows.
+#
+# Scoped to a request rather than cached process-wide, deliberately. The replay
+# clock moves, and an overlay that outlived the request that asked for it would
+# answer a later question with an earlier instant - the one failure mode a
+# bitemporal store exists to prevent. A request has one instant by definition,
+# so within it the memo cannot be wrong.
+#
+# Safe only because nothing mutates what ``build`` returns. Every caller in
+# sc/graph, sc/sim and sc/tools reads ``overlay.attr_values[key]``; none
+# assigns. If that ever stops being true this memo must go.
+
+_scope: ContextVar[dict | None] = ContextVar("overlay_scope", default=None)
+
+
+def open_scope() -> object:
+    """Begin a memo scope. Returns a token for ``close_scope``."""
+    return _scope.set({})
+
+
+def close_scope(token) -> None:
+    _scope.reset(token)
+
+
+def cached(as_of_valid: datetime, as_of_recorded: datetime | None = None) -> Overlay:
+    """``build``, memoised for the life of the current request.
+
+    Falls straight through to ``build`` outside a scope, so a script, a test or
+    a graph node that never opened one behaves exactly as it did before.
+    """
+    scope = _scope.get()
+    if scope is None:
+        return build(as_of_valid, as_of_recorded)
+    key = (as_of_valid.isoformat(),
+           as_of_recorded.isoformat() if as_of_recorded else "")
+    overlay = scope.get(key)
+    if overlay is None:
+        overlay = build(as_of_valid, as_of_recorded)
+        scope[key] = overlay
     return overlay
 
 

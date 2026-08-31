@@ -3,7 +3,7 @@ id: MKT-001
 type: MARKET
 title: Seasonal and Festive Calendar
 owner: Category management
-version: 8.0
+version: 8.1
 effective: 2026-01-01
 entities: []
 tags: [market, season, festivity, region, calendar, demand]
@@ -40,6 +40,16 @@ reads; one written from this document cites a passage.
   shoppers read a gift as a gift.
 - **New Year.** Health, air quality and fitness. Purifiers and high-fibre foods
   both lift; "low energy" reads as thrift rather than as environmentalism.
+- **School holidays and the festival season (Jul-Aug).** The longest run of the
+  year without a gifting peak, and the one where the shelf does the selling.
+  Portable and single-serve snack formats outsell multipacks; shoppers buy for
+  the day rather than for the week. Outdoor and travel occasions lift portable
+  audio, and heat lifts fans and air treatment - both bought on noise level
+  first, because they are running in a room somebody is sleeping in.
+- **Back-to-school (late Aug).** Lunchbox formats recover a fortnight before
+  term. Allergen declarations are read more carefully here than at any other
+  point in the year, because the person reading is buying for a child they will
+  not be with at lunchtime.
 
 ## Regional notes
 

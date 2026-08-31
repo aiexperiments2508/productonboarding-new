@@ -82,10 +82,10 @@ existing gateway works on either.
 The MVP resolved corrections to products that were already live. V2 puts an
 estate in front of that and a product surface beside it.
 
-**Ten external systems, each reached over MCP.** A supplier portal, the
+**Eleven external systems, each reached over MCP.** A supplier portal, the
 supplier's own PIM, the artwork library, the ERP, an industry data pool, a
 regulatory feed, a marketplace connector, a translation service, an imaging
-system and a market feed. Each is its own server at `/mcp/{system}`, dialled at
+system, a market feed and a transport and logistics system. Each is its own server at `/mcp/{system}`, dialled at
 startup by a real `initialize` and `tools/list`; each declares what it emits and
 how badly it behaves. Connect another by pasting a URL, and the dependency map
 redraws from a topology message without a reload.
@@ -109,9 +109,35 @@ There is no readiness score. A product with three open findings is not seventy
 per cent ready; it is not ready, and the findings are what somebody acts on. A
 number would invite a threshold and a threshold invites launching at ninety.
 
+**The six rule checks run on every click; the three that read prose run when
+asked.** Opening a product used to be three model round trips - so it was a
+wait rather than a look, and the wait bought findings nobody had asked for yet.
+The default is now the rules alone, in milliseconds and with no gateway
+traffic, and a control beside the verdict runs the rest.
+
+That trade is only honest while the screen says what it did not do, so it does,
+everywhere it could mislead. `checks_complete` is false until the reading
+checks have run, and until then the word "ready" is not used: a record with no
+rule findings reads **no rule findings**, in neutral, and the staging page -
+the last surface before publication - refuses to open at all. One helper in
+`frontend/src/components/verdict.ts` owns that decision, because five surfaces
+render a verdict and a sixth will be added by somebody who has not read this.
+
 **Every finding names the system that supplied the problem.** "The data is
 incomplete" is not actionable; "the imaging system never sent an ingredient
-panel" is.
+panel" is. Ask for a root cause and the finding is joined to what the estate
+declares about that system - what it is for, who owns it, how it is known to
+misbehave - and a model writes the two together under the same fence as every
+other model call here: it may use the finding, the declared behaviour and a
+retrieved passage, and an account citing nothing retrievable is dropped for the
+deterministic one. It runs after the verdict and cannot reach it.
+
+**The imagery is real, and so are the gaps.** Every asset the catalog holds has
+a file behind it and the staging page shows it; a role the category requires
+and nobody delivered is drawn as a gap naming the system that owes it. A
+missing image is a 404, never the application shell - because a browser draws
+that as "broken", and "the imaging system has not sent this" needs a different
+person to fix it than "this page is falling over".
 
 **A capability directory** at `/.well-known/agent-cards.json`, built from the
 same Agent Cards it lists, keeping capabilities this system *implements* apart
@@ -133,7 +159,20 @@ it.
 The seed pack is a retailer onboarding an air purifier and a packaged snack
 across six channels: its own website, two marketplaces with incompatible
 schemas, the printed catalogue, shelf-edge labels, and search facets. The tape
-runs 56 simulated days and carries six arcs.
+runs 62 simulated days - the first of July to the thirty-first of August 2026 -
+and carries six arcs.
+
+Those two products sit in a catalog of a hundred and fifty, which is the point
+of the rest of it. Every question the fabric and the product surface exist to
+answer is a question about a population: which supplier is holding a launch up,
+how much of last week's intake came in fit to publish, which category the data
+pool keeps mangling. A catalog of six answers all of them by pointing at the
+same two rows. So the background is generated around the six - a few hundred
+products the demo never mentions, roughly a third of them short of something
+the checks will find - and the tape carries the five thousand routine events
+that a population that size produces. What is hand-authored is the story; what
+is generated is the world it happens in, and `scripts/background.py` says which
+is which.
 
 1. **The status strip** — the replay transport lives at the bottom of every
    screen, so "Jump to inject" and single-stepping are available while you are
@@ -152,7 +191,7 @@ runs 56 simulated days and carries six arcs.
    precedence in `POL-002` settles it: label artwork outranks a portal feed,
    which outranks an email. The system drafts a supplier clarification rather
    than guessing.
-5. **Day 28 — the inject.** Revision v2 of the AeroPure specification says the
+5. **Day 33 — the inject.** Revision v2 of the AeroPure specification says the
    rated power is 65 W, superseding the 45 W published in v1, and notes that a
    measurement sheet belonging to *one model in the range* was folded into the
    earlier document — without saying which. Run the loop and watch **Blast
@@ -161,17 +200,17 @@ runs 56 simulated days and carries six arcs.
    a comparison table there quotes both variants. The prepared copy reads
    "Ultra-quiet 45W operation"; the stale figure is caught mechanically and the
    `low-energy` claim breaks against the substantiation table.
-6. **Day 30 — the allergen.** A shared-line change adds "may contain peanuts"
+6. **Day 35 — the allergen.** A shared-line change adds "may contain peanuts"
    to the snack in all formats and corrects the ingredient order. This is a
    safety attribute, so the marketplaces are **held closed** rather than
    published with a warning, the `peanut-free` search facet is withdrawn, and
    reviewer approval stops being optional. Reordering the ingredients is
    treated as a real change, because that order is a legal declaration and not
    a presentation choice.
-7. **Day 31 — a marketplace argues back.** Marketplace B rejects the feed with
+7. **Day 36 — a marketplace argues back.** Marketplace B rejects the feed with
    `MKB-2201`: the allergen statement is correctly worded but wrongly
    formatted. The run re-plans and fixes the format.
-8. **Day 32 — the finale.** Revision v3 arrives: the 65 W rating applies to the
+8. **Day 37 — the finale.** Revision v3 arrives: the 65 W rating applies to the
    **Max only**; the base model was always 45 W. Press "Re-plan on new
    evidence". The run resumes on the *same thread* — the pending approval is
    withdrawn and recorded as withdrawn, the scope narrows to the Max, and the
@@ -197,7 +236,7 @@ density and the brand accent are in the appearance menu; all three persist.
 | Lineage | Typed edge walk: document → attribute → variant → asset → listing → channel |
 | Retrieval | BM25 + dense embeddings fused with weighted RRF, numpy matrix |
 | Event plane | SQLite tape with per-consumer cursors, replay clock |
-| Source estate | Ten external systems, each an MCP server over HTTP, delivering in seeded batches at irregular times (`sc/estate/`) |
+| Source estate | Eleven external systems, each an MCP server over HTTP, delivering in seeded batches at irregular times (`sc/estate/`) |
 | Readiness | Nine checks over a product record - six rules, three that read and must cite - and a verdict that is arithmetic (`sc/readiness/`) |
 | Exception handling | Bounded evidence loop over a read-only allowlist (`sc/graph/evidence.py`) |
 | Re-planning | Same thread, next revision; prior readings carried forward and re-validated |
@@ -371,7 +410,7 @@ toolset that owns them; the console shows each call with the transport it
 actually used, and a toolset that fails to spawn falls back in-process rather
 than losing the run.
 
-Beside those six, the **estate**: ten external systems, each its own server at
+Beside those six, the **estate**: eleven external systems, each its own server at
 `/mcp/{system}` over Streamable HTTP, dialled at startup by a real handshake.
 They are not toolsets this repository owns - they are systems it talks to, and
 the listing labels which is which.
@@ -436,7 +475,7 @@ corpus/      authored content standards, channel specs, policies, prior incident
 data/        generated seed pack, incl. golden/extractions.jsonl - the answer
              key the eval grades against (reproducible; git-ignored)
 sc/          contracts, db, state, sim, rag, llm, graph, tools, replay
-sc/estate/   the ten external systems: manifest, emitter, defects, arrivals,
+sc/estate/   the eleven external systems: manifest, emitter, defects, arrivals,
              their MCP servers, and the publication side
 sc/readiness/ the nine checks, the verdict, the staging page
 scripts/     generate_data.py, build_index.py, prepare_demo.py, evaluate.py

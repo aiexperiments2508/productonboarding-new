@@ -1490,6 +1490,19 @@ export const api = {
   lifecycleTimeline: (productId: string) =>
     get<LifecycleTimeline>(`/api/lifecycle/${encodeURIComponent(productId)}`),
 
+  /** Let a proposed line into the catalog.
+   *
+   *  A decision with a person's name on it. `sku` is optional - the platform
+   *  mints one from the supplier and an ordinal when it is left out - and the
+   *  name and category come from what the supplier proposed, so a reviewer
+   *  accepts the line they were shown rather than retyping it. */
+  acceptDraft: (submissionId: string, body: {
+    actor: string; sku?: string; name?: string; category?: string;
+  }) =>
+    post<{ accepted: boolean; product_id: string; variant_id: string;
+           sku: string; note?: string }>(
+      `/api/lifecycle/drafts/${encodeURIComponent(submissionId)}/accept`, body),
+
   /** What every downstream system is carrying for this product right now. */
   downstream: (productId: string) =>
     get<DownstreamView>(

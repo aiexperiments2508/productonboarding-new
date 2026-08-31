@@ -171,7 +171,13 @@ export function Lifecycle() {
         </div>
       )}
 
-      {open ? <ProductDrawer product={open} onClose={() => setOpen(null)} /> : null}
+      {open ? (
+        <ProductDrawer
+          product={open}
+          onClose={() => setOpen(null)}
+          onAccepted={() => load(query)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -338,9 +344,107 @@ function Card({ product, onOpen }: {
 
 /* --- the drawer ------------------------------------------------------------ */
 
-function ProductDrawer({ product, onClose }: {
+/* --- accepting a proposed line ------------------------------------------- */
+
+/* The one decision on this board.
+ *
+ * A proposal is not a product. The catalog has never heard of it, ingestion
+ * drops any entity the seed pack does not name, and nothing downstream will
+ * touch it - so a supplier filling in a form cannot put a line into the
+ * assortment, and this panel is the only thing that can.
+ *
+ * It asks for a name because accepting a line means the retailer takes on
+ * responsibility for what it says about something it has never sold, and the
+ * ledger records who did that. There is no identity provider anywhere in this
+ * system and there is no pretending otherwise: the name is taken at its word
+ * and written down, which is worth more than a blank.
+ *
+ * The SKU is optional. Left empty the platform mints one from the supplier and
+ * an ordinal, which is right for a demo and wrong for a retailer that already
+ * knows what it will call the thing - so the field is there and does not
+ * insist.
+ */
+function AcceptLine({ product, onAccepted }: {
+  product: LifecycleProduct;
+  onAccepted: () => void;
+}) {
+  const toast = useToast();
+  const [actor, setActor] = useState("");
+  const [sku, setSku] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submissionId = product.correction?.submission_id ?? "";
+  if (!submissionId) return null;
+
+  const accept = () => {
+    if (!actor.trim() || busy) return;
+    setBusy(true);
+    api.acceptDraft(submissionId, {
+      actor: actor.trim(),
+      sku: sku.trim() || undefined,
+    })
+      .then((result) => {
+        toast.notify(
+          `${product.name} is in the catalog`,
+          `${result.product_id} · ${result.sku}. It starts with no attributes `
+          + `and no imagery, so it will read as incomplete until the supplier `
+          + `sends them - which is the truth about a line accepted today.`);
+        onAccepted();
+      })
+      .catch((error) => toast.error("Could not accept the line", String(error)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <Panel title="Accept this line" tone="accent" className="mb-3">
+      <p className="text-sm text-muted">
+        {product.supplier} has proposed a line the catalog does not have.
+        Accepting it creates the product and its first variant, and records
+        the decision against your name.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted">Your name</span>
+          <input
+            value={actor}
+            onChange={(event) => setActor(event.target.value)}
+            placeholder="who is deciding"
+            className="rounded-md border border-subtle bg-raised px-2 py-1"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted">SKU (optional)</span>
+          <input
+            value={sku}
+            onChange={(event) => setSku(event.target.value)}
+            placeholder="we will mint one"
+            className="rounded-md border border-subtle bg-raised px-2 py-1 font-mono"
+          />
+        </label>
+        <Button
+          onClick={accept}
+          disabled={busy || !actor.trim()}
+          icon={<IconCheck size={14} />}
+        >
+          {busy ? "Accepting…" : "Accept into the catalog"}
+        </Button>
+      </div>
+
+      <p className="mt-2 text-sm text-muted">
+        Nothing is published by this. The line joins the catalog and is
+        assessed like any other product; putting it on a channel is a separate
+        decision.
+      </p>
+    </Panel>
+  );
+}
+
+
+function ProductDrawer({ product, onClose, onAccepted }: {
   product: LifecycleProduct;
   onClose: () => void;
+  onAccepted: () => void;
 }) {
   const [timeline, setTimeline] = useState<LifecycleTimeline | null>(null);
   const [downstream, setDownstream] = useState<DownstreamView | null>(null);
@@ -377,6 +481,13 @@ function ProductDrawer({ product, onClose }: {
           </div>
           <Button tone="ghost" onClick={onClose}>Close</Button>
         </div>
+
+        {product.stage === "DRAFT" ? (
+          <AcceptLine
+            product={product}
+            onAccepted={() => { onAccepted(); onClose(); }}
+          />
+        ) : null}
 
         {product.findings.length ? (
           <Panel title="What is holding it" className="mb-3">

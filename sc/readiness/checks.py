@@ -6,7 +6,7 @@ live and asks what one correction does to it. Nothing asked whether a record was
 complete enough to go live in the first place, which is the question a category
 manager actually has.
 
-Nine checks. Six are decided here, by rules, over the same tables the
+Ten checks. Seven are decided here, by rules, over the same tables the
 publish-time validator reads - a product that passed readiness and then failed
 publication on the same fact would mean two implementations of one rule, and the
 rules-as-data design exists to prevent exactly that.
@@ -121,7 +121,7 @@ class Finding:
 class Record:
     """One product, as the estate has left it.
 
-    Assembled once and handed to every check, so nine checks do not make nine
+    Assembled once and handed to every check, so ten checks do not make ten
     passes over the fact store and cannot disagree about what is in force.
     """
 
@@ -144,7 +144,7 @@ class Record:
 
 
 # ---------------------------------------------------------------------------
-# The six that need no model
+# The seven that need no model
 # ---------------------------------------------------------------------------
 
 
@@ -157,12 +157,13 @@ def applicable_attributes(record: Record, base) -> list[Finding]:
     reported as one, or the finding list becomes noise a reviewer learns to
     scroll past.
     """
+    from sc.state.baseline import applies_to_category
+
     findings = []
     for path, definition in sorted(base.attr_defs.items()):
-        applies = (not definition.applies_to
-                   or any(record.category.startswith(prefix)
-                          for prefix in definition.applies_to))
-        if not applies or path in record.values:
+        if not applies_to_category(definition, record.category):
+            continue
+        if path in record.values:
             continue
         # Silent unless a channel wants it: `mandatory_information` is the check
         # that speaks for channel requirements, and reporting the same absence
@@ -212,6 +213,8 @@ def mandatory_information(record: Record, base) -> list[Finding]:
     one table is one table; two tables would be two answers to "why was this
     held", and the reviewer would be shown whichever one ran.
     """
+    from sc.state.baseline import applies_to_category
+
     channels = {base.listings[l].channel_id for l in record.listings
                 if l in base.listings}
     findings = []
@@ -226,9 +229,8 @@ def mandatory_information(record: Record, base) -> list[Finding]:
         # lists on that marketplace. Without this the snack is held for missing
         # a rated power it could never have - a finding nobody can act on, in a
         # list a reviewer then learns to scroll past.
-        if definition is not None and definition.applies_to and not any(
-                record.category.startswith(prefix)
-                for prefix in definition.applies_to):
+        if definition is not None and not applies_to_category(
+                definition, record.category):
             continue
         value = record.values.get(path)
         if value is None or value == "" or value == []:

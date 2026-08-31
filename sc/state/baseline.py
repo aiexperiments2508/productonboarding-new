@@ -138,15 +138,18 @@ class Baseline:
                 if eid == entity_id}
 
     def applicable_attrs(self, variant_id: str) -> list[AttributeDef]:
-        """The attributes this variant's category is expected to carry.
-
-        An empty ``applies_to`` means every category - GTIN and claims apply to
-        a snack bar and an air purifier alike.
-        """
+        """The attributes this variant's category is expected to carry."""
         category = self.products[self.product_of_variant[variant_id]].category
+        return self.attrs_for_category(category)
+
+    def attrs_for_category(self, category: str) -> list[AttributeDef]:
+        """The attributes a category is expected to carry, by path order.
+
+        Takes a category rather than a variant because the supplier template
+        has to answer this for a category nothing has been created in yet.
+        """
         return [self.attr_defs[path] for path in sorted(self.attr_defs)
-                if not self.attr_defs[path].applies_to
-                or any(category.startswith(p) for p in self.attr_defs[path].applies_to)]
+                if applies_to_category(self.attr_defs[path], category)]
 
     def channel_field(self, channel_id: str, path: str) -> str:
         """What this channel calls an internal attribute.
@@ -183,6 +186,27 @@ class Baseline:
         # variants rather than returning nothing. A silently empty scope reads
         # as "nothing is affected", which is the one answer that is never right.
         return sorted(named) or family
+
+
+def applies_to_category(definition, category: str) -> bool:
+    """Does this attribute apply to this category?
+
+    An empty ``applies_to`` means every category - GTIN and claims apply to a
+    snack bar and an air purifier alike. Otherwise it is a list of taxonomy
+    *prefixes*, and five attributes are named leaf by leaf rather than by
+    branch because a kettle is mains and a saucepan is not, and both are
+    ``home.``.
+
+    One function, because four callers ask this question - the two readiness
+    checks that report a gap, the baseline list a product surface renders, and
+    the supplier template that decides which columns to ask a supplier to
+    fill. A template that swept in the saucepan would ask for a wattage the
+    product cannot have, and the check would then not report its absence: the
+    two would disagree about what the category is, which is precisely the
+    disagreement one predicate prevents.
+    """
+    applies_to = getattr(definition, "applies_to", None) or ()
+    return not applies_to or any(category.startswith(p) for p in applies_to)
 
 
 def regulated_category(category: str, base: Baseline | None = None) -> bool:

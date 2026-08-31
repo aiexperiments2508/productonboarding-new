@@ -216,3 +216,36 @@ dialog menu { display: flex; gap: 10px; justify-content: flex-end; padding: 0; m
   .rowhead { flex-direction: column; align-items: stretch; }
   .rowhead input { width: 100%; }
 }
+
+/* --- sending a whole range ----------------------------------------------- */
+
+.bulkgrid { display: grid; gap: 1.4rem; grid-template-columns: 1fr 1fr; }
+@media (max-width: 760px) { .bulkgrid { grid-template-columns: 1fr; } }
+
+.bulkcol h2 {
+  font-size: .82rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin: 0 0 .6rem;
+}
+
+.downloads { display: flex; flex-wrap: wrap; gap: .4rem .5rem; margin: .6rem 0; }
+.downloads a { font-size: .86rem; }
+
+.feedresult {
+  margin-top: 1rem; padding: .9rem 1rem;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--sunken);
+}
+.feedresult h3 { margin: 0 0 .5rem; font-size: 1rem; }
+
+.feedstats { margin: 0 0 .6rem; padding-left: 1.1rem; color: var(--muted); }
+.feedstats li { font-size: .88rem; }
+
+.feedbad { width: 100%; border-collapse: collapse; margin: .6rem 0; }
+.feedbad th, .feedbad td {
+  text-align: left; padding: .3rem .5rem; font-size: .82rem;
+  border-bottom: 1px solid var(--line);
+}
+.feedbad th { color: var(--muted); font-weight: 600; }
+
+/* A column nobody recognises is the loud case: a supplier about to lose a
+   mandatory declaration to a typo in a header. */
+.warn { color: var(--warn, #a15c00); font-size: .88rem; }

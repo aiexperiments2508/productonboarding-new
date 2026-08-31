@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { UNSCOPED_CASE, api, fmt } from "../api";
+import { UNSCOPED_CASE, api, fmt, streamBatchAssess } from "../api";
 import type {
-  AffectedScope, AttributeDef, CatalogState, CorrectionKind, KPIs, MapView,
-  OpenCase, RunSnapshot, SCEvent,
+  AffectedScope, AttributeDef, BatchReport, BatchRow, CatalogState,
+  CorrectionKind, KPIs, MapView, OpenCase, RunSnapshot, SCEvent,
 } from "../api";
-import { applyEvents, emptyImpact, impactFrom, prunePulses } from "../liveImpact";
+import {
+  applyEvents, clearSweep, emptyImpact, impactFrom, prunePulses, withWorking,
+} from "../liveImpact";
 import type { LiveImpact } from "../liveImpact";
 import { ArtAllClear, ArtNoRun, ArtQuietFeed } from "../art/illustrations";
 import {
@@ -96,7 +98,7 @@ interface Vocab {
 }
 
 export function ControlTower({
-  catalog, events, run, onStartRun, onReplay, busy,
+  catalog, events, run, onStartRun, onReplay, busy, onOpenReport,
 }: {
   catalog: CatalogState | null;
   events: SCEvent[];
@@ -107,10 +109,59 @@ export function ControlTower({
   onReplay: (body: { action: string; steps?: number; speed?: number;
                      to_seq?: number }) => void;
   busy: boolean;
+  /** Hand the newest supplier batch to the report section. */
+  onOpenReport?: (batchId: string) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [live, setLive] = useState<LiveImpact>(emptyImpact);
   const seenRef = useRef<string>("");
+
+  // The newest supplier bundle, and the sweep over it. Re-read when a bundle
+  // closes on the feed rather than polled: a batch arrives at most a few times
+  // an hour and a poll would be a request a minute to learn nothing.
+  const [batch, setBatch] = useState<BatchRow | null>(null);
+  const [sweep, setSweep] = useState<SweepState | null>(null);
+  const [sweeping, setSweeping] = useState(false);
+
+  const loadBatch = useCallback(() => {
+    api.batches(1)
+      .then((r) => setBatch(r.batches[0] ?? null))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => { loadBatch(); }, [loadBatch]);
+
+  const closedStamp = events.find(
+    (e) => (e.payload as Record<string, unknown>)?.feed_stage
+           === "DATA_PACK_CLOSED")?.id ?? "";
+  useEffect(() => {
+    if (closedStamp) loadBatch();
+  }, [closedStamp, loadBatch]);
+
+  const assessBatch = useCallback(() => {
+    if (!batch || sweeping) return;
+    setSweeping(true);
+    setSweep(null);
+    setLive((prev) => clearSweep(prev));
+    let previous: { id: string; verdict: string } | undefined;
+    streamBatchAssess(batch.batch_id, (event) => {
+      if (event.kind === "product") {
+        setSweep({ ordinal: event.ordinal, total: event.total,
+                   sku: event.sku, name: event.name, finished: null });
+        // The product just decided keeps its verdict ring; this one lights.
+        setLive((prev) => withWorking(prev, event.entities, previous));
+        previous = { id: event.entity_id, verdict: event.verdict };
+      } else if (event.kind === "batch_finished") {
+        setSweep((prev) => prev
+          ? { ...prev, finished: event as BatchReport }
+          : { ordinal: 0, total: 0, sku: "", name: "",
+              finished: event as BatchReport });
+        setLive((prev) => withWorking(prev, [], previous));
+      }
+    }, { paceMs: 320 })
+      .catch(() => setLive((prev) => clearSweep(prev)))
+      .finally(() => setSweeping(false));
+  }, [batch, sweeping]);
 
   /* The map draws a page of the catalog rather than all of it.
    *
@@ -481,6 +532,14 @@ export function ControlTower({
               the shape of the estate; this shows it moving. */}
           <EstatePanel />
 
+          <BundleStrip
+            batch={batch}
+            sweep={sweep}
+            busy={sweeping}
+            onAssess={assessBatch}
+            onOpenReport={() => batch && onOpenReport?.(batch.batch_id)}
+          />
+
           <Panel
             title="Live event feed"
             flush
@@ -778,6 +837,118 @@ const STATE_RANK: Record<ChannelState, number> = {
 
 /** A product on six channels is presented by the worst thing true of it: one
  *  rejection must not be averaged away by five healthy listings. */
+
+interface SweepState {
+  ordinal: number;
+  total: number;
+  sku: string;
+  name: string;
+  finished: BatchReport | null;
+}
+
+/* --- supplier bundles ----------------------------------------------------- */
+
+/** The quick action on the incoming stream.
+ *
+ *  A bundle lands on the live feed as a run of rows, which proves it arrived
+ *  and says nothing about whether any of it can be sold. This is the button
+ *  that asks - and it is here rather than on the report because the answer is
+ *  worth watching: the map lights one product at a time while the pass walks
+ *  the batch, and the sweep is the only place in this product where the
+ *  catalog is seen being read rather than having been read.
+ */
+function BundleStrip({ batch, onAssess, onOpenReport, sweep, busy }: {
+  batch: BatchRow | null;
+  onAssess: () => void;
+  onOpenReport: () => void;
+  sweep: SweepState | null;
+  busy: boolean;
+}) {
+  if (!batch) return null;
+  const done = sweep?.finished ?? null;
+  return (
+    <Panel
+      tone="accent"
+      title={`${batch.supplier} sent ${batch.entities.length} products`}
+      subtitle={batch.file
+        ? `${batch.file.filename} · ${Math.round(batch.file.bytes / 1024)} KB`
+        : batch.batch_id}
+      actions={
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={onAssess}
+            disabled={busy}
+            icon={<IconSpark size={14} />}
+          >
+            {busy ? "Assessing…" : "Assess this batch"}
+          </Button>
+          {done && (
+            <Button tone="ghost" onClick={onOpenReport}>
+              Open the report
+            </Button>
+          )}
+        </div>
+      }
+    >
+      {sweep && !sweep.finished ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-baseline gap-2 text-sm">
+            <span className="font-mono text-xs text-faint tabular-nums">
+              {sweep.ordinal}/{sweep.total}
+            </span>
+            <Code>{sweep.sku}</Code>
+            <span className="min-w-0 truncate text-muted">{sweep.name}</span>
+          </div>
+          <div className="h-1 w-full overflow-hidden rounded-full bg-sunken">
+            <div
+              className="h-full bg-accent transition-[width] duration-[var(--dur-base)]"
+              style={{ width: `${(sweep.ordinal / Math.max(1, sweep.total)) * 100}%` }}
+            />
+          </div>
+          <p className="text-sm text-muted">
+            One product at a time, in the order the supplier listed them. The
+            map lights the one being read.
+          </p>
+        </div>
+      ) : done ? (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+          <span>
+            <strong className="text-ok-text">{done.totals.cleared}</strong> went
+            through clean
+          </span>
+          <span>
+            <strong className="text-warn-text">{done.totals.returned}</strong> back
+            to the source
+          </span>
+          {done.totals.blocked > 0 && (
+            <span>
+              <strong className="text-danger-text">{done.totals.blocked}</strong> blocked
+            </span>
+          )}
+          <span className="text-muted">
+            {done.fixable.candidates} gap
+            {done.fixable.candidates === 1 ? "" : "s"} could be read from a
+            document we already hold
+          </span>
+          {done.proposals.length > 0 && (
+            <span className="text-muted">
+              {done.proposals.length} proposed new line
+              {done.proposals.length === 1 ? "" : "s"} awaiting a reviewer
+            </span>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-muted">
+          The rows are on the feed and the facts are recorded. Nothing has been
+          judged yet — assessing walks the batch one product at a time and says
+          how much of it is fit to sell.
+        </p>
+      )}
+    </Panel>
+  );
+}
+
+
 function worseOf(a?: ChannelState, b?: ChannelState): ChannelState | undefined {
   if (!a) return b;
   if (!b) return a;

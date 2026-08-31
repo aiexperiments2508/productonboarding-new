@@ -23,6 +23,7 @@ Same input, same output, always.
 pip install -r requirements.txt
 copy .env.example .env
 python scripts/generate_data.py
+python scripts/build_datapack.py
 python run.py
 ```
 
@@ -240,6 +241,103 @@ stored status would be a second account of a product's state, and the first
 thing it would disagree about is the product somebody just corrected. The three
 applications open from a strip at the top of it.
 
+## What V6 added
+
+Up to here a supplier could send one corrected value, one document or one
+image. That is the right shape for the correction story and the wrong shape for
+the question a retailer asks first: **a supplier has forty new lines — how many
+of them are fit to sell?**
+
+**A supplier data pack, generated from the rules the system actually applies.**
+`scripts/build_datapack.py` writes, for every branch the retailer trades, a
+blank template and a worked example as CSV and as a pipe-delimited flat file,
+plus one XLSX workbook, one Word specification and one JSON Schema covering all
+of them. Every column comes from `data/catalog.json`'s attribute registry
+joined to the branch declarations in the retailer profile. Nothing is written
+down twice: point `RETAILER_PROFILE` at another profile and the templates
+change with it.
+
+Applicability is per *leaf*, not per branch, because five attributes are named
+leaf by leaf — a kettle is mains and a saucepan is not, and both are `home.`. A
+column that does not cover the whole branch says which categories it does
+cover, so an empty cell on a row it does not cover is correct rather than
+missing. `sc.state.baseline.applies_to_category` is the one predicate that
+decides this, and the readiness check that would report the gap asks it too.
+
+The workbook closes the four traps a spreadsheet sets on a supplier's behalf: the
+GTIN column is text so a leading zero survives, units live in the header and
+never in the cell, percentages are plain numbers, and the three ordered lists
+say that their order is a legal declaration. The worked examples are real lines
+from this catalogue with deliberately broken rows — one per defect a supplier
+file can actually carry, drawn from the closed set in `sc/estate/defects.py`.
+Two of the seven cannot be shown in a file at all, and the README sheet says
+which two rather than shipping five and calling them seven.
+
+**One archive, forty products.** `submit_product_feed` takes a .zip: one data
+file at the root and an optional `images/` folder whose names the rows refer
+to. It is exposed only on a system whose manifest entry accepts both attribute
+rows and imagery, derived rather than declared — so the supplier portal has it
+and the PIM and the data pool do not, with no code naming any of them.
+
+Nothing about the bulk door relaxes the single door's rules. Every row becomes
+an event on the live lane and is judged by the same ingestion, the same
+precedence policy and the same safety override. Rows are asserted against a new
+version of the supplier's *own* document, never a freshly minted id — a
+document the seed pack does not know carries precedence zero and would lose
+every contest it entered, so a bundle minting one would raise forty conflicts
+and correct nothing while reporting success. A SKU the supplier does not own is
+refused by line. A SKU the catalogue does not have becomes a proposal, held
+exactly as `create_product_draft` holds one, with its own submission so a
+reviewer accepts it through the same gate as a line typed into the form.
+
+Three refusal scales, deliberately different: a malformed archive refuses the
+bundle; an unrecognised column is reported and the bundle continues; a bad cell
+loses the cell and not the row. That last one matters — twelve good values
+discarded to punish one typo is how a portal stops being used, and the value
+that would not parse is then reported as missing by the same check that would
+have reported it blank, which is the truth about it.
+
+**A sequential pass, and a report.** A quick action on the Ingest Fabric's
+incoming stream walks the batch one product at a time, in the order the
+supplier listed them, lighting the catalog map as it goes. It is not a graph
+run and deliberately so: the correction graph answers *a published value
+changed, what does it reach*, and is built round a case and an approval
+interrupt — forty products through it would be forty suspended threads in a
+queue that exists to hold one. Onboarding asks *is this record fit to launch*,
+which `sc/readiness` already answers in milliseconds, and the pass is
+`submissions._verdict`'s own loop turned into a generator.
+
+The outcome is a new section, **Supplier Intake**, reachable from a button on
+the fabric: how many went through clean, how many went back to the source, how
+many are blocked, and — counted apart from all three — how many rows were
+proposed new lines that nobody has decided on yet. A bundle of eleven rows of
+which five are lines we do not have is a report about six products, and saying
+"six assessed" without saying what happened to the other five is exactly the
+undercount the rest of this system is arranged to avoid.
+
+**"AI can fix it" is two claims, and they are counted separately.** A gap is a
+*candidate* when a source passage is on file for it, which is deterministic and
+provable rather than estimated: `enrich` refuses any fill whose chunk is not in
+the supplied set, so no passage means no fill, and no model has to be asked to
+know that. Whether a passage that exists actually *states* the value is a
+reading question, and until the sources have been read the screen says "could
+be" and not "will be". The two counts will differ, and that difference is the
+interesting number.
+
+A safety-class gap is never a candidate — not a candidate needing approval, not
+a candidate. `enrich`'s own docstring says why: a plausible allergen list is not
+an allergen list, and it gets printed on a label and read by somebody who needs
+it to be right. They are counted and named so the exclusion is visible rather
+than silent.
+
+Applying writes facts and stops. Every fill lands INFERRED with the passage it
+was read from, through the same `ingest.record_attribute` the graph uses, so
+the fail-closed safety gate can still see it. No approval row, no reservation,
+no committed action — a product becomes ready by having no findings left, which
+is arithmetic, and publishing is a separate decision behind a gate this does
+not touch. `tests/test_onboarding.py` pins that by counting the three tables
+before and after.
+
 ## Driving the demo
 
 The seed pack is a UK superstore onboarding an air purifier and a packaged
@@ -350,7 +448,9 @@ density and the brand accent are in the appearance menu; all three persist.
 | Retrieval | BM25 + dense embeddings fused with weighted RRF, numpy matrix |
 | Event plane | SQLite tape with per-consumer cursors, replay clock |
 | Source estate | Eleven external systems, each an MCP server over HTTP, delivering in seeded batches at irregular times (`sc/estate/`) |
-| Readiness | Nine checks over a product record - six rules, three that read and must cite - and a verdict that is arithmetic (`sc/readiness/`) |
+| Readiness | Ten checks over a product record - seven rules, three that read and must cite - and a verdict that is arithmetic (`sc/readiness/`) |
+| Supplier packs | Templates derived from the attribute registry and the retailer profile, in five formats; one .zip back (`sc/datapack/`) |
+| Onboarding | A batch is a submission; a sequential readiness pass over it; a fill bounded by what a model can cite (`sc/onboarding/`) |
 | Exception handling | Bounded evidence loop over a read-only allowlist (`sc/graph/evidence.py`) |
 | Re-planning | Same thread, next revision; prior readings carried forward and re-validated |
 | Concurrency | Publish locks: a partial unique index makes them exclusive |
@@ -468,8 +568,8 @@ can prove, not less.
 python -m pytest tests/ -q
 ```
 
-598 tests, about eight minutes. Three skip without an embedding matrix; the
-rest need no network.
+677 tests, about eight and a half minutes. Three skip without an embedding
+matrix; the rest need no network.
 
 Four of them are load-bearing beyond their own subject, and are worth knowing
 about before changing the things they guard:
@@ -630,9 +730,14 @@ data/        generated seed pack, incl. golden/extractions.jsonl - the answer
 sc/          contracts, db, state, sim, rag, llm, graph, tools, replay
 sc/estate/   the eleven external systems: manifest, emitter, defects, arrivals,
              their MCP servers, and the publication side
-sc/readiness/ the nine checks, the verdict, the staging page
+sc/readiness/ the ten checks, the verdict, the staging page
+sc/datapack/ the supplier templates, in five formats, derived from the
+             registry - and the reader that takes them back
+sc/onboarding/ a bundle's batch, the sequential pass over it, and the bounded
+             fill
 scripts/     generate_data.py, build_index.py, prepare_demo.py, evaluate.py,
-             stage_launch.py (two products on sale, for the late-change arc)
+             stage_launch.py (two products on sale, for the late-change arc),
+             build_datapack.py (the templates a supplier fills in)
 sc/graph/    nodes, branches, prompts, evidence desk, state, assembly
 sc/a2a/      peer agents, their cards, the client that calls them
 sc/mcp/      toolsets split by owning system, plus the stdio client

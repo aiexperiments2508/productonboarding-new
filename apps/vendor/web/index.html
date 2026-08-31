@@ -51,6 +51,43 @@
     <button class="ghost" id="newProduct">Propose a new line</button>
   </section>
 
+  <!-- Bulk: the whole range in one archive -->
+  <section id="bulk" class="panel" hidden>
+    <h1>Send a whole range</h1>
+    <p class="lede">One archive: the spreadsheet, and your photographs in an
+      <code>images/</code> folder. Every row is judged the same way a single
+      correction is.</p>
+
+    <div class="bulkgrid">
+      <div class="bulkcol">
+        <h2>1. Take a template</h2>
+        <label class="field">
+          <span>Part of the assortment</span>
+          <select id="feedBranch"><option value="">Loading…</option></select>
+        </label>
+        <p class="downloads" id="feedDownloads"></p>
+        <p class="note" id="feedNote"></p>
+      </div>
+
+      <div class="bulkcol" id="feedSend">
+        <h2>2. Send it back</h2>
+        <form class="sub" id="feedForm">
+          <label class="field">
+            <span>Your archive (.zip)</span>
+            <input type="file" id="feedFile" accept=".zip" required>
+          </label>
+          <label class="field">
+            <span>Note (optional)</span>
+            <input type="text" id="feedNoteIn" placeholder="autumn range, 40 lines">
+          </label>
+          <button class="primary" type="submit">Send the archive</button>
+        </form>
+        <div id="feedResult" class="feedresult" hidden></div>
+      </div>
+      <p class="note" id="feedNoUpload" hidden></p>
+    </div>
+  </section>
+
   <!-- One product -->
   <section id="detail" class="panel" hidden>
     <button class="link back" id="back">&larr; All products</button>

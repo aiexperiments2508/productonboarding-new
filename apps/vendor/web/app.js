@@ -45,6 +45,138 @@ const b64 = (file) =>
     reader.readAsDataURL(file);
   });
 
+/* --- sending a whole range ----------------------------------------------- */
+
+/* The bulk door.
+ *
+ * Two halves, and the order matters: take a template, send it back. The
+ * template is generated from the retailer's own attribute registry at the
+ * moment it is asked for, so a column that appears here is a column something
+ * downstream actually reads - which is the whole reason it is a download
+ * rather than a page of documentation.
+ *
+ * The archive is handed to this portal's own server and passed straight
+ * through to the platform. Nothing here opens it: the portal has no catalog to
+ * validate against, and pretending otherwise would put half a reader on the
+ * wrong side of the boundary.
+ */
+
+const FORMATS = [
+  ["csv", "Spreadsheet (.csv)"],
+  ["xlsx", "Workbook (.xlsx)"],
+  ["txt", "Delimited (.txt)"],
+];
+
+async function loadFeed() {
+  const bulk = $("bulk");
+  if (!state.system) return;
+  let described;
+  try {
+    described = await api(`/portal-api/${state.system}/feed`);
+  } catch {
+    bulk.hidden = true;
+    return;
+  }
+  if (!described || !described.branches) {
+    bulk.hidden = true;
+    return;
+  }
+  bulk.hidden = false;
+
+  // Every endpoint can hand out a template; only some take one back. The
+  // manifest decides which, and a portal that offered the form anyway would be
+  // offering a door that answers every knock with a refusal.
+  $("feedSend").hidden = !described.accepts_bundle;
+  $("feedNoUpload").textContent = described.why_not || "";
+  $("feedNoUpload").hidden = Boolean(described.accepts_bundle);
+
+  const select = $("feedBranch");
+  select.innerHTML = described.branches
+    .map((b) => `<option value="${b.id}">${b.label} — ${b.attributes} fields` +
+                `${b.regulated ? ", regulated" : ""}</option>`)
+    .join("");
+  state.feed = described;
+  renderDownloads();
+  select.onchange = renderDownloads;
+}
+
+function renderDownloads() {
+  const branch = $("feedBranch").value;
+  const formats = (state.feed && state.feed.formats) || {};
+  const base = `/portal-api/${state.system}/template?branch=${encodeURIComponent(branch)}`;
+  const links = FORMATS
+    .filter(([id]) => !formats[id] || formats[id].available)
+    .map(([id, label]) =>
+      `<a href="${base}&fmt=${id}" download>${label}</a>`)
+    .concat([
+      `<a href="${base}&fmt=csv&filled=true" download>Worked example (.csv)</a>`,
+      `<a href="/portal-api/${state.system}/template?fmt=docx" download>` +
+        `What every field means (.docx)</a>`,
+      `<a href="/portal-api/${state.system}/template?fmt=json" download>` +
+        `Schema (.json)</a>`,
+    ]);
+  $("feedDownloads").innerHTML = links.join(" · ");
+
+  const chosen = (state.feed.branches || []).find((b) => b.id === branch);
+  $("feedNote").textContent = chosen
+    ? `${chosen.categories} categories. Photographs required: ` +
+      `${chosen.required_media.join(", ") || "none"}. Put them in an ` +
+      `images/ folder and name them in the image columns.`
+    : "";
+}
+
+async function sendFeed(event) {
+  event.preventDefault();
+  const file = $("feedFile").files[0];
+  if (!file) return;
+  const button = $("feedForm").querySelector("button");
+  button.disabled = true;
+  button.textContent = "Sending…";
+  try {
+    const result = await post(`/portal-api/${state.system}/feed`, {
+      supplier: state.supplier,
+      filename: file.name,
+      content_base64: await b64(file),
+      note: $("feedNoteIn").value,
+      idempotency_key: `${state.supplier}:${file.name}:${file.size}`,
+    });
+    renderFeedResult(result);
+    if (result.submission_id) watch(result.submission_id);
+    toast(`${result.rows.accepted} rows accepted`);
+  } catch (error) {
+    toast(String(error.message || error), true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Send the archive";
+  }
+}
+
+function renderFeedResult(result) {
+  const box = $("feedResult");
+  box.hidden = false;
+  const rows = result.rows || {};
+  const images = result.images || {};
+  const bad = (rows.rejected || []).slice(0, 12);
+  box.innerHTML = `
+    <h3>${rows.accepted} of ${rows.read} rows accepted</h3>
+    <ul class="feedstats">
+      <li>${result.drafts.length} held as proposed new lines</li>
+      <li>${rows.rejected_rows} rows we could not read</li>
+      <li>${rows.rejected_cells} cells we could not read</li>
+      <li>${images.matched || 0} photographs matched</li>
+    </ul>
+    ${rows.unknown_columns && rows.unknown_columns.length
+      ? `<p class="warn">Columns we do not recognise, and did not read:
+         <code>${rows.unknown_columns.join("</code> <code>")}</code></p>` : ""}
+    ${bad.length
+      ? `<table class="feedbad"><thead><tr><th>Line</th><th>SKU</th>
+         <th>Field</th><th>Why</th></tr></thead><tbody>` +
+        bad.map((r) => `<tr><td>${r.line || "—"}</td><td>${r.sku}</td>
+          <td><code>${r.column}</code></td><td>${r.why}</td></tr>`).join("") +
+        `</tbody></table>` : ""}
+    <p class="note">${result.note}</p>`;
+}
+
 /* --- sign in ------------------------------------------------------------ */
 
 async function boot() {
@@ -112,6 +244,7 @@ $("signOut").onclick = () => location.reload();
 async function loadProducts(query = "") {
   $("catalogue").hidden = false;
   $("detail").hidden = true;
+  loadFeed();
   $("products").innerHTML = `<p class="lede">Loading…</p>`;
 
   const data = await api(
@@ -166,6 +299,7 @@ async function openProduct(productId) {
   state.spec = spec;
 
   $("catalogue").hidden = true;
+  $("bulk").hidden = true;
   $("detail").hidden = false;
   $("detailName").textContent = spec.product.name;
   $("detailMeta").textContent =
@@ -316,6 +450,8 @@ $("imgForm").onsubmit = async (event) => {
 };
 
 $("newProduct").onclick = () => $("draftDialog").showModal();
+
+$("feedForm").onsubmit = sendFeed;
 
 $("draftForm").onsubmit = async (event) => {
   if (event.submitter && event.submitter.value !== "send") return;

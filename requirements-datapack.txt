@@ -1,0 +1,32 @@
+# Only needed to *build* the supplier data pack.
+#
+# The pack is a build artifact like the seed pack: `scripts/build_datapack.py`
+# writes it once and the platform then serves the files. Nothing in `sc/` needs
+# this at runtime, and the two formats a supplier is most likely to send back -
+# CSV and the pipe-delimited flat file - are read with the standard library and
+# are always available.
+#
+# Kept out of requirements.txt for the same reason as the gateway and studio
+# extras: an install that has to build a spreadsheet library to serve an API is
+# a slower install for everybody who never runs the generator.
+#
+#   pip install -r requirements-datapack.txt
+
+# XLSX only. Pure Python, one pure-Python dependency of its own (et_xmlfile),
+# no compiled extension, and it reads as well as writes - which the bundle
+# reader needs when a supplier sends the workbook back.
+#
+# The rule this file follows, so the next person does not have to re-argue it:
+# a pure-Python dependency that does something we cannot meaningfully test is
+# worth taking; a compiled one is not. Hand-rolling xlsx *data validation*
+# means a styles table and a hidden lists sheet where every element is an index
+# into another table, and the failure mode is Excel silently "repairing" the
+# file - which no test here could assert. openpyxl passes that test.
+#
+# python-docx does not, and is deliberately absent: it requires lxml, a
+# compiled C extension, and the supplier specification is prose and tables with
+# no validation in it. `sc/datapack/writers/specdoc.py` writes that document
+# with `zipfile` and the standard library, and the test unzips it and parses
+# the XML - see requirements.txt on why a compiled wheel is the dependency this
+# project refuses.
+openpyxl>=3.1,<4

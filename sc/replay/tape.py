@@ -395,6 +395,72 @@ def append_live(event_type: str, source: str, payload: dict, *,
     return event
 
 
+def append_live_many(prepared: list[tuple[str, str, dict, str | None]], *,
+                     system_id: str) -> list[Event]:
+    """Put a whole submission on the live lane in one act.
+
+    ``append_live`` is the right shape for one correction: one transaction, one
+    arrival, one ingest, one push to the feed. A bundle of forty products
+    through that door is forty-four transactions, forty-four arrival rows and
+    forty-four pushes to describe a single upload - and, worse, forty-four
+    *delivery batches*, so ``submissions`` would report that a supplier's one
+    spreadsheet arrived in forty-four separate deliveries. That is not a
+    performance objection. It is a false statement about what happened.
+
+    So this is the same act, once: one transaction, one arrival batch, one
+    ingest over the whole set, one push. Ingestion is unchanged - it already
+    sorts by sequence and is idempotency-keyed, and giving it the set rather
+    than the members is what it was written for.
+
+    ``prepared`` is ``(event_type, source, payload, body)`` in the order the
+    supplier's file listed them, and that order becomes the sequence order, so
+    the feed reads the way the file reads.
+    """
+    if not prepared:
+        return []
+
+    events: list[Event] = []
+    with db.transaction() as conn:
+        seq = _next_live_seq(conn)
+        instant = _live_instant(conn, None)
+        for offset, (event_type, source, payload, body) in enumerate(prepared):
+            # Each event gets its own instant, strictly increasing, for the
+            # reason `_live_instant` nudges at all: the fact store breaks a
+            # recorded-at tie by id, so a whole bundle sharing one timestamp
+            # would let one row silently never be the value in force.
+            moment = instant + timedelta(microseconds=offset)
+            identifier = f"EVT-L{seq + offset}"
+            conn.execute(
+                "INSERT INTO events (id, seq, ts, type, source, payload, body,"
+                " released_at, lane) VALUES (?,?,?,?,?,?,?,?,?)",
+                (identifier, seq + offset, moment.isoformat(), str(event_type),
+                 source, db.dumps(payload), body,
+                 datetime.now().isoformat(), LANE_LIVE))
+            events.append(Event(
+                id=identifier, seq=seq + offset, ts=moment, type=event_type,
+                source=source, payload=payload, body=body, lane=LANE_LIVE))
+
+    try:
+        from sc.estate import delivery
+
+        delivery.deliver_live(system_id, events)
+    except Exception:  # noqa: BLE001 - an explanation is not the record
+        log.debug("could not record the arrival of %d events", len(events),
+                  exc_info=True)
+
+    from sc.replay import ingest
+
+    signals = ingest.ingest(events)
+
+    if _live_sink is not None:
+        try:
+            _live_sink(events, signals)
+        except Exception:  # noqa: BLE001 - the feed is a display concern
+            log.debug("live sink failed for a bundle", exc_info=True)
+
+    return events
+
+
 def live_events(limit: int = 100) -> list[Event]:
     """Submissions, newest first. The Ingest Fabric's live half."""
     return [_row_to_event(r) for r in db.query(

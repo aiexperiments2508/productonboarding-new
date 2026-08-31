@@ -186,6 +186,19 @@ if not exist "data\catalog.json" (
     if errorlevel 1 goto :fail
 )
 
+REM The supplier data pack: the templates a supplier fills in, derived from the
+REM attribute registry and the retailer profile. Keyed on the workbook because
+REM it is the last file the builder writes. Never fatal - the pack is what the
+REM vendor portal hands out, and a platform that would not boot because a
+REM spreadsheet library is missing would be trading a whole demo for one
+REM download.
+if not exist "data\datapack\supplier-feed.xlsx" (
+    echo  [.] Building the supplier data pack ...
+    "%VPY%" scripts\build_datapack.py
+    if errorlevel 1 echo  [!] the data pack was not built - the portal will
+    if errorlevel 1 echo      generate templates on demand instead
+)
+
 REM --- 7. modes ---------------------------------------------------------------
 if /i "%MODE%"=="reset"  goto :reset
 if /i "%MODE%"=="stage"  goto :stage
@@ -274,6 +287,7 @@ goto :run
 echo  [.] Resetting the database and reloading the seed pack ...
 "%VPY%" scripts\generate_data.py
 if errorlevel 1 goto :fail
+"%VPY%" scripts\build_datapack.py
 echo.
 echo  UI and API:  http://127.0.0.1:!API_PORT!
 echo  Ctrl-C to stop

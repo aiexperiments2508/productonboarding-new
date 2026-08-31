@@ -7,6 +7,7 @@ import type {
 import { Approvals } from "../components/Approvals";
 import { ControlTower } from "../components/ControlTower";
 import { Investigation } from "../components/Investigation";
+import { IntakeReport } from "../components/IntakeReport";
 import { Lifecycle } from "../components/Lifecycle";
 import { Product360 } from "../components/Product360";
 import { Scenarios } from "../components/Scenarios";
@@ -72,6 +73,7 @@ function Shell() {
   // The node the graph is on right now, streamed from the run itself, and the
   // ordered trail of everything it has been through - the run stage narrates
   // both, at a size a room can read.
+  const [batchId, setBatchId] = useState<string | null>(null);
   const [liveNode, setLiveNode] = useState<string | null>(null);
   const [nodeTrail, setNodeTrail] = useState<string[]>([]);
   // What the graph has actually found so far, as opposed to which node it is
@@ -410,7 +412,11 @@ function Shell() {
             <ControlTower
               catalog={catalog} events={events} run={run}
               onStartRun={startRun} onReplay={doReplay} busy={busy}
+              onOpenReport={(id) => { setBatchId(id); setSection("intake"); }}
             />
+          )}
+          {section === "intake" && (
+            <IntakeReport batchId={batchId} onOpenBatch={setBatchId} />
           )}
           {section === "lifecycle" && <Lifecycle />}
   {section === "product360" && <Product360 />}

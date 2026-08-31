@@ -1534,6 +1534,43 @@ export const api = {
       max_upload_bytes: number;
     }>("/api/intake/servers"),
 
+  /** The bundles suppliers have sent, newest first. */
+  batches: (limit = 20) =>
+    get<{ batches: BatchRow[] }>(`/api/intake/batches?limit=${limit}`),
+
+  /** How much of one bundle is fit to sell.
+   *
+   *  Recomputed on every read rather than stored, so reopening this after a
+   *  fix shows the new figures rather than the ones somebody cached. */
+  batchReport: (batchId: string, useModel = false) =>
+    get<BatchReport>(
+      `/api/intake/batches/${encodeURIComponent(batchId)}/report` +
+      (useModel ? "?use_model=true" : "")),
+
+  /** Fill the gaps a model can cite. Writes facts; publishes nothing. */
+  batchFix: (batchId: string, body: {
+    actor: string; entity_ids?: string[]; include_safety_class?: boolean;
+  }) =>
+    post<BatchFixResult>(
+      `/api/intake/batches/${encodeURIComponent(batchId)}/fix`, body),
+
+  /** Where to download a template. A plain link, because this is the
+   *  platform's own UI talking to the platform - the vendor portal reaches the
+   *  same bytes over MCP instead. */
+  datapackUrl: (branch: string, fmt = "csv", filled = false) =>
+    `${BASE}/api/intake/datapack/${encodeURIComponent(branch)}` +
+    `?fmt=${fmt}${filled ? "&filled=true" : ""}`,
+
+  datapack: () =>
+    get<{
+      fascia: string;
+      formats: Record<string, { media_type: string; available: boolean;
+                                why: string }>;
+      branches: { id: string; label: string; regulated: boolean;
+                  categories: number; attributes: number;
+                  required_media: string[] }[];
+    }>("/api/intake/datapack"),
+
   /** What suppliers have actually sent, newest first. */
   submissions: (supplier = "", limit = 50) =>
     get<{ submissions: {
@@ -1734,6 +1771,205 @@ async function sse(
   }
 
   if (!final) throw new Error("the run ended without reporting a final state");
+  return final;
+}
+
+/* --- supplier bundles ----------------------------------------------------- */
+
+/** One product's assessment, streamed as the pass reaches it. */
+export interface BatchProduct {
+  kind: "product";
+  ordinal: number;
+  total: number;
+  entity_id: string;
+  product_id: string;
+  sku: string;
+  name: string;
+  category: string;
+  verdict: string;
+  open: number;
+  blocking: number;
+  gaps: number;
+  findings: ReadinessFinding[];
+  /** The nodes the map lights while this product is being assessed. Resolved
+   *  server-side, so the client does not rediscover that a variant belongs to
+   *  a product which belongs to a supplier. */
+  entities: string[];
+}
+
+/** A gap, and whether anything could close it without asking the supplier. */
+export interface FixableGap {
+  entity_id: string;
+  attribute_path: string;
+  label: string;
+  dtype: string;
+  unit: string | null;
+  safety_class: boolean;
+  /** CANDIDATE - a source passage is on file. NO_SOURCE - nothing to read it
+   *  out of. SAFETY_HELD - a model may not assert this one at all. */
+  state: "CANDIDATE" | "NO_SOURCE" | "SAFETY_HELD";
+  why: string;
+  citation: Citation | null;
+  proposed: unknown;
+  confidence: number | null;
+}
+
+/** What `rollup.tally` returns for one batch.
+ *
+ *  Deliberately not `ProductRollup`: that one carries the window and the
+ *  filters a catalog-wide query was asked with, and a batch has neither - it
+ *  is the products one supplier sent in one archive. Reusing it would mean
+ *  inventing an empty window to satisfy a type. */
+export interface BatchTotals {
+  assessed: number;
+  cleared: number;
+  returned: number;
+  blocked: number;
+  checks_complete: boolean;
+  caveat?: string | null;
+  by_supplier: {
+    supplier: string; name: string; assessed: number;
+    cleared: number; returned: number; blocked: number;
+  }[];
+  by_category: {
+    prefix: string; label: string; assessed: number;
+    cleared: number; returned: number; blocked: number;
+  }[];
+  by_system: {
+    system: string; owner?: string | null; products: number; findings: number;
+  }[];
+  by_check: { check: string; products: number; findings: number }[];
+}
+
+/** A line the bundle proposed that the catalog does not have.
+ *
+ *  Held rather than created, and counted apart from the assessed products for
+ *  the same reason: it is not a product yet, and rolling it into "assessed"
+ *  would report a decision nobody has made. */
+export interface BatchProposal {
+  submission_id: string;
+  draft_id: string;
+  name: string;
+  category: string;
+  supplier: string;
+  note: string;
+}
+
+export interface BatchReport {
+  kind?: string;
+  batch_id: string;
+  supplier: string;
+  system: string;
+  submitted_at: string;
+  doc_ref: string;
+  file: { path: string; bytes: number; filename: string } | null;
+  products: BatchProduct[];
+  proposals: BatchProposal[];
+  totals: BatchTotals;
+  fixable: {
+    gaps: FixableGap[];
+    candidates: number;
+    products: number;
+    held_safety: number;
+    no_source: number;
+    read: boolean;
+    label: string;
+  };
+  checks_complete: boolean;
+  caveat: string | null;
+}
+
+export interface BatchRow {
+  batch_id: string;
+  submission_id: string;
+  supplier: string;
+  system: string;
+  submitted_at: string;
+  wall_at: string;
+  doc_ref: string;
+  note: string;
+  entities: string[];
+  event_ids: string[];
+  file: { path: string; bytes: number; filename: string } | null;
+  images: { path: string; bytes: number; filename: string }[];
+  proposals: BatchProposal[];
+}
+
+export interface BatchFixResult {
+  batch_id: string;
+  actor: string;
+  filled: {
+    entity_id: string; attribute_path: string; value: unknown;
+    chunk_id: string; quote: string; confidence: number;
+    doc_id: string; heading: string;
+  }[];
+  requested: { entity_id: string; attribute_path: string; why: string }[];
+  held_safety: FixableGap[];
+  counts: { filled: number; requested: number; held_safety: number };
+  gateway: { reachable: boolean; detail: string };
+  totals: BatchTotals;
+  products: BatchProduct[];
+  note: string;
+}
+
+export type BatchStreamEvent =
+  | { kind: "batch_started"; batch_id: string; supplier: string;
+      system: string; total: number; entities: string[]; use_model: boolean }
+  | BatchProduct
+  | ({ kind: "batch_finished" } & BatchReport)
+  | { kind: "error"; detail: string };
+
+/** The sequential onboarding pass, streamed.
+ *
+ *  Uses the same hand-rolled reader as `streamRun` and for the same reason:
+ *  `EventSource` is GET-only and this is a POST. Every message is handed
+ *  straight to `onEvent`, and the last one carries the whole report - so a
+ *  caller that watched the stream never has to fetch it again. */
+export async function streamBatchAssess(
+  batchId: string,
+  onEvent: (e: BatchStreamEvent) => void,
+  opts: { paceMs?: number; useModel?: boolean } = {}
+): Promise<BatchReport | null> {
+  const res = await fetch(
+    `${BASE}/api/intake/batches/${encodeURIComponent(batchId)}/assess/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pace_ms: opts.paceMs, use_model: opts.useModel ?? false,
+      }),
+    });
+  if (!res.ok || !res.body) {
+    throw new Error(`${res.status} ${(await res.text()).slice(0, 300)}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let final: BatchReport | null = null;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let split = buffer.indexOf("\n\n");
+    while (split !== -1) {
+      const frame = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      split = buffer.indexOf("\n\n");
+
+      const line = frame.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      try {
+        const event = JSON.parse(line.slice(5).trim()) as BatchStreamEvent;
+        onEvent(event);
+        if (event.kind === "batch_finished") final = event as BatchReport;
+      } catch {
+        /* keepalives and partial frames are not errors */
+      }
+    }
+  }
   return final;
 }
 

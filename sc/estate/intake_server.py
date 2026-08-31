@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sc.datapack import read as read_mod
 from sc.estate import intake
 from sc.estate.manifest import SYSTEMS, System
 
@@ -42,10 +43,19 @@ TOOLS_BY_ACCEPTS: dict[str, tuple[str, ...]] = {
     "CATALOG_UPDATE": ("upload_image",),
 }
 
+#: Tools that need more than one thing accepted, and so cannot be expressed by
+#: the map above. A product feed is attribute rows and photographs in one
+#: archive; an endpoint that cannot take both has no real-world equivalent of
+#: one, and would have to answer half of every bundle with a refusal.
+TOOLS_BY_ALL_OF: dict[tuple[str, ...], tuple[str, ...]] = {
+    ("SUPPLIER_FEED", "CATALOG_UPDATE"): ("submit_product_feed",),
+}
+
 #: Available on every intake endpoint, whatever it accepts. Reading what you
 #: sent is not a privilege that depends on what you may send next.
 ALWAYS: tuple[str, ...] = ("describe_intake", "list_my_products",
-                           "get_product_spec", "submission_status")
+                           "get_product_spec", "submission_status",
+                           "fetch_feed_template")
 
 
 def vendor_facing() -> list[System]:
@@ -58,6 +68,9 @@ def tools_for(system: System) -> tuple[str, ...]:
     tools = set(ALWAYS)
     for accepted in system.accepts:
         tools.update(TOOLS_BY_ACCEPTS.get(accepted, ()))
+    for needed, granted in TOOLS_BY_ALL_OF.items():
+        if set(needed) <= set(system.accepts):
+            tools.update(granted)
     return tuple(sorted(tools))
 
 
@@ -65,7 +78,8 @@ def tools_for(system: System) -> tuple[str, ...]:
 #: because "which of these can act" is the question an operator handing out an
 #: endpoint actually asks.
 MUTATING: tuple[str, ...] = ("submit_specification_change", "upload_document",
-                             "upload_image", "create_product_draft")
+                             "upload_image", "create_product_draft",
+                             "submit_product_feed")
 
 
 def _describe(system: System) -> dict:
@@ -78,6 +92,8 @@ def _describe(system: System) -> dict:
         "mutating": [t for t in tools_for(system) if t in MUTATING],
         "suppliers": sorted(intake.known_suppliers()),
         "max_upload_bytes": intake.MAX_UPLOAD_BYTES,
+        "max_bundle_bytes": read_mod.MAX_BUNDLE_BYTES,
+        "max_bundle_rows": read_mod.MAX_BUNDLE_ROWS,
         "precedence": system.precedence,
         "note": ("this endpoint appends events. It cannot write a value into "
                  "the retailer's catalog: what you send is recorded as a "
@@ -188,6 +204,69 @@ def build(system: System) -> Any:
                 supplier=supplier, system_id=system.id, entity_id=entity_id,
                 role=role, filename=filename, content_base64=content_base64,
                 media_type=media_type, alt_text=alt_text,
+                idempotency_key=idempotency_key or None)
+
+    if "fetch_feed_template" in exposed:
+        @mcp.tool()
+        def fetch_feed_template(branch: str = "", fmt: str = "csv",
+                                filled: bool = False) -> dict:
+            """The template for one part of the assortment, base64 encoded.
+
+            Available on every endpoint, including the ones that cannot take a
+            bundle back: knowing what we ask for is not a privilege that
+            depends on how you are allowed to send it.
+
+            ``fmt`` is csv, txt, xlsx, docx or json. ``branch`` names a part of
+            the assortment for csv, txt and xlsx, and is ignored for docx and
+            json, which cover the whole pack. ``filled`` asks for the worked
+            example rather than the blank template.
+            """
+            return intake.fetch_feed_template(branch=branch, fmt=fmt,
+                                              filled=filled)
+
+        @mcp.tool()
+        def describe_feed() -> dict:
+            """Which templates exist, and whether this endpoint takes one back.
+
+            Both halves, because they are different questions and the answer to
+            the second is no on two of the three endpoints. A portal that
+            offered an upload form wherever it could offer a template would be
+            offering a door that answers every knock with a refusal.
+            """
+            exposed_here = tools_for(system)
+            return {
+                **intake.feed_branches(),
+                "accepts_bundle": "submit_product_feed" in exposed_here,
+                "why_not": ("" if "submit_product_feed" in exposed_here else
+                            f"{system.title} accepts "
+                            f"{', '.join(system.accepts)}. A product feed is "
+                            f"attribute rows and photographs in one archive, "
+                            f"so it is taken only where both are accepted"),
+            }
+
+    if "submit_product_feed" in exposed:
+        @mcp.tool()
+        def submit_product_feed(supplier: str, filename: str,
+                                content_base64: str, note: str = "",
+                                idempotency_key: str = "") -> dict:
+            """Send a whole product feed: one .zip of rows and photographs.
+
+            The archive holds one data file at its root - the .csv, .txt or
+            .xlsx from the template - and an optional images/ folder whose file
+            names the rows refer to.
+
+            Every row is judged on arrival exactly as a taped one would be.
+            Nothing here writes a value into the catalog by itself, and a row
+            naming a product we do not have is held as a draft rather than
+            creating one.
+
+            Declared with explicit typed parameters for the same reason as
+            ``submit_specification_change``: FastMCP reads the signature, and
+            the idempotency decorator's wrapper takes ``*args``.
+            """
+            return intake.submit_product_feed(
+                supplier=supplier, system_id=system.id, filename=filename,
+                content_base64=content_base64, note=note,
                 idempotency_key=idempotency_key or None)
 
     return mcp

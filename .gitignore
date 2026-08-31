@@ -66,6 +66,13 @@ data/eval/
 # things the repository describes.
 data/inbox/
 
+# The supplier data pack. Built by scripts/build_datapack.py from the catalog
+# and the retailer profile, so it is derived twice over and belongs in the
+# repository no more than the seed pack it is derived from. A committed pack
+# would also be the one copy of the schema that does not move when an
+# attribute is added, which is the drift the generator exists to prevent.
+data/datapack/
+
 # Databases: the application store, the LangGraph checkpoints beside it, and
 # the SQLite sidecar files that appear in WAL mode.
 data/*.db

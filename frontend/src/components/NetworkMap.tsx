@@ -554,6 +554,8 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
           const isSelected = selected === n.id;
           const pulse = live ? pulseStrength(live, n.id) : 0;
           const isChannel = n.kind === "CHANNEL";
+          const isWorking = live?.working.has(n.id) ?? false;
+          const settled = live?.settled.get(n.id);
 
           return (
             <g key={n.id}>
@@ -582,6 +584,36 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
                 />
               )}
 
+              {/* The onboarding pass is on this product. A fixed radius, not a
+                  decaying one: a pulse says something touched this and fades,
+                  and this says the pass is here, which is true until it is
+                  not. */}
+              {isWorking && (
+                <circle
+                  cx={n.x}
+                  cy={n.y}
+                  r={NODE_R + 7}
+                  fill="none"
+                  strokeWidth={2}
+                  className="stroke-accent sc-breathe"
+                />
+              )}
+
+              {/* Already decided. Thin, quiet, and coloured by the verdict, so
+                  a finished sweep leaves the map showing what it found rather
+                  than reverting to how it looked before. */}
+              {!isWorking && settled && (
+                <circle
+                  cx={n.x}
+                  cy={n.y}
+                  r={NODE_R + 4}
+                  fill="none"
+                  strokeWidth={1.4}
+                  opacity={0.85}
+                  className={verdictStroke(settled)}
+                />
+              )}
+
               {/* Body. The catalog's own things are rounded squares; channels
                   are circles - they are the outside world, and the shape says
                   so before the glyph is read. */}
@@ -590,7 +622,7 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
                   cx={n.x}
                   cy={n.y}
                   r={NODE_R}
-                  className={bodyClass(n, isHit, isSelected)}
+                  className={bodyClass(n, isHit, isSelected, isWorking)}
                 />
               ) : (
                 <rect
@@ -599,7 +631,7 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
                   width={NODE_R * 2}
                   height={NODE_R * 2}
                   rx={3.5}
-                  className={bodyClass(n, isHit, isSelected)}
+                  className={bodyClass(n, isHit, isSelected, isWorking)}
                 />
               )}
 
@@ -762,11 +794,30 @@ const STATUS_WORDS: Record<ListingStatus, string> = {
 const statusWords = (s?: ListingStatus) =>
   s ? STATUS_WORDS[s] : "status unknown";
 
-function bodyClass(n: Placed, hit: boolean, selected: boolean) {
+/** The ring colour for a product the pass has already decided.
+ *
+ *  Three words, three colours, and no fourth: `verdict.decide` returns a
+ *  closed set of three and a colour for anything else would be a colour for a
+ *  state that cannot happen. */
+function verdictStroke(verdict: string): string {
+  if (verdict === "READY_TO_LAUNCH") return "stroke-ok";
+  if (verdict === "BLOCKED") return "stroke-danger";
+  return "stroke-warn";
+}
+
+
+function bodyClass(n: Placed, hit: boolean, selected: boolean,
+                   working = false) {
   return cn(
     "transition-[fill,stroke,stroke-width] duration-[var(--dur-base)]",
     hit
       ? "fill-danger-soft stroke-danger [stroke-width:2.5] sc-breathe"
+      : working
+      // The same breathe the blast radius uses, in the accent rather than the
+      // danger colour: "we are looking at this" and "this is at risk" are both
+      // states that persist, and neither is traffic - but only one of them is
+      // bad news, and the colour is the only thing saying which.
+      ? "fill-accent-soft stroke-accent [stroke-width:2.5] sc-breathe"
       : "fill-raised stroke-strong [stroke-width:1.5]",
     // Regulated: a claim- or allergen-controlled product. Nothing on this
     // diagram is allowed to be easier to miss.

@@ -19,7 +19,7 @@ import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from sc import db
@@ -1719,6 +1719,141 @@ def fact_lineage(fact_id: str) -> dict:
 # is what matters: `@app.get("/{path:path}")` would otherwise answer every
 # image request with index.html, and a browser renders that as a broken-image
 # glyph - a missing asset reported as a corrupt one.
+
+
+# ---------------------------------------------------------------------------
+# Onboarding a supplier bundle
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/intake/datapack")
+def datapack_index() -> dict:
+    """Which templates exist and which formats this installation can build."""
+    from sc.estate import intake as intake_mod
+
+    return intake_mod.feed_branches()
+
+
+@app.get("/api/intake/datapack/{branch}")
+def datapack_template(branch: str, fmt: str = "csv", filled: bool = False):
+    """One template, as a file.
+
+    The platform's own UI may link straight to this. The vendor portal may not,
+    and does not - it holds an MCP session and fetches the same bytes through
+    ``fetch_feed_template``, because a page there that reached this host
+    directly would move the supplier's identity into the browser.
+    """
+    import base64 as b64
+
+    from sc.estate import intake as intake_mod
+
+    result = intake_mod.fetch_feed_template(branch=branch, fmt=fmt,
+                                            filled=filled)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    payload = b64.b64decode(result["content_base64"])
+    return Response(
+        content=payload, media_type=result["media_type"],
+        headers={"Content-Disposition":
+                 f'attachment; filename="{result["filename"]}"'})
+
+
+@app.get("/api/intake/batches")
+def intake_batches(limit: int = 20) -> dict:
+    """The bundles suppliers have sent, newest first."""
+    from sc.onboarding import batch as batch_mod
+
+    return {"batches": batch_mod.recent(limit)}
+
+
+@app.get("/api/intake/batches/{submission_id}/report")
+def intake_batch_report(submission_id: str, use_model: bool = False) -> dict:
+    """How much of one bundle is fit to sell.
+
+    Recomputed on every read rather than stored, so a report reopened after a
+    fix shows the new figures. The counts are ``rollup.tally``'s, which is what
+    the product summary counts, so the two screens cannot disagree.
+    """
+    from sc.onboarding import assess as assess_mod
+
+    found = assess_mod.report(submission_id, use_model=use_model)
+    if found is None:
+        raise HTTPException(status_code=404,
+                            detail=f"no bundle called {submission_id!r}")
+    return found
+
+
+@app.post("/api/intake/batches/{submission_id}/assess/stream")
+async def intake_batch_assess(submission_id: str, body: dict | None = None):
+    """The sequential pass, one product at a time.
+
+    Streamed the same way a run is - SSE over POST, because ``EventSource``
+    cannot POST - so the map can light one product while the rest wait their
+    turn. ``pace_ms`` is presentation and cannot reach a result; the report at
+    the end is identical whatever it is set to.
+    """
+    from sc.onboarding import assess as assess_mod
+
+    options = body or {}
+    use_model = bool(options.get("use_model", False))
+    pace_ms = int(options.get("pace_ms", assess_mod.DEFAULT_PACE_MS))
+
+    async def generator():
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def produce():
+            try:
+                for item in assess_mod.run(submission_id, use_model=use_model,
+                                           pace_ms=pace_ms):
+                    queue.put_nowait(item)
+            except Exception as exc:  # noqa: BLE001 - the client is watching
+                queue.put_nowait({"kind": "error", "detail": str(exc)[:400]})
+            finally:
+                queue.put_nowait(None)
+
+        # The pass is synchronous and database-bound; a worker thread keeps the
+        # loop free to flush each product as it is decided.
+        task = asyncio.get_running_loop().run_in_executor(None, produce)
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield _sse(item)
+        await task
+
+    return StreamingResponse(generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/intake/batches/{submission_id}/fix")
+def intake_batch_fix(submission_id: str, body: dict | None = None) -> dict:
+    """Fill the gaps a model can cite, and stop there.
+
+    Writes facts. It does not publish, reserve a channel or record an approval,
+    and it deliberately cannot: a product becomes ready by having no findings
+    left, which is arithmetic over what is on file, and publication has its own
+    gate that this does not touch.
+    """
+    from sc.onboarding import fix as fix_mod
+
+    options = body or {}
+    actor = str(options.get("actor") or "").strip()
+    if not actor:
+        raise HTTPException(
+            status_code=400,
+            detail=("a fill has to be attributable to somebody. There is no "
+                    "identity provider anywhere in this system, so the name is "
+                    "taken at its word and recorded"))
+    result = fix_mod.apply(
+        submission_id, actor=actor,
+        entity_ids=options.get("entity_ids") or None,
+        include_safety_class=bool(options.get("include_safety_class", False)))
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
 MEDIA_DIR = Path(__file__).resolve().parents[1] / "data" / "media"
 if MEDIA_DIR.exists():
     app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")

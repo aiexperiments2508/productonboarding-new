@@ -88,6 +88,7 @@ SPEC_CHANGE = "SPEC_CHANGE"
 DOCUMENT = "DOCUMENT"
 IMAGE = "IMAGE"
 PRODUCT_DRAFT = "PRODUCT_DRAFT"
+DATA_PACK = "DATA_PACK"
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -529,16 +530,24 @@ def _held_cell(base, entity_id: str, path: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-def _decode(content_base64: str) -> tuple[bytes | None, str | None]:
+def _decode(content_base64: str, *, limit: int = MAX_UPLOAD_BYTES,
+            ) -> tuple[bytes | None, str | None]:
+    """The attachment's bytes, or the reason they are not usable.
+
+    The limit is a parameter because a bundle is not an attachment: two
+    megabytes is the right size for one photograph and the wrong size for a
+    spreadsheet with forty of them. One function and one message template, so
+    the two doors cannot describe the same refusal differently.
+    """
     try:
         raw = base64.b64decode(content_base64 or "", validate=True)
     except (binascii.Error, ValueError):
         return None, "the attachment is not valid base64"
     if not raw:
         return None, "the attachment is empty"
-    if len(raw) > MAX_UPLOAD_BYTES:
+    if len(raw) > limit:
         return None, (f"the attachment is {len(raw)} bytes; this endpoint "
-                      f"accepts up to {MAX_UPLOAD_BYTES}")
+                      f"accepts up to {limit}")
     return raw, None
 
 
@@ -729,3 +738,373 @@ def create_product_draft(*, supplier: str, system_id: str, name: str,
                  "line until a reviewer accepts it, and that decision is "
                  "recorded against the person who makes it"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Bundles
+# ---------------------------------------------------------------------------
+
+
+@idempotent("intake.submit_product_feed")
+def submit_product_feed(*, supplier: str, system_id: str, filename: str,
+                        content_base64: str, note: str = "") -> dict:
+    """Send a whole product feed: one archive of rows and photographs.
+
+    The bulk door. The four tools above each say one thing about one product,
+    which is the right shape for a correction and the wrong shape for the
+    question a retailer asks first - a supplier has forty new lines, how many
+    of them are fit to sell.
+
+    Nothing here is a new kind of authority. Every row becomes an event on the
+    live lane and is judged by the platform's own ingestion under the same
+    precedence policy, the same materiality threshold and the same safety
+    override as a taped one. A row that contradicts a better-attested document
+    loses. A SKU this supplier does not own is refused. A row naming a product
+    the catalog does not have is held as a draft, exactly as
+    ``create_product_draft`` holds one, because the catalog does not take a new
+    line without a reviewer.
+
+    **The document matters.** Rows are asserted against a new version of the
+    supplier's own existing document, never a freshly minted id - a document
+    the seed pack does not know carries precedence zero and loses every contest
+    it enters, so a bundle minting its own would raise forty conflicts and
+    correct nothing. Same rule, same helper, as the single-attribute form.
+
+    Parsing lives in ``sc.datapack.read``. This function owns who may send
+    what, on whose authority, and what is written down; it does not own the
+    difference between a comma and a pipe.
+    """
+    from sc.datapack import read as read_mod
+    from sc.estate.manifest import SYSTEMS
+    from sc.replay import tape
+
+    base = _base()
+    refusal = _check_supplier(supplier, base)
+    if refusal:
+        return refusal
+
+    raw, why = _decode(content_base64, limit=read_mod.MAX_BUNDLE_BYTES)
+    if why:
+        return _refuse(why)
+
+    # Imagery is accepted only where the manifest says this system takes it.
+    # Derived rather than declared, so narrowing a system removes its ability
+    # to carry photographs with no code change here - the same property the
+    # tool list has.
+    system = next((s for s in SYSTEMS if s.id == system_id), None)
+    accepts_images = "CATALOG_UPDATE" in set(getattr(system, "accepts", ()) or ())
+
+    bundle = read_mod.read(raw, supplier=supplier, base=base,
+                           accepts_images=accepts_images)
+    if not bundle.accepted:
+        return _refuse(bundle.refusal, **bundle.detail)
+    if not bundle.rows:
+        return _refuse("no row in the bundle could be read",
+                       rows=bundle.summary())
+
+    submission_id = _submission_id()
+    stored = _write(supplier, "packs", filename or "bundle.zip", raw)
+    files = [stored]
+
+    document = _default_doc(base, supplier)
+    if not document:
+        return _refuse(f"{supplier} has no document to revise")
+    version = _next_version(base, document)
+    doc_ref = f"{document}:{version}"
+
+    prepared, entity_ids, drafts = _bundle_events(
+        bundle, supplier=supplier, system_id=system_id,
+        submission_id=submission_id, document=document, version=version,
+        base=base, note=note, accepts_images=accepts_images, files=files)
+
+    events = tape.append_live_many(prepared, system_id=system_id)
+
+    _record_submission(submission_id=submission_id, supplier=supplier,
+                       system_id=system_id, kind=DATA_PACK,
+                       event_ids=[e.id for e in events],
+                       entity_ids=entity_ids, doc_ref=doc_ref, files=files,
+                       note=note)
+    _record_bundle_drafts(events, drafts, supplier=supplier,
+                          system_id=system_id, batch_id=submission_id)
+
+    images = bundle.image_summary()
+    if not accepts_images and any(r.images for r in bundle.rows):
+        images["refused"] = (
+            f"{system_id} does not accept imagery, so the photographs in this "
+            f"bundle were not taken. Its manifest entry declares what it "
+            f"accepts, and imagery is not on it")
+
+    return {
+        "accepted": True,
+        "submission_id": submission_id,
+        "batch_id": submission_id,
+        "doc_ref": doc_ref,
+        "stored": stored,
+        "rows": bundle.summary(),
+        "images": images,
+        "drafts": drafts,
+        "entities": entity_ids,
+        "events": [e.id for e in events],
+        "carried_by": system_id,
+        "recorded_at": events[0].ts.isoformat() if events else "",
+        "note": ("recorded as supplier feed rows against a new version of "
+                 f"{document}. Nothing here writes a value into the catalog by "
+                 "itself: the platform's own ingestion judges every row under "
+                 "the same precedence policy as the recording, and a row that "
+                 "contradicts a better-attested document loses. Rows naming a "
+                 "product we do not have are held as drafts until a reviewer "
+                 "accepts them"),
+    }
+
+
+def _bundle_events(bundle, *, supplier: str, system_id: str,
+                   submission_id: str, document: str, version: str, base,
+                   note: str, accepts_images: bool, files: list[dict],
+                   ) -> tuple[list[tuple], list[str], list[dict]]:
+    """The whole bundle as events, in the order the supplier's file listed them.
+
+    One opener, one event per row, one per photograph, one closer.
+
+    **Every event carries a top-level ``entities``**, and that is load bearing
+    rather than tidy: the map's highlight engine reads a fixed allowlist of
+    top-level payload keys, so a row whose entity is buried inside its ``rows``
+    array arrives correctly, records correctly, and lights nothing. The feed
+    would fill and the catalog map would stay dark.
+
+    The opener and closer deliberately carry no ``rows``, so ingestion reads
+    them as markers and records nothing from them. They exist to give the feed
+    a beginning and an end, and to give the batch an identity to be reported
+    against - one line saying a supplier sent forty products is worth two
+    events.
+    """
+    from sc.contracts import EventType
+
+    prepared: list[tuple] = []
+    drafts: list[dict] = []
+    envelope = {"supplier": supplier, "submission_id": submission_id,
+                "batch_id": submission_id, "kind": "PORTAL_FEED"}
+
+    entity_ids = [r.entity_id for r in bundle.rows if r.entity_id]
+    counts = bundle.summary()
+
+    prepared.append((
+        EventType.SUPPLIER_FEED, "VENDOR_PORTAL",
+        {**envelope, "feed_stage": "DATA_PACK_OPENED",
+         "filename": bundle.filename, "rows_read": bundle.read,
+         "rows_accepted": len(bundle.rows), "entities": entity_ids,
+         "doc_id": document, "doc_version": version,
+         "summary": note or f"{supplier} sent {len(bundle.rows)} products"},
+        f"{supplier} sent a product feed: {bundle.filename}, "
+        f"{len(bundle.rows)} rows."))
+
+    for row in bundle.rows:
+        if row.draft:
+            draft_id = f"PRD-D{uuid.uuid4().hex[:6].upper()}"
+            name = row.product_name or row.variant_name or row.sku
+            drafts.append({"draft_id": draft_id, "sku": row.sku,
+                           "name": name, "category": row.category})
+            prepared.append((
+                EventType.SPEC_DOC, "VENDOR_PORTAL",
+                {**envelope, "feed_stage": "DATA_PACK_DRAFT",
+                 "doc_id": f"DOC-D{uuid.uuid4().hex[:6].upper()}",
+                 "doc_version": "v1", "draft": True, "product": draft_id,
+                 "entities": [draft_id], "applies_to": "PRODUCT",
+                 "name": name, "category": row.category, "sku": row.sku,
+                 "attributes": dict(row.values),
+                 "summary": f"new line proposed: {row.sku}"},
+                f"New line proposed by {supplier}: {name} "
+                f"({row.category})."))
+            continue
+
+        rows = [{"entity_id": row.entity_id, "path": path, "value": value,
+                 "unit": getattr(base.attr_defs.get(path), "unit", None)}
+                for path, value in sorted(row.values.items())]
+        prepared.append((
+            EventType.SUPPLIER_FEED, "VENDOR_PORTAL",
+            {**envelope, "feed_stage": "DATA_PACK_ROW",
+             "doc_id": document, "doc_version": version,
+             "product": product_of(row.entity_id, base),
+             # Top level, and read by the map. See the docstring.
+             "entities": [row.entity_id],
+             "entity_id": row.entity_id, "sku": row.sku,
+             "attribute_paths": sorted(row.values),
+             "rows": rows,
+             "summary": f"{row.sku}: {len(rows)} attributes"},
+            f"{supplier} sent {len(rows)} attributes for {row.sku}."))
+
+        if not accepts_images:
+            continue
+        for role, name in sorted(row.images.items()):
+            payload = bundle.images.get(name)
+            if payload is None:
+                continue
+            held = _write(supplier, "media", name, payload)
+            files.append(held)
+            uri = f"/{INBOX}/{supplier}/media/{Path(held['path']).name}"
+            prepared.append((
+                EventType.CATALOG_UPDATE, "VENDOR_PORTAL",
+                {**envelope, "feed_stage": "DATA_PACK_IMAGE",
+                 "entities": [row.entity_id], "entity_id": row.entity_id,
+                 # The carrier is whichever endpoint accepted the upload. Read
+                 # from the caller rather than written down: a system named in
+                 # code is a system nobody can add.
+                 "media": [{"entity_id": row.entity_id, "role": role,
+                            "uri": uri, "alt_text": row.product_name,
+                            "system": system_id}],
+                 "summary": f"{role.lower()} for {row.sku}"},
+                f"{supplier} sent a photograph for {row.sku}."))
+
+    prepared.append((
+        EventType.SUPPLIER_FEED, "VENDOR_PORTAL",
+        {**envelope, "feed_stage": "DATA_PACK_CLOSED",
+         "entities": entity_ids,
+         "rows_accepted": len(bundle.rows), "drafts": len(drafts),
+         "rejected_rows": counts["rejected_rows"],
+         "rejected_cells": counts["rejected_cells"],
+         "summary": f"{supplier} finished sending {bundle.filename}"},
+        f"{supplier} finished sending {bundle.filename}: "
+        f"{len(bundle.rows)} rows accepted, {len(drafts)} held as drafts."))
+    return prepared, entity_ids, drafts
+
+
+def feed_branches() -> dict:
+    """The parts of the assortment a template can be asked for.
+
+    Read off the catalog, so a retailer that does not trade a branch does not
+    offer a template for it.
+    """
+    from sc.datapack import formats, schema
+
+    base = _base()
+    pack = schema.build(base)
+    return {
+        "fascia": pack.fascia,
+        "formats": formats(),
+        "branches": [
+            {"id": sheet.branch, "label": sheet.label,
+             "regulated": sheet.regulated,
+             "categories": len(sheet.leaves),
+             "attributes": sum(1 for c in sheet.columns
+                               if c.kind == "attribute"),
+             "required_media": [c.name.split(".", 1)[1] for c in sheet.columns
+                                if c.kind == "image" and c.required]}
+            for sheet in pack.sheets
+        ],
+    }
+
+
+def fetch_feed_template(*, branch: str, fmt: str = "csv",
+                        filled: bool = False) -> dict:
+    """The template for one branch, as bytes a supplier can save.
+
+    Handed over base64 through the protocol rather than as a URL, and that is
+    the whole reason this tool exists. The vendor portal reaches this platform
+    over MCP and by no other route - a page there that linked straight to a
+    file on this host would move the boundary into the browser, where the
+    supplier identity becomes whatever a tab claims. So the template travels
+    the same way an uploaded document travels, in the other direction.
+
+    Generated on demand from the catalog, never read off disk: a template
+    cached on a filesystem is a template that keeps saying what the registry
+    used to say.
+    """
+    import base64 as b64
+
+    from sc.datapack import schema
+    from sc.datapack.writers import csv_txt, jsonschema, specdoc, workbook
+
+    base = _base()
+    pack = schema.build(base)
+    sheet = pack.sheet(branch)
+
+    if fmt in ("docx", "json"):
+        pass  # whole-pack formats; no branch needed
+    elif sheet is None:
+        return _refuse(
+            f"no part of the assortment called {branch!r}",
+            branches=[s.branch for s in pack.sheets])
+
+    example = None
+    if filled and sheet is not None:
+        from sc.datapack import sample as sample_mod
+
+        example = sample_mod.build(sheet, base)
+
+    stem = f"{branch}-example" if filled else branch
+    if fmt == "csv":
+        payload = csv_txt.write_csv(sheet, example).encode("utf-8-sig")
+        name, media = f"{stem}.csv", "text/csv"
+    elif fmt == "txt":
+        payload = csv_txt.write_txt(sheet, example).encode("utf-8-sig")
+        name, media = f"{stem}.txt", "text/plain"
+    elif fmt == "json":
+        import json as json_mod
+
+        payload = (json_mod.dumps(jsonschema.write(pack), indent=2)
+                   + "\n").encode("utf-8")
+        name, media = "supplier-feed.schema.json", "application/schema+json"
+    elif fmt == "docx":
+        payload = specdoc.write(pack)
+        name = "supplier-specification.docx"
+        media = ("application/vnd.openxmlformats-officedocument."
+                 "wordprocessingml.document")
+    elif fmt == "xlsx":
+        if not workbook.available():
+            return _refuse(
+                "this installation cannot produce the workbook: openpyxl is "
+                "not installed. The same columns are in the .csv, which is "
+                "written with the standard library")
+        from sc.datapack import sample as sample_mod
+
+        examples = {s.branch: sample_mod.build(s, base) for s in pack.sheets}
+        payload = workbook.write(pack, examples)
+        name = "supplier-feed.xlsx"
+        media = ("application/vnd.openxmlformats-officedocument."
+                 "spreadsheetml.sheet")
+    else:
+        return _refuse(f"no template format called {fmt!r}",
+                       formats=["csv", "txt", "xlsx", "docx", "json"])
+
+    return {
+        "accepted": True,
+        "filename": name,
+        "media_type": media,
+        "bytes": len(payload),
+        "content_base64": b64.b64encode(payload).decode("ascii"),
+        "note": ("generated from the retailer's attribute registry and "
+                 "assortment at the moment you asked. Every column is one a "
+                 "check reads"),
+    }
+
+
+def _record_bundle_drafts(events, drafts: list[dict], *, supplier: str,
+                          system_id: str, batch_id: str) -> None:
+    """Give every proposed line its own submission.
+
+    A bundle proposing five new lines is five proposals, not one. Each gets a
+    ``PRODUCT_DRAFT`` submission of its own, which is what the reviewer
+    surfaces read - so a line arriving inside an archive appears in the drafts
+    lane beside one typed into the form, and is accepted through the same
+    ``drafts.accept`` with the same decision recorded against the same person.
+
+    Recorded *beside* the batch rather than instead of it. The batch is what
+    arrived; the proposals are what somebody has to decide. Folding them
+    together would mean either a batch a reviewer can accept in one click - a
+    reviewer approving forty lines they have not read - or five proposals with
+    no record that they came in together.
+    """
+    by_draft = {}
+    for event in events:
+        if event.payload.get("feed_stage") == "DATA_PACK_DRAFT":
+            by_draft[event.payload.get("product")] = event
+
+    for draft in drafts:
+        event = by_draft.get(draft["draft_id"])
+        if event is None:
+            continue
+        _record_submission(
+            submission_id=_submission_id(), supplier=supplier,
+            system_id=system_id, kind=PRODUCT_DRAFT,
+            event_ids=[event.id], entity_ids=[draft["draft_id"]],
+            doc_ref=f"{event.payload.get('doc_id', '')}:v1",
+            note=f"proposed in {batch_id}")

@@ -18,9 +18,10 @@ Run it with ``python -m apps.vendor.server``.
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
 
-from fastapi import Body, FastAPI
+from fastapi import Body, FastAPI, Response
 
 from apps import _env, _serve
 from apps._mcp import Client
@@ -147,6 +148,56 @@ async def submit_image(system_id: str, body: dict = Body(...)) -> dict:
         "content_base64": body.get("content_base64", ""),
         "media_type": body.get("media_type", ""),
         "alt_text": body.get("alt_text", ""),
+        "idempotency_key": body.get("idempotency_key", ""),
+    })
+    _remember(result, system_id, body.get("supplier", ""))
+    bus.publish("submitted", {"result": result})
+    return result
+
+
+@app.get("/portal-api/{system_id}/feed")
+async def describe_feed(system_id: str) -> dict:
+    """Which templates the retailer publishes, and in what formats."""
+    return await _call(system_id, "describe_feed", {})
+
+
+@app.get("/portal-api/{system_id}/template")
+async def template(system_id: str, branch: str = "", fmt: str = "csv",
+                   filled: bool = False) -> Response:
+    """A template, relayed as a download from this origin.
+
+    The bytes cross MCP like everything else and are handed on from here. The
+    page could not fetch them from the platform directly: it would need an
+    absolute URL to another origin, which is the moment the supplier's identity
+    stops being something this process holds and starts being something a tab
+    claims. ``tests/test_app_boundary.py`` checks for exactly that.
+    """
+    result = await _call(system_id, "fetch_feed_template",
+                         {"branch": branch, "fmt": fmt, "filled": filled})
+    if not isinstance(result, dict) or result.get("error"):
+        detail = (result or {}).get("error", "the platform did not answer")
+        return Response(content=detail, status_code=400, media_type="text/plain")
+    return Response(
+        content=base64.b64decode(result["content_base64"]),
+        media_type=result.get("media_type", "application/octet-stream"),
+        headers={"Content-Disposition":
+                 f'attachment; filename="{result["filename"]}"'})
+
+
+@app.post("/portal-api/{system_id}/feed")
+async def submit_feed(system_id: str, body: dict = Body(...)) -> dict:
+    """Send a whole product feed as one archive.
+
+    The archive is passed straight through. This process does not open it, and
+    deliberately does not: validating here would be a second implementation of
+    the reader, on the wrong side of the boundary, and the two would disagree
+    about a row the day one of them was changed.
+    """
+    result = await _call(system_id, "submit_product_feed", {
+        "supplier": body.get("supplier", ""),
+        "filename": body.get("filename", ""),
+        "content_base64": body.get("content_base64", ""),
+        "note": body.get("note", ""),
         "idempotency_key": body.get("idempotency_key", ""),
     })
     _remember(result, system_id, body.get("supplier", ""))

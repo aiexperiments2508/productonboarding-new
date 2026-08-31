@@ -56,6 +56,15 @@ export const IconProduct = (p: IconProps) => (
   </Icon>
 );
 
+/** Supplier intake. A stack of rows with the last one ticked: a batch, judged. */
+export const IconIntake = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="3.5" width="18" height="17" rx="2" />
+    <path d="M7 8.5h10M7 12h6" />
+    <path d="m13.5 16.2 2 2 4-4.2" />
+  </Icon>
+);
+
 /** Ingest fabric. A radar sweep - the view that watches the whole catalog. */
 export const IconTower = (p: IconProps) => (
   <Icon {...p}>

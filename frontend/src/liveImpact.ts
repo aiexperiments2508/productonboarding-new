@@ -13,8 +13,16 @@
  *             This is traffic, not damage.
  *   impact  - this node is inside the blast radius of a correction that is in
  *             force. Persists until the correction is resolved.
+ *   working - the onboarding pass is assessing this product *now*. Steady
+ *             while it lasts and gone the moment it moves on.
  *
- * Conflating them would make a routine price feed look like a recall.
+ * Conflating any two of them would make a routine price feed look like a
+ * recall. `working` is a third field rather than a borrowed pulse for the same
+ * reason the first two are separate: a pulse decays, and "we are looking at
+ * this one" is not a statement that fades - it is either true or the pass has
+ * moved on. A decaying version would leave a trail of half-lit products that
+ * reads as "these are all being worked on", which is the one thing a
+ * sequential pass exists to disprove.
  */
 
 import type { AffectedScope, CatalogState, EventType, SCEvent } from "./api";
@@ -28,11 +36,38 @@ export interface LiveImpact {
   impacted: Set<string>;
   /** listing ids that cannot publish as they stand - the map's edges */
   blockedListings: Set<string>;
+  /** the nodes on the path of the product being assessed right now */
+  working: Set<string>;
+  /** entity id -> the verdict the pass reached, for the ones already done */
+  settled: Map<string, string>;
 }
 
 export const emptyImpact = (): LiveImpact => ({
   pulses: new Map(), impacted: new Set(), blockedListings: new Set(),
+  working: new Set(), settled: new Map(),
 });
+
+/** Move the pass on to one product, or off the end of the batch.
+ *
+ *  The previous product's verdict is kept in `settled`, so a finished sweep
+ *  leaves the map showing what it decided rather than reverting to how it
+ *  looked before. Called with no ids to clear the working set at the end. */
+export function withWorking(prev: LiveImpact, ids: string[],
+                            settled?: { id: string; verdict: string }
+                           ): LiveImpact {
+  const next: LiveImpact = {
+    ...prev,
+    working: new Set(ids),
+    settled: settled ? new Map(prev.settled) : prev.settled,
+  };
+  if (settled) next.settled.set(settled.id, settled.verdict);
+  return next;
+}
+
+/** Forget a previous sweep, when a new one starts or the batch is cleared. */
+export function clearSweep(prev: LiveImpact): LiveImpact {
+  return { ...prev, working: new Set(), settled: new Map() };
+}
 
 /* --- catalog index -------------------------------------------------------- */
 

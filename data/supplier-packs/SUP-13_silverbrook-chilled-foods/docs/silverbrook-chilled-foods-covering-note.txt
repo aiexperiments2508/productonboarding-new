@@ -1,0 +1,16 @@
+From: Silverbrook Chilled Foods (SUP-13)
+Subject: product data submission - 10 lines
+
+Please find our latest product file attached. The sheet covers the
+lines we currently supply plus the new lines we discussed.
+
+Notes on this submission:
+  - column 'netContent' is pack.net_quantity - the GDSN field for the same number
+  - column 'GTIN_14' is identifiers.gtin - the pool's own identifier column
+
+Anything missing from the sheet we can send separately - some of the
+fields you ask for are not held in our system in the shape you want
+them, and we have sent what we have.
+
+Regards,
+Data & Compliance, Silverbrook Chilled Foods

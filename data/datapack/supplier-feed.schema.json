@@ -1,0 +1,1113 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ashcombe:supplier-feed:1",
+  "title": "Ashcombe supplier product feed",
+  "description": "Derived from the retailer's attribute registry and assortment. One object per SKU; rows sharing a product_ref are variants of one line. List values in a flat file are separated by '|'. The supplier is taken from the intake session and is deliberately not a field.",
+  "type": "object",
+  "properties": {
+    "rows": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/apparel"
+          },
+          {
+            "$ref": "#/$defs/baby"
+          },
+          {
+            "$ref": "#/$defs/electronics"
+          },
+          {
+            "$ref": "#/$defs/food"
+          },
+          {
+            "$ref": "#/$defs/general"
+          },
+          {
+            "$ref": "#/$defs/health"
+          },
+          {
+            "$ref": "#/$defs/home"
+          },
+          {
+            "$ref": "#/$defs/hpc"
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "rows"
+  ],
+  "$defs": {
+    "apparel": {
+      "type": "object",
+      "title": "Clothing & Footwear",
+      "description": "One SKU in Clothing & Footwear. Channel requirements are stated per property and are not in `required`, because whether a channel requires a value depends on where the product is listed, which this document cannot know.",
+      "properties": {
+        "product_ref": {
+          "type": "string",
+          "description": "your own id for the line; rows sharing one are variants of it"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "the line, as a shopper would see it"
+        },
+        "sku": {
+          "type": "string",
+          "description": "unique per row; what everybody outside your systems says"
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "what distinguishes this row from its siblings"
+        },
+        "is_base": {
+          "type": "boolean",
+          "description": "true on exactly one row per product reference"
+        },
+        "category": {
+          "type": "string",
+          "description": "one of the codes on the Categories sheet",
+          "enum": [
+            "apparel.accessories.bags",
+            "apparel.footwear.boots",
+            "apparel.footwear.trainers",
+            "apparel.kids.sleepwear",
+            "apparel.kids.tops",
+            "apparel.mens.knitwear",
+            "apparel.mens.outerwear",
+            "apparel.mens.shirts",
+            "apparel.womens.denim",
+            "apparel.womens.knitwear",
+            "apparel.womens.tops"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; one entry per cell, separated by '|'"
+        },
+        "compliance.sale_permitted": {
+          "type": "boolean",
+          "description": "optional; safety - a person reviews any change; true or false; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "identifiers.gtin": {
+          "type": "string",
+          "pattern": "^\\d{8}$|^\\d{12,14}$",
+          "description": "digits only, as a string - leading zeros are significant"
+        },
+        "origin.country": {
+          "type": "string",
+          "examples": [
+            "China",
+            "India",
+            "Italy",
+            "Poland",
+            "Portugal",
+            "Republic of Ireland",
+            "Turkey",
+            "United Kingdom",
+            "Viet Nam"
+          ],
+          "description": "optional"
+        },
+        "textile.care_code": {
+          "type": "string",
+          "examples": [
+            "30-DEL-NB-I1-P",
+            "30-REG-NB-I2-W",
+            "40-REG-NB-I2-P",
+            "HAND-NB-I1-F"
+          ],
+          "description": "optional"
+        },
+        "textile.fibre_composition": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "order is part of the value and is a legal declaration; do not sort"
+        },
+        "image.HERO": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.DETAIL": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        }
+      },
+      "required": [
+        "product_ref",
+        "product_name",
+        "sku",
+        "variant_name",
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "baby": {
+      "type": "object",
+      "title": "Baby & Child",
+      "description": "One SKU in Baby & Child. Channel requirements are stated per property and are not in `required`, because whether a channel requires a value depends on where the product is listed, which this document cannot know. This branch is regulated.",
+      "properties": {
+        "product_ref": {
+          "type": "string",
+          "description": "your own id for the line; rows sharing one are variants of it"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "the line, as a shopper would see it"
+        },
+        "sku": {
+          "type": "string",
+          "description": "unique per row; what everybody outside your systems says"
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "what distinguishes this row from its siblings"
+        },
+        "is_base": {
+          "type": "boolean",
+          "description": "true on exactly one row per product reference"
+        },
+        "category": {
+          "type": "string",
+          "description": "one of the codes on the Categories sheet",
+          "enum": [
+            "baby.feeding.bottles",
+            "baby.feeding.formula",
+            "baby.feeding.weaning",
+            "baby.nappies.nappies",
+            "baby.nappies.wipes",
+            "baby.toys.activity",
+            "baby.toys.soft"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; one entry per cell, separated by '|'"
+        },
+        "compliance.certificate_ref": {
+          "type": "string",
+          "description": "optional; applies to baby.feeding.bottles, baby.toys.activity, baby.toys.soft only"
+        },
+        "compliance.sale_permitted": {
+          "type": "boolean",
+          "description": "optional; safety - a person reviews any change; true or false; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "food.allergens.contains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "required by CH-WEB, CH-MKT-A, CH-MKT-B, CH-PRINT; safety - a person reviews any change; applies to baby.feeding.formula, baby.feeding.weaning only; one entry per cell, separated by '|'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "food.allergens.may_contain": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "required by CH-WEB, CH-MKT-A, CH-MKT-B, CH-PRINT; safety - a person reviews any change; applies to baby.feeding.formula, baby.feeding.weaning only; one entry per cell, separated by '|'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "food.ingredients": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "order is part of the value and is a legal declaration; do not sort"
+        },
+        "identifiers.gtin": {
+          "type": "string",
+          "pattern": "^\\d{8}$|^\\d{12,14}$",
+          "description": "digits only, as a string - leading zeros are significant"
+        },
+        "origin.country": {
+          "type": "string",
+          "examples": [
+            "China",
+            "India",
+            "Italy",
+            "Poland",
+            "Portugal",
+            "Republic of Ireland",
+            "Turkey",
+            "United Kingdom",
+            "Viet Nam"
+          ],
+          "description": "optional"
+        },
+        "pack.net_quantity": {
+          "type": "number",
+          "description": "optional; applies to baby.feeding.bottles, baby.feeding.formula, baby.feeding.weaning, baby.nappies.nappies, and 1 more only"
+        },
+        "pack.unit": {
+          "type": "string",
+          "examples": [
+            "g",
+            "ml"
+          ],
+          "description": "optional; applies to baby.feeding.bottles, baby.feeding.formula, baby.feeding.weaning, baby.nappies.nappies, and 1 more only"
+        },
+        "packaging.recyclable_pct": {
+          "type": "integer",
+          "unit": "%",
+          "description": "optional; the number only, in % - never '65 %'"
+        },
+        "specs.battery_type": {
+          "type": "string",
+          "examples": [
+            "2 x AA alkaline",
+            "CR2032 coin cell",
+            "Lithium polymer 3.8 V",
+            "Lithium-ion 3.7 V 2000 mAh"
+          ],
+          "description": "optional; safety - a person reviews any change; applies to baby.toys.activity, baby.toys.soft only; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "image.PACK_FRONT": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.DETAIL": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        }
+      },
+      "required": [
+        "product_ref",
+        "product_name",
+        "sku",
+        "variant_name",
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "electronics": {
+      "type": "object",
+      "title": "Electricals",
+      "description": "One SKU in Electricals. Channel requirements are stated per property and are not in `required`, because whether a channel requires a value depends on where the product is listed, which this document cannot know.",
+      "properties": {
+        "product_ref": {
+          "type": "string",
+          "description": "your own id for the line; rows sharing one are variants of it"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "the line, as a shopper would see it"
+        },
+        "sku": {
+          "type": "string",
+          "description": "unique per row; what everybody outside your systems says"
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "what distinguishes this row from its siblings"
+        },
+        "is_base": {
+          "type": "boolean",
+          "description": "true on exactly one row per product reference"
+        },
+        "category": {
+          "type": "string",
+          "description": "one of the codes on the Categories sheet",
+          "enum": [
+            "electronics.audio.earbuds",
+            "electronics.audio.headphones",
+            "electronics.audio.soundbars",
+            "electronics.audio.speakers",
+            "electronics.computing.laptops",
+            "electronics.computing.tablets",
+            "electronics.mobile.powerbanks",
+            "electronics.mobile.smartwatches",
+            "electronics.personal.cameras",
+            "electronics.personal.drones",
+            "electronics.vision.projectors",
+            "electronics.vision.televisions"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; one entry per cell, separated by '|'"
+        },
+        "compliance.certificate_ref": {
+          "type": "string",
+          "description": "optional"
+        },
+        "compliance.export_control": {
+          "type": "string",
+          "examples": [
+            "NONE"
+          ],
+          "description": "optional; safety - a person reviews any change; applies to electronics.personal.cameras, electronics.personal.drones only; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "compliance.sale_permitted": {
+          "type": "boolean",
+          "description": "optional; safety - a person reviews any change; true or false; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "energy.class": {
+          "type": "string",
+          "examples": [
+            "A",
+            "B",
+            "C"
+          ],
+          "description": "optional; applies to electronics.computing.laptops, electronics.computing.tablets, electronics.vision.projectors, electronics.vision.televisions only"
+        },
+        "identifiers.gtin": {
+          "type": "string",
+          "pattern": "^\\d{8}$|^\\d{12,14}$",
+          "description": "digits only, as a string - leading zeros are significant"
+        },
+        "origin.country": {
+          "type": "string",
+          "examples": [
+            "China",
+            "India",
+            "Italy",
+            "Poland",
+            "Portugal",
+            "Republic of Ireland",
+            "Turkey",
+            "United Kingdom",
+            "Viet Nam"
+          ],
+          "description": "optional"
+        },
+        "specs.battery_type": {
+          "type": "string",
+          "examples": [
+            "2 x AA alkaline",
+            "CR2032 coin cell",
+            "Lithium polymer 3.8 V",
+            "Lithium-ion 3.7 V 2000 mAh"
+          ],
+          "description": "optional; safety - a person reviews any change; applies to electronics.audio.earbuds, electronics.audio.headphones, electronics.audio.soundbars, electronics.audio.speakers, and 4 more only; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "specs.plug_type": {
+          "type": "string",
+          "examples": [
+            "BS 1363 Type G",
+            "BS 1363 Type G (fused 13 A)",
+            "USB-C 5 V"
+          ],
+          "description": "optional; safety - a person reviews any change; applies to electronics.audio.soundbars, electronics.computing.laptops, electronics.computing.tablets, electronics.vision.projectors, and 1 more only; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "specs.power_w": {
+          "type": "integer",
+          "unit": "W",
+          "description": "required by CH-MKT-A, CH-MKT-B, CH-PRINT, CH-SHELF; applies to electronics.audio.soundbars, electronics.computing.laptops, electronics.computing.tablets, electronics.vision.projectors, and 1 more only; the number only, in W - never '65 W'"
+        },
+        "image.HERO": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.DETAIL": {
+          "type": "string",
+          "description": "optional; the file name as it appears in images/ inside the bundle"
+        }
+      },
+      "required": [
+        "product_ref",
+        "product_name",
+        "sku",
+        "variant_name",
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "food": {
+      "type": "object",
+      "title": "Grocery",
+      "description": "One SKU in Grocery. Channel requirements are stated per property and are not in `required`, because whether a channel requires a value depends on where the product is listed, which this document cannot know. This branch is regulated.",
+      "properties": {
+        "product_ref": {
+          "type": "string",
+          "description": "your own id for the line; rows sharing one are variants of it"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "the line, as a shopper would see it"
+        },
+        "sku": {
+          "type": "string",
+          "description": "unique per row; what everybody outside your systems says"
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "what distinguishes this row from its siblings"
+        },
+        "is_base": {
+          "type": "boolean",
+          "description": "true on exactly one row per product reference"
+        },
+        "category": {
+          "type": "string",
+          "description": "one of the codes on the Categories sheet",
+          "enum": [
+            "food.alcohol.beer",
+            "food.alcohol.spirits",
+            "food.alcohol.wine",
+            "food.ambient.cereals",
+            "food.ambient.pasta-rice",
+            "food.ambient.sauces",
+            "food.bakery.biscuits",
+            "food.bakery.bread",
+            "food.bakery.cakes",
+            "food.beverages.coffee",
+            "food.beverages.juice",
+            "food.beverages.tea",
+            "food.chilled.cooked-meats",
+            "food.chilled.ready-meals",
+            "food.dairy.cheese",
+            "food.dairy.milk",
+            "food.dairy.yoghurt",
+            "food.frozen.desserts",
+            "food.frozen.vegetables",
+            "food.snacks.bars",
+            "food.snacks.crisps",
+            "food.snacks.granola",
+            "food.snacks.nuts"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; one entry per cell, separated by '|'"
+        },
+        "compliance.min_age": {
+          "type": "integer",
+          "unit": "years",
+          "description": "optional; safety - a person reviews any change; applies to food.alcohol.beer, food.alcohol.spirits, food.alcohol.wine only; the number only, in years - never '65 years'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "compliance.sale_permitted": {
+          "type": "boolean",
+          "description": "optional; safety - a person reviews any change; true or false; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "food.allergens.contains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "required by CH-WEB, CH-MKT-A, CH-MKT-B, CH-PRINT; safety - a person reviews any change; one entry per cell, separated by '|'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "food.allergens.may_contain": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "required by CH-WEB, CH-MKT-A, CH-MKT-B, CH-PRINT; safety - a person reviews any change; one entry per cell, separated by '|'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "food.fibre_g": {
+          "type": "number",
+          "unit": "g",
+          "description": "optional; the number only, in g - never '65 g'"
+        },
+        "food.ingredients": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "order is part of the value and is a legal declaration; do not sort"
+        },
+        "food.net_weight_g": {
+          "type": "integer",
+          "unit": "g",
+          "description": "optional; the number only, in g - never '65 g'"
+        },
+        "identifiers.gtin": {
+          "type": "string",
+          "pattern": "^\\d{8}$|^\\d{12,14}$",
+          "description": "digits only, as a string - leading zeros are significant"
+        },
+        "origin.country": {
+          "type": "string",
+          "examples": [
+            "China",
+            "India",
+            "Italy",
+            "Poland",
+            "Portugal",
+            "Republic of Ireland",
+            "Turkey",
+            "United Kingdom",
+            "Viet Nam"
+          ],
+          "description": "optional"
+        },
+        "pack.net_quantity": {
+          "type": "number",
+          "description": "optional"
+        },
+        "pack.unit": {
+          "type": "string",
+          "examples": [
+            "g",
+            "ml"
+          ],
+          "description": "optional"
+        },
+        "packaging.recyclable_pct": {
+          "type": "integer",
+          "unit": "%",
+          "description": "optional; the number only, in % - never '65 %'"
+        },
+        "image.PACK_FRONT": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.INGREDIENT_PANEL": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.DETAIL": {
+          "type": "string",
+          "description": "optional; the file name as it appears in images/ inside the bundle"
+        }
+      },
+      "required": [
+        "product_ref",
+        "product_name",
+        "sku",
+        "variant_name",
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "general": {
+      "type": "object",
+      "title": "General Merchandise",
+      "description": "One SKU in General Merchandise. Channel requirements are stated per property and are not in `required`, because whether a channel requires a value depends on where the product is listed, which this document cannot know.",
+      "properties": {
+        "product_ref": {
+          "type": "string",
+          "description": "your own id for the line; rows sharing one are variants of it"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "the line, as a shopper would see it"
+        },
+        "sku": {
+          "type": "string",
+          "description": "unique per row; what everybody outside your systems says"
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "what distinguishes this row from its siblings"
+        },
+        "is_base": {
+          "type": "boolean",
+          "description": "true on exactly one row per product reference"
+        },
+        "category": {
+          "type": "string",
+          "description": "one of the codes on the Categories sheet",
+          "enum": [
+            "general.diy.handtools",
+            "general.diy.paint",
+            "general.garden.bbq",
+            "general.garden.tools",
+            "general.pet.accessories",
+            "general.pet.dogfood",
+            "general.stationery.paper",
+            "general.toys.games",
+            "general.toys.outdoor"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; one entry per cell, separated by '|'"
+        },
+        "compliance.certificate_ref": {
+          "type": "string",
+          "description": "optional; applies to general.diy.handtools, general.diy.paint, general.garden.bbq, general.garden.tools, and 2 more only"
+        },
+        "compliance.min_age": {
+          "type": "integer",
+          "unit": "years",
+          "description": "optional; safety - a person reviews any change; applies to general.diy.handtools only; the number only, in years - never '65 years'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "compliance.sale_permitted": {
+          "type": "boolean",
+          "description": "optional; safety - a person reviews any change; true or false; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "identifiers.gtin": {
+          "type": "string",
+          "pattern": "^\\d{8}$|^\\d{12,14}$",
+          "description": "digits only, as a string - leading zeros are significant"
+        },
+        "origin.country": {
+          "type": "string",
+          "examples": [
+            "China",
+            "India",
+            "Italy",
+            "Poland",
+            "Portugal",
+            "Republic of Ireland",
+            "Turkey",
+            "United Kingdom",
+            "Viet Nam"
+          ],
+          "description": "optional"
+        },
+        "pack.net_quantity": {
+          "type": "number",
+          "description": "optional; applies to general.diy.paint, general.pet.accessories, general.pet.dogfood only"
+        },
+        "pack.unit": {
+          "type": "string",
+          "examples": [
+            "g",
+            "ml"
+          ],
+          "description": "optional; applies to general.diy.paint, general.pet.accessories, general.pet.dogfood only"
+        },
+        "specs.battery_type": {
+          "type": "string",
+          "examples": [
+            "2 x AA alkaline",
+            "CR2032 coin cell",
+            "Lithium polymer 3.8 V",
+            "Lithium-ion 3.7 V 2000 mAh"
+          ],
+          "description": "optional; safety - a person reviews any change; applies to general.toys.games, general.toys.outdoor only; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "image.HERO": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.DETAIL": {
+          "type": "string",
+          "description": "optional; the file name as it appears in images/ inside the bundle"
+        }
+      },
+      "required": [
+        "product_ref",
+        "product_name",
+        "sku",
+        "variant_name",
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "health": {
+      "type": "object",
+      "title": "Health & Pharmacy",
+      "description": "One SKU in Health & Pharmacy. Channel requirements are stated per property and are not in `required`, because whether a channel requires a value depends on where the product is listed, which this document cannot know. This branch is regulated.",
+      "properties": {
+        "product_ref": {
+          "type": "string",
+          "description": "your own id for the line; rows sharing one are variants of it"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "the line, as a shopper would see it"
+        },
+        "sku": {
+          "type": "string",
+          "description": "unique per row; what everybody outside your systems says"
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "what distinguishes this row from its siblings"
+        },
+        "is_base": {
+          "type": "boolean",
+          "description": "true on exactly one row per product reference"
+        },
+        "category": {
+          "type": "string",
+          "description": "one of the codes on the Categories sheet",
+          "enum": [
+            "health.devices.firstaid",
+            "health.devices.thermometers",
+            "health.medicines.allergy",
+            "health.medicines.cold-flu",
+            "health.medicines.pain-relief",
+            "health.supplements.minerals",
+            "health.supplements.vitamins"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; one entry per cell, separated by '|'"
+        },
+        "compliance.certificate_ref": {
+          "type": "string",
+          "description": "optional; applies to health.devices.firstaid, health.devices.thermometers only"
+        },
+        "compliance.sale_permitted": {
+          "type": "boolean",
+          "description": "optional; safety - a person reviews any change; true or false; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "health.active_ingredient": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; safety - a person reviews any change; applies to health.medicines.allergy, health.medicines.cold-flu, health.medicines.pain-relief, health.supplements.minerals, and 1 more only; one entry per cell, separated by '|'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "identifiers.gtin": {
+          "type": "string",
+          "pattern": "^\\d{8}$|^\\d{12,14}$",
+          "description": "digits only, as a string - leading zeros are significant"
+        },
+        "origin.country": {
+          "type": "string",
+          "examples": [
+            "China",
+            "India",
+            "Italy",
+            "Poland",
+            "Portugal",
+            "Republic of Ireland",
+            "Turkey",
+            "United Kingdom",
+            "Viet Nam"
+          ],
+          "description": "optional"
+        },
+        "pack.net_quantity": {
+          "type": "number",
+          "description": "optional"
+        },
+        "pack.unit": {
+          "type": "string",
+          "examples": [
+            "g",
+            "ml"
+          ],
+          "description": "optional"
+        },
+        "specs.battery_type": {
+          "type": "string",
+          "examples": [
+            "2 x AA alkaline",
+            "CR2032 coin cell",
+            "Lithium polymer 3.8 V",
+            "Lithium-ion 3.7 V 2000 mAh"
+          ],
+          "description": "optional; safety - a person reviews any change; applies to health.devices.firstaid, health.devices.thermometers only; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "image.PACK_FRONT": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.DETAIL": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        }
+      },
+      "required": [
+        "product_ref",
+        "product_name",
+        "sku",
+        "variant_name",
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "home": {
+      "type": "object",
+      "title": "Home & Kitchen",
+      "description": "One SKU in Home & Kitchen. Channel requirements are stated per property and are not in `required`, because whether a channel requires a value depends on where the product is listed, which this document cannot know.",
+      "properties": {
+        "product_ref": {
+          "type": "string",
+          "description": "your own id for the line; rows sharing one are variants of it"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "the line, as a shopper would see it"
+        },
+        "sku": {
+          "type": "string",
+          "description": "unique per row; what everybody outside your systems says"
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "what distinguishes this row from its siblings"
+        },
+        "is_base": {
+          "type": "boolean",
+          "description": "true on exactly one row per product reference"
+        },
+        "category": {
+          "type": "string",
+          "description": "one of the codes on the Categories sheet",
+          "enum": [
+            "home.air-treatment.fans",
+            "home.air-treatment.humidifiers",
+            "home.air-treatment.purifiers",
+            "home.cookware.knives",
+            "home.cookware.pans",
+            "home.floorcare.vacuums",
+            "home.kitchen.blenders",
+            "home.kitchen.kettles",
+            "home.kitchen.microwaves",
+            "home.kitchen.toasters",
+            "home.laundry.irons",
+            "home.textiles.bedding",
+            "home.textiles.towels"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; one entry per cell, separated by '|'"
+        },
+        "compliance.certificate_ref": {
+          "type": "string",
+          "description": "optional; applies to home.air-treatment.fans, home.air-treatment.humidifiers, home.air-treatment.purifiers, home.floorcare.vacuums, and 5 more only"
+        },
+        "compliance.min_age": {
+          "type": "integer",
+          "unit": "years",
+          "description": "optional; safety - a person reviews any change; applies to home.cookware.knives only; the number only, in years - never '65 years'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "compliance.sale_permitted": {
+          "type": "boolean",
+          "description": "optional; safety - a person reviews any change; true or false; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "energy.class": {
+          "type": "string",
+          "examples": [
+            "A",
+            "B",
+            "C"
+          ],
+          "description": "optional; applies to home.air-treatment.fans, home.air-treatment.humidifiers, home.air-treatment.purifiers, home.floorcare.vacuums, and 5 more only"
+        },
+        "identifiers.gtin": {
+          "type": "string",
+          "pattern": "^\\d{8}$|^\\d{12,14}$",
+          "description": "digits only, as a string - leading zeros are significant"
+        },
+        "origin.country": {
+          "type": "string",
+          "examples": [
+            "China",
+            "India",
+            "Italy",
+            "Poland",
+            "Portugal",
+            "Republic of Ireland",
+            "Turkey",
+            "United Kingdom",
+            "Viet Nam"
+          ],
+          "description": "optional"
+        },
+        "specs.coverage_m2": {
+          "type": "integer",
+          "unit": "m\u00b2",
+          "description": "optional; applies to home.air-treatment.fans, home.air-treatment.humidifiers, home.air-treatment.purifiers only; the number only, in m\u00b2 - never '65 m\u00b2'"
+        },
+        "specs.filter_type": {
+          "type": "string",
+          "examples": [
+            "HEPA H12",
+            "HEPA H13",
+            "Not applicable",
+            "Washable mesh"
+          ],
+          "description": "optional; applies to home.air-treatment.fans, home.air-treatment.humidifiers, home.air-treatment.purifiers only"
+        },
+        "specs.noise_db": {
+          "type": "integer",
+          "unit": "dB",
+          "description": "optional; applies to home.air-treatment.fans, home.air-treatment.humidifiers, home.air-treatment.purifiers, home.floorcare.vacuums, and 5 more only; the number only, in dB - never '65 dB'"
+        },
+        "specs.plug_type": {
+          "type": "string",
+          "examples": [
+            "BS 1363 Type G",
+            "BS 1363 Type G (fused 13 A)",
+            "USB-C 5 V"
+          ],
+          "description": "optional; safety - a person reviews any change; applies to home.air-treatment.fans, home.air-treatment.humidifiers, home.air-treatment.purifiers, home.floorcare.vacuums, and 5 more only; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "specs.power_w": {
+          "type": "integer",
+          "unit": "W",
+          "description": "required by CH-MKT-A, CH-MKT-B, CH-PRINT, CH-SHELF; applies to home.air-treatment.fans, home.air-treatment.humidifiers, home.air-treatment.purifiers, home.floorcare.vacuums, and 5 more only; the number only, in W - never '65 W'"
+        },
+        "textile.care_code": {
+          "type": "string",
+          "examples": [
+            "30-DEL-NB-I1-P",
+            "30-REG-NB-I2-W",
+            "40-REG-NB-I2-P",
+            "HAND-NB-I1-F"
+          ],
+          "description": "optional; applies to home.textiles.bedding, home.textiles.towels only"
+        },
+        "textile.fibre_composition": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "order is part of the value and is a legal declaration; do not sort"
+        },
+        "image.HERO": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.IN_SITU": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.DETAIL": {
+          "type": "string",
+          "description": "optional; the file name as it appears in images/ inside the bundle"
+        }
+      },
+      "required": [
+        "product_ref",
+        "product_name",
+        "sku",
+        "variant_name",
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "hpc": {
+      "type": "object",
+      "title": "Household & Personal Care",
+      "description": "One SKU in Household & Personal Care. Channel requirements are stated per property and are not in `required`, because whether a channel requires a value depends on where the product is listed, which this document cannot know.",
+      "properties": {
+        "product_ref": {
+          "type": "string",
+          "description": "your own id for the line; rows sharing one are variants of it"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "the line, as a shopper would see it"
+        },
+        "sku": {
+          "type": "string",
+          "description": "unique per row; what everybody outside your systems says"
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "what distinguishes this row from its siblings"
+        },
+        "is_base": {
+          "type": "boolean",
+          "description": "true on exactly one row per product reference"
+        },
+        "category": {
+          "type": "string",
+          "description": "one of the codes on the Categories sheet",
+          "enum": [
+            "hpc.cleaning.bleach",
+            "hpc.cleaning.dishwashing",
+            "hpc.cleaning.surface",
+            "hpc.cosmetics.haircare",
+            "hpc.cosmetics.skincare",
+            "hpc.laundry.detergent",
+            "hpc.paper.kitchen-roll",
+            "hpc.toiletries.oralcare",
+            "hpc.toiletries.shampoo",
+            "hpc.toiletries.shower"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "optional; one entry per cell, separated by '|'"
+        },
+        "compliance.min_age": {
+          "type": "integer",
+          "unit": "years",
+          "description": "optional; safety - a person reviews any change; applies to hpc.cleaning.bleach only; the number only, in years - never '65 years'; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "compliance.sale_permitted": {
+          "type": "boolean",
+          "description": "optional; safety - a person reviews any change; true or false; safety class: an inferred value below the confidence threshold blocks publication rather than degrading it"
+        },
+        "cosmetic.inci": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "order is part of the value and is a legal declaration; do not sort"
+        },
+        "identifiers.gtin": {
+          "type": "string",
+          "pattern": "^\\d{8}$|^\\d{12,14}$",
+          "description": "digits only, as a string - leading zeros are significant"
+        },
+        "origin.country": {
+          "type": "string",
+          "examples": [
+            "China",
+            "India",
+            "Italy",
+            "Poland",
+            "Portugal",
+            "Republic of Ireland",
+            "Turkey",
+            "United Kingdom",
+            "Viet Nam"
+          ],
+          "description": "optional"
+        },
+        "pack.net_quantity": {
+          "type": "number",
+          "description": "optional"
+        },
+        "pack.unit": {
+          "type": "string",
+          "examples": [
+            "g",
+            "ml"
+          ],
+          "description": "optional"
+        },
+        "packaging.recyclable_pct": {
+          "type": "integer",
+          "unit": "%",
+          "description": "optional; the number only, in % - never '65 %'"
+        },
+        "image.PACK_FRONT": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        },
+        "image.DETAIL": {
+          "type": "string",
+          "description": "required; the file name as it appears in images/ inside the bundle"
+        }
+      },
+      "required": [
+        "product_ref",
+        "product_name",
+        "sku",
+        "variant_name",
+        "category"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

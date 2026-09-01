@@ -1,0 +1,27 @@
+Item Code,Description,Pack,Cost Price,Currency,Lead Time (days)
+FOO-120-A,Ashcombe Oat & Raisin Cookies,1,98.09,GBP,15
+FOO-136-A,Ashcombe Wholemeal Seeded Batch Loaf,1,51.59,GBP,33
+FOO-136-B,Ashcombe Wholemeal Seeded Batch Loaf,6,153.03,GBP,5
+FOO-136-C,Ashcombe Wholemeal Seeded Batch Loaf,6,211.27,GBP,25
+FOO-160-A,Ashcombe Lemon Drizzle Loaf Cake,6,67.72,GBP,34
+FOO-160-B,Ashcombe Lemon Drizzle Loaf Cake,6,84.59,GBP,6
+FOO-184-A,Ashcombe Whole Milk 1 L,1,181.91,GBP,40
+FOO-184-C,Ashcombe Whole Milk 1 L,12,213.12,GBP,21
+FOO-207-A,Ashcombe Creamy Brie 200 g,1,115.54,GBP,34
+FOO-207-C,Ashcombe Creamy Brie 200 g,1,189.49,GBP,41
+FOO-235-A,Ashcombe Chicken Tikka Masala & Pilau Rice,6,232.48,GBP,11
+FOO-104-A,Ashcombe All Butter Shortbread Fingers,1,186.40,GBP,19
+FOO-120-B,Ashcombe Oat & Raisin Cookies,1,120.18,GBP,26
+FOO-225-A,Ashcombe Strawberry Yoghurt 4 x 125 g,12,208.27,GBP,16
+FOO-184-B,Ashcombe Whole Milk 1 L,6,81.85,GBP,3
+FOO-207-B,Ashcombe Creamy Brie 200 g,6,217.57,GBP,34
+FOO-235-B,Ashcombe Chicken Tikka Masala & Pilau Rice,1,137.12,GBP,15
+FOO-235-C,Ashcombe Chicken Tikka Masala & Pilau Rice,6,31.04,GBP,9
+TES-901-A,Tessington Digestive Biscuits,1,120.05,GBP,43
+TES-901-B,Tessington Digestive Biscuits,1,111.02,GBP,29
+TES-902-A,Tessington Seeded Farmhouse Loaf,24,239.92,GBP,27
+TES-903-A,Tessington Victoria Sponge,1,75.35,GBP,34
+TES-904-A,Tessington Cottage Pie,24,159.69,GBP,14
+TES-905-A,Tessington Creamy Brie,12,90.08,GBP,26
+TES-905-B,Tessington Creamy Brie,6,186.28,GBP,7
+TES-906-A,Tessington Organic Whole Milk,12,2.93,GBP,12

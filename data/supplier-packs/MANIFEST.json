@@ -1,0 +1,468 @@
+[
+ {
+  "supplier": "SUP-01",
+  "name": "Northaven Home",
+  "branch": "home",
+  "format": "csv",
+  "rows": 12,
+  "images": 37,
+  "missing_images": 1,
+  "zip": "SUP-01_northaven-home.zip",
+  "folder": "SUP-01_northaven-home",
+  "bands": {
+   "CLEARS": 6,
+   "NEEDS_A_PERSON": 4,
+   "SMALL_GAP_CORROBORATED": 2
+  }
+ },
+ {
+  "supplier": "SUP-02",
+  "name": "Harrowfield Foods",
+  "branch": "food",
+  "format": "csv",
+  "rows": 13,
+  "images": 40,
+  "missing_images": 1,
+  "zip": "SUP-02_harrowfield-foods.zip",
+  "folder": "SUP-02_harrowfield-foods",
+  "bands": {
+   "CLEARS": 7,
+   "NEEDS_A_PERSON": 4,
+   "SMALL_GAP_CORROBORATED": 2
+  }
+ },
+ {
+  "supplier": "SUP-03",
+  "name": "Calverton Electronics",
+  "branch": "electronics",
+  "format": "csv",
+  "rows": 11,
+  "images": 23,
+  "missing_images": 1,
+  "zip": "SUP-03_calverton-electronics.zip",
+  "folder": "SUP-03_calverton-electronics",
+  "bands": {
+   "CLEARS": 7,
+   "SMALL_GAP_CORROBORATED": 2,
+   "NEEDS_A_PERSON": 2
+  }
+ },
+ {
+  "supplier": "SUP-04",
+  "name": "Stonebridge Housewares",
+  "branch": "home",
+  "format": "txt",
+  "rows": 10,
+  "images": 31,
+  "missing_images": 1,
+  "zip": "SUP-04_stonebridge-housewares.zip",
+  "folder": "SUP-04_stonebridge-housewares",
+  "bands": {
+   "CLEARS": 6,
+   "SMALL_GAP_CORROBORATED": 2,
+   "NEEDS_A_PERSON": 2
+  }
+ },
+ {
+  "supplier": "SUP-11",
+  "name": "Bramblewood Bakery Ltd",
+  "branch": "food",
+  "format": "xlsx",
+  "rows": 15,
+  "images": 46,
+  "missing_images": 1,
+  "zip": "SUP-11_bramblewood-bakery-ltd.zip",
+  "folder": "SUP-11_bramblewood-bakery-ltd",
+  "bands": {
+   "CLEARS": 7,
+   "MACHINE_CORRECTABLE": 2,
+   "NEEDS_A_PERSON": 4,
+   "SMALL_GAP_CORROBORATED": 2
+  }
+ },
+ {
+  "supplier": "SUP-12",
+  "name": "Copperfield Provisions",
+  "branch": "food",
+  "format": "csv",
+  "rows": 15,
+  "images": 46,
+  "missing_images": 1,
+  "zip": "SUP-12_copperfield-provisions.zip",
+  "folder": "SUP-12_copperfield-provisions",
+  "bands": {
+   "MACHINE_CORRECTABLE": 1,
+   "NEEDS_A_PERSON": 4,
+   "CLEARS": 8,
+   "SMALL_GAP_CORROBORATED": 2
+  }
+ },
+ {
+  "supplier": "SUP-13",
+  "name": "Silverbrook Chilled Foods",
+  "branch": "food",
+  "format": "csv",
+  "rows": 10,
+  "images": 31,
+  "missing_images": 1,
+  "zip": "SUP-13_silverbrook-chilled-foods.zip",
+  "folder": "SUP-13_silverbrook-chilled-foods",
+  "bands": {
+   "CLEARS": 5,
+   "NEEDS_A_PERSON": 3,
+   "SMALL_GAP_CORROBORATED": 2
+  }
+ },
+ {
+  "supplier": "SUP-14",
+  "name": "Longmeadow Dairies",
+  "branch": "food",
+  "format": "csv",
+  "rows": 16,
+  "images": 49,
+  "missing_images": 1,
+  "zip": "SUP-14_longmeadow-dairies.zip",
+  "folder": "SUP-14_longmeadow-dairies",
+  "bands": {
+   "CLEARS": 7,
+   "MACHINE_CORRECTABLE": 2,
+   "SMALL_GAP_CORROBORATED": 3,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-15",
+  "name": "Tessington Beverage Co.",
+  "branch": "food",
+  "format": "txt",
+  "rows": 26,
+  "images": 79,
+  "missing_images": 1,
+  "zip": "SUP-15_tessington-beverage-co.zip",
+  "folder": "SUP-15_tessington-beverage-co",
+  "bands": {
+   "CLEARS": 15,
+   "MACHINE_CORRECTABLE": 2,
+   "NEEDS_A_PERSON": 5,
+   "SMALL_GAP_CORROBORATED": 4
+  }
+ },
+ {
+  "supplier": "SUP-16",
+  "name": "Marlowe & Fenn Wine Merchants",
+  "branch": "food",
+  "format": "xlsx",
+  "rows": 12,
+  "images": 37,
+  "missing_images": 1,
+  "zip": "SUP-16_marlowe-fenn-wine-merchants.zip",
+  "folder": "SUP-16_marlowe-fenn-wine-merchants",
+  "bands": {
+   "CLEARS": 6,
+   "MACHINE_CORRECTABLE": 1,
+   "NEEDS_A_PERSON": 3,
+   "SMALL_GAP_CORROBORATED": 2
+  }
+ },
+ {
+  "supplier": "SUP-17",
+  "name": "Northgate Appliance Co.",
+  "branch": "home",
+  "format": "csv",
+  "rows": 22,
+  "images": 67,
+  "missing_images": 1,
+  "zip": "SUP-17_northgate-appliance-co.zip",
+  "folder": "SUP-17_northgate-appliance-co",
+  "bands": {
+   "CLEARS": 10,
+   "MACHINE_CORRECTABLE": 2,
+   "NEEDS_A_PERSON": 6,
+   "SMALL_GAP_CORROBORATED": 4
+  }
+ },
+ {
+  "supplier": "SUP-18",
+  "name": "Harrow & Vale Kitchenware",
+  "branch": "home",
+  "format": "csv",
+  "rows": 19,
+  "images": 58,
+  "missing_images": 1,
+  "zip": "SUP-18_harrow-vale-kitchenware.zip",
+  "folder": "SUP-18_harrow-vale-kitchenware",
+  "bands": {
+   "CLEARS": 8,
+   "MACHINE_CORRECTABLE": 2,
+   "SMALL_GAP_CORROBORATED": 5,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-19",
+  "name": "Kestrel Small Domestics",
+  "branch": "home",
+  "format": "csv",
+  "rows": 25,
+  "images": 76,
+  "missing_images": 1,
+  "zip": "SUP-19_kestrel-small-domestics.zip",
+  "folder": "SUP-19_kestrel-small-domestics",
+  "bands": {
+   "CLEARS": 14,
+   "MACHINE_CORRECTABLE": 2,
+   "SMALL_GAP_CORROBORATED": 5,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-20",
+  "name": "Wrenfield Home Textiles",
+  "branch": "apparel",
+  "format": "txt",
+  "rows": 22,
+  "images": 45,
+  "missing_images": 1,
+  "zip": "SUP-20_wrenfield-home-textiles.zip",
+  "folder": "SUP-20_wrenfield-home-textiles",
+  "bands": {
+   "CLEARS": 10,
+   "SMALL_GAP_CORROBORATED": 8,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-21",
+  "name": "Calderstone Garments",
+  "branch": "apparel",
+  "format": "xlsx",
+  "rows": 13,
+  "images": 27,
+  "missing_images": 1,
+  "zip": "SUP-21_calderstone-garments.zip",
+  "folder": "SUP-21_calderstone-garments",
+  "bands": {
+   "CLEARS": 7,
+   "SMALL_GAP_CORROBORATED": 3,
+   "NEEDS_A_PERSON": 3
+  }
+ },
+ {
+  "supplier": "SUP-22",
+  "name": "Pemberton Knitwear",
+  "branch": "apparel",
+  "format": "csv",
+  "rows": 13,
+  "images": 27,
+  "missing_images": 1,
+  "zip": "SUP-22_pemberton-knitwear.zip",
+  "folder": "SUP-22_pemberton-knitwear",
+  "bands": {
+   "CLEARS": 6,
+   "SMALL_GAP_CORROBORATED": 4,
+   "NEEDS_A_PERSON": 3
+  }
+ },
+ {
+  "supplier": "SUP-23",
+  "name": "Ashfleet Footwear",
+  "branch": "apparel",
+  "format": "csv",
+  "rows": 27,
+  "images": 55,
+  "missing_images": 1,
+  "zip": "SUP-23_ashfleet-footwear.zip",
+  "folder": "SUP-23_ashfleet-footwear",
+  "bands": {
+   "CLEARS": 13,
+   "SMALL_GAP_CORROBORATED": 10,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-24",
+  "name": "Lumen Audio Works",
+  "branch": "electronics",
+  "format": "csv",
+  "rows": 23,
+  "images": 47,
+  "missing_images": 1,
+  "zip": "SUP-24_lumen-audio-works.zip",
+  "folder": "SUP-24_lumen-audio-works",
+  "bands": {
+   "CLEARS": 12,
+   "MACHINE_CORRECTABLE": 2,
+   "SMALL_GAP_CORROBORATED": 5,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-25",
+  "name": "Verrick Display Technologies",
+  "branch": "electronics",
+  "format": "txt",
+  "rows": 20,
+  "images": 41,
+  "missing_images": 1,
+  "zip": "SUP-25_verrick-display-technologies.zip",
+  "folder": "SUP-25_verrick-display-technologies",
+  "bands": {
+   "CLEARS": 9,
+   "MACHINE_CORRECTABLE": 2,
+   "SMALL_GAP_CORROBORATED": 5,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-26",
+  "name": "Quillon Mobile Accessories",
+  "branch": "electronics",
+  "format": "xlsx",
+  "rows": 17,
+  "images": 35,
+  "missing_images": 1,
+  "zip": "SUP-26_quillon-mobile-accessories.zip",
+  "folder": "SUP-26_quillon-mobile-accessories",
+  "bands": {
+   "CLEARS": 9,
+   "MACHINE_CORRECTABLE": 2,
+   "SMALL_GAP_CORROBORATED": 3,
+   "NEEDS_A_PERSON": 3
+  }
+ },
+ {
+  "supplier": "SUP-27",
+  "name": "Petrichor Household Products",
+  "branch": "hpc",
+  "format": "csv",
+  "rows": 26,
+  "images": 53,
+  "missing_images": 1,
+  "zip": "SUP-27_petrichor-household-products.zip",
+  "folder": "SUP-27_petrichor-household-products",
+  "bands": {
+   "CLEARS": 15,
+   "MACHINE_CORRECTABLE": 2,
+   "NEEDS_A_PERSON": 5,
+   "SMALL_GAP_CORROBORATED": 4
+  }
+ },
+ {
+  "supplier": "SUP-28",
+  "name": "Saltmarsh Personal Care",
+  "branch": "hpc",
+  "format": "csv",
+  "rows": 25,
+  "images": 51,
+  "missing_images": 1,
+  "zip": "SUP-28_saltmarsh-personal-care.zip",
+  "folder": "SUP-28_saltmarsh-personal-care",
+  "bands": {
+   "CLEARS": 12,
+   "MACHINE_CORRECTABLE": 3,
+   "NEEDS_A_PERSON": 5,
+   "SMALL_GAP_CORROBORATED": 5
+  }
+ },
+ {
+  "supplier": "SUP-29",
+  "name": "Hollowbrook Nutrition",
+  "branch": "baby",
+  "format": "csv",
+  "rows": 22,
+  "images": 45,
+  "missing_images": 1,
+  "zip": "SUP-29_hollowbrook-nutrition.zip",
+  "folder": "SUP-29_hollowbrook-nutrition",
+  "bands": {
+   "CLEARS": 5,
+   "MACHINE_CORRECTABLE": 5,
+   "SMALL_GAP_CORROBORATED": 8,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-30",
+  "name": "Larkspur Baby Products",
+  "branch": "baby",
+  "format": "txt",
+  "rows": 19,
+  "images": 39,
+  "missing_images": 1,
+  "zip": "SUP-30_larkspur-baby-products.zip",
+  "folder": "SUP-30_larkspur-baby-products",
+  "bands": {
+   "CLEARS": 8,
+   "MACHINE_CORRECTABLE": 2,
+   "NEEDS_A_PERSON": 6,
+   "SMALL_GAP_CORROBORATED": 3
+  }
+ },
+ {
+  "supplier": "SUP-31",
+  "name": "Thorneley Pharmaceuticals",
+  "branch": "health",
+  "format": "xlsx",
+  "rows": 20,
+  "images": 41,
+  "missing_images": 1,
+  "zip": "SUP-31_thorneley-pharmaceuticals.zip",
+  "folder": "SUP-31_thorneley-pharmaceuticals",
+  "bands": {
+   "CLEARS": 11,
+   "MACHINE_CORRECTABLE": 2,
+   "NEEDS_A_PERSON": 5,
+   "SMALL_GAP_CORROBORATED": 2
+  }
+ },
+ {
+  "supplier": "SUP-32",
+  "name": "Ravensmoor Health Devices",
+  "branch": "health",
+  "format": "csv",
+  "rows": 20,
+  "images": 41,
+  "missing_images": 1,
+  "zip": "SUP-32_ravensmoor-health-devices.zip",
+  "folder": "SUP-32_ravensmoor-health-devices",
+  "bands": {
+   "CLEARS": 7,
+   "MACHINE_CORRECTABLE": 2,
+   "NEEDS_A_PERSON": 9,
+   "SMALL_GAP_CORROBORATED": 2
+  }
+ },
+ {
+  "supplier": "SUP-33",
+  "name": "Draycott Toys & Leisure",
+  "branch": "general",
+  "format": "csv",
+  "rows": 19,
+  "images": 39,
+  "missing_images": 1,
+  "zip": "SUP-33_draycott-toys-leisure.zip",
+  "folder": "SUP-33_draycott-toys-leisure",
+  "bands": {
+   "CLEARS": 11,
+   "SMALL_GAP_CORROBORATED": 4,
+   "NEEDS_A_PERSON": 4
+  }
+ },
+ {
+  "supplier": "SUP-34",
+  "name": "Fenwold Garden & Outdoor",
+  "branch": "general",
+  "format": "csv",
+  "rows": 33,
+  "images": 67,
+  "missing_images": 1,
+  "zip": "SUP-34_fenwold-garden-outdoor.zip",
+  "folder": "SUP-34_fenwold-garden-outdoor",
+  "bands": {
+   "CLEARS": 19,
+   "MACHINE_CORRECTABLE": 2,
+   "NEEDS_A_PERSON": 5,
+   "SMALL_GAP_CORROBORATED": 7
+  }
+ }
+]

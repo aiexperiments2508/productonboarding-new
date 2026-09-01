@@ -1,0 +1,29 @@
+supplier,name,branch,format,rows,images,zip,clears,machine_correctable,small_gap,needs_a_person
+SUP-01,Northaven Home,home,csv,12,37,SUP-01_northaven-home.zip,6,0,2,4
+SUP-02,Harrowfield Foods,food,csv,13,40,SUP-02_harrowfield-foods.zip,7,0,2,4
+SUP-03,Calverton Electronics,electronics,csv,11,23,SUP-03_calverton-electronics.zip,7,0,2,2
+SUP-04,Stonebridge Housewares,home,txt,10,31,SUP-04_stonebridge-housewares.zip,6,0,2,2
+SUP-11,Bramblewood Bakery Ltd,food,xlsx,15,46,SUP-11_bramblewood-bakery-ltd.zip,7,2,2,4
+SUP-12,Copperfield Provisions,food,csv,15,46,SUP-12_copperfield-provisions.zip,8,1,2,4
+SUP-13,Silverbrook Chilled Foods,food,csv,10,31,SUP-13_silverbrook-chilled-foods.zip,5,0,2,3
+SUP-14,Longmeadow Dairies,food,csv,16,49,SUP-14_longmeadow-dairies.zip,7,2,3,4
+SUP-15,Tessington Beverage Co.,food,txt,26,79,SUP-15_tessington-beverage-co.zip,15,2,4,5
+SUP-16,Marlowe & Fenn Wine Merchants,food,xlsx,12,37,SUP-16_marlowe-fenn-wine-merchants.zip,6,1,2,3
+SUP-17,Northgate Appliance Co.,home,csv,22,67,SUP-17_northgate-appliance-co.zip,10,2,4,6
+SUP-18,Harrow & Vale Kitchenware,home,csv,19,58,SUP-18_harrow-vale-kitchenware.zip,8,2,5,4
+SUP-19,Kestrel Small Domestics,home,csv,25,76,SUP-19_kestrel-small-domestics.zip,14,2,5,4
+SUP-20,Wrenfield Home Textiles,apparel,txt,22,45,SUP-20_wrenfield-home-textiles.zip,10,0,8,4
+SUP-21,Calderstone Garments,apparel,xlsx,13,27,SUP-21_calderstone-garments.zip,7,0,3,3
+SUP-22,Pemberton Knitwear,apparel,csv,13,27,SUP-22_pemberton-knitwear.zip,6,0,4,3
+SUP-23,Ashfleet Footwear,apparel,csv,27,55,SUP-23_ashfleet-footwear.zip,13,0,10,4
+SUP-24,Lumen Audio Works,electronics,csv,23,47,SUP-24_lumen-audio-works.zip,12,2,5,4
+SUP-25,Verrick Display Technologies,electronics,txt,20,41,SUP-25_verrick-display-technologies.zip,9,2,5,4
+SUP-26,Quillon Mobile Accessories,electronics,xlsx,17,35,SUP-26_quillon-mobile-accessories.zip,9,2,3,3
+SUP-27,Petrichor Household Products,hpc,csv,26,53,SUP-27_petrichor-household-products.zip,15,2,4,5
+SUP-28,Saltmarsh Personal Care,hpc,csv,25,51,SUP-28_saltmarsh-personal-care.zip,12,3,5,5
+SUP-29,Hollowbrook Nutrition,baby,csv,22,45,SUP-29_hollowbrook-nutrition.zip,5,5,8,4
+SUP-30,Larkspur Baby Products,baby,txt,19,39,SUP-30_larkspur-baby-products.zip,8,2,3,6
+SUP-31,Thorneley Pharmaceuticals,health,xlsx,20,41,SUP-31_thorneley-pharmaceuticals.zip,11,2,2,5
+SUP-32,Ravensmoor Health Devices,health,csv,20,41,SUP-32_ravensmoor-health-devices.zip,7,2,2,9
+SUP-33,Draycott Toys & Leisure,general,csv,19,39,SUP-33_draycott-toys-leisure.zip,11,0,4,4
+SUP-34,Fenwold Garden & Outdoor,general,csv,33,67,SUP-34_fenwold-garden-outdoor.zip,19,2,7,5

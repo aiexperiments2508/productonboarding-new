@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veriflow — Business Requirements Document</title>
+<style>
+  :root{
+    --bg: #f7f8fa; --surface:#ffffff; --surface-2:#f0f2f5; --border:#e2e5ea;
+    --text:#1a2130; --text-muted:#5b6472; --text-faint:#88909a;
+    --accent:#0f6e5e; --accent-strong:#0a5346; --accent-tint:#e5f3ef; --accent-tint-border:#bfe3d8;
+    --warn:#a15c07; --warn-tint:#fdf1de; --warn-tint-border:#f0d5a3;
+    --bad:#9d3b3b; --bad-tint:#fbeaea; --bad-tint-border:#f0c6c6;
+    --info:#2b5a9e; --info-tint:#e8f0fb; --info-tint-border:#c3d8f2;
+    --shadow: 0 1px 2px rgba(20,24,32,0.04), 0 4px 14px rgba(20,24,32,0.05);
+    --radius:14px; --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1216; --surface:#171b21; --surface-2:#1d232b; --border:#2a313b;
+      --text:#e8ebef; --text-muted:#a7afbc; --text-faint:#757e8c;
+      --accent:#3ecfae; --accent-strong:#6fe0c6; --accent-tint:#143028; --accent-tint-border:#1f4a3d;
+      --warn:#e8b458; --warn-tint:#332409; --warn-tint-border:#543a10;
+      --bad:#e08585; --bad-tint:#331515; --bad-tint-border:#5a2626;
+      --info:#8fbcf2; --info-tint:#132437; --info-tint-border:#1f3c5c;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1216; --surface:#171b21; --surface-2:#1d232b; --border:#2a313b;
+    --text:#e8ebef; --text-muted:#a7afbc; --text-faint:#757e8c;
+    --accent:#3ecfae; --accent-strong:#6fe0c6; --accent-tint:#143028; --accent-tint-border:#1f4a3d;
+    --warn:#e8b458; --warn-tint:#332409; --warn-tint-border:#543a10;
+    --bad:#e08585; --bad-tint:#331515; --bad-tint-border:#5a2626;
+    --info:#8fbcf2; --info-tint:#132437; --info-tint-border:#1f3c5c;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased;}
+  a{color:inherit;}
+  .topnav{position:sticky;top:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--border);}
+  .topnav-inner{max-width:1180px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:24px;}
+  .topnav-brand{font-weight:800;font-size:14px;letter-spacing:0.02em;color:var(--accent-strong);white-space:nowrap;}
+  .topnav-links{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;}
+  .topnav-links::-webkit-scrollbar{display:none;}
+  .topnav-links a{text-decoration:none;font-size:13.5px;font-weight:600;color:var(--text-muted);padding:8px 12px;border-radius:999px;white-space:nowrap;}
+  .topnav-links a:hover{background:var(--surface-2);color:var(--text);}
+
+  .hero{max-width:1180px;margin:0 auto;padding:56px 28px 20px;}
+  .hero-kicker{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent-strong);background:var(--accent-tint);border:1px solid var(--accent-tint-border);padding:6px 14px;border-radius:999px;margin-bottom:22px;}
+  .hero h1{font-size:clamp(28px,4.4vw,44px);line-height:1.12;margin:0 0 16px;font-weight:800;letter-spacing:-0.02em;}
+  .hero-sub{font-size:16px;color:var(--text-muted);max-width:760px;margin:0;}
+
+  .doc-meta{max-width:1180px;margin:0 auto;padding:0 28px 8px;}
+  .meta-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);}
+  @media (max-width:800px){.meta-grid{grid-template-columns:repeat(2,1fr);}}
+  .meta-cell{background:var(--surface);padding:14px 16px;}
+  .meta-cell .k{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:4px;}
+  .meta-cell .v{font-size:13.5px;font-weight:600;color:var(--text);}
+
+  nav.directory{max-width:1180px;margin:24px auto 0;padding:0 28px;}
+  .dir-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px 26px;}
+  .dir-title{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-strong);margin:0 0 16px;}
+  .dir-cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;}
+  @media (max-width:760px){.dir-cols{grid-template-columns:1fr;}}
+  .dir-part-label{font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+  .dir-item{display:flex;align-items:baseline;gap:10px;padding:6px 2px;text-decoration:none;color:var(--text-muted);font-size:13.5px;}
+  .dir-item:hover{color:var(--text);}
+  .dir-num{font-weight:800;color:var(--accent-strong);min-width:22px;font-size:12.5px;}
+
+  main{max-width:1180px;margin:0 auto;padding:8px 28px 100px;}
+
+  .part-divider{margin:56px 0 8px;padding:28px 30px;border-radius:var(--radius);background:linear-gradient(155deg,var(--accent) 0%,var(--accent-strong) 100%);color:#06231c;box-shadow:var(--shadow);}
+  .part-divider .p-eyebrow{font-size:11.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;opacity:.75;margin-bottom:6px;}
+  .part-divider h2{margin:0;font-size:24px;font-weight:800;letter-spacing:-0.01em;}
+  .part-divider p{margin:8px 0 0;color:#06231c;opacity:.85;font-size:14.5px;max-width:760px;}
+
+  section.block{scroll-margin-top:84px;padding:44px 0;border-top:1px solid var(--border);}
+  .part-divider + section.block{border-top:none;}
+  .block-head{display:flex;align-items:flex-start;gap:20px;margin-bottom:24px;}
+  .block-num{flex-shrink:0;width:50px;height:50px;border-radius:14px;background:linear-gradient(155deg,var(--accent) 0%,var(--accent-strong) 100%);color:#06231c;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;box-shadow:var(--shadow);}
+  .block-title{font-size:clamp(20px,2.6vw,25px);font-weight:800;margin:4px 0 0;letter-spacing:-0.01em;}
+  .block-eyebrow{display:block;font-size:12px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;}
+  .block-body{padding-left:70px;}
+  @media (max-width:640px){.block-body{padding-left:0;}}
+
+  p{margin:0 0 16px;color:var(--text-muted);font-size:15.2px;}
+  p.lead{font-size:17px;color:var(--text);font-weight:600;}
+  strong{color:var(--text);}
+  h3.sub{font-size:16px;font-weight:700;margin:26px 0 12px;color:var(--text);}
+  h3.sub:first-child{margin-top:0;}
+  ul.clean{margin:0 0 16px;padding-left:20px;color:var(--text-muted);font-size:15.2px;}
+  ul.clean li{margin-bottom:8px;}
+
+  .callout{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow);margin:8px 0 20px;}
+  .callout-label{font-size:11.5px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent-strong);margin-bottom:8px;display:block;}
+  .callout p:last-child{margin-bottom:0;}
+  .callout.warn{background:var(--warn-tint);border-color:var(--warn-tint-border);}
+  .callout.warn .callout-label{color:var(--warn);}
+  .callout.info{background:var(--info-tint);border-color:var(--info-tint-border);}
+  .callout.info .callout-label{color:var(--info);}
+
+  .card-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:8px 0 20px;}
+  @media (max-width:720px){.card-grid{grid-template-columns:1fr;}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);display:flex;gap:12px;}
+  .card .idx{flex-shrink:0;width:26px;height:26px;border-radius:8px;background:var(--accent-tint);border:1px solid var(--accent-tint-border);color:var(--accent-strong);font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;}
+  .card p{margin:0;font-size:14.3px;color:var(--text);}
+
+  table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);font-size:13.7px;margin:8px 0 22px;}
+  thead th{background:var(--surface-2);text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);padding:11px 14px;font-weight:700;}
+  tbody td{padding:11px 14px;border-top:1px solid var(--border);color:var(--text-muted);vertical-align:top;}
+  tbody td:first-child{color:var(--text);font-weight:600;}
+  tbody tr td.bad{color:var(--bad);}
+  tbody tr td.good{color:var(--accent-strong);font-weight:600;}
+  .table-scroll{overflow-x:auto;border-radius:var(--radius);box-shadow:var(--shadow);margin:8px 0 22px;}
+  .table-scroll table{margin:0;box-shadow:none;min-width:920px;}
+
+  .req-id{display:inline-block;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent-strong);background:var(--accent-tint);border:1px solid var(--accent-tint-border);padding:2px 8px;border-radius:6px;white-space:nowrap;}
+  .pill{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.03em;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .pill.must{color:var(--accent-strong);background:var(--accent-tint);border:1px solid var(--accent-tint-border);}
+  .pill.should{color:var(--warn);background:var(--warn-tint);border:1px solid var(--warn-tint-border);}
+  .pill.could{color:var(--text-faint);background:var(--surface-2);border:1px solid var(--border);}
+
+  .ac-block{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;margin:10px 0 20px;}
+  .ac-block h4{margin:0 0 10px;font-size:14.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .ac-block h4 .name{color:var(--text);}
+  .ac-line{display:grid;grid-template-columns:64px 1fr;gap:10px;font-size:13.7px;margin-bottom:6px;color:var(--text-muted);}
+  .ac-line b{color:var(--accent-strong);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;}
+
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:8px 0 20px;}
+  .flow-step{display:flex;align-items:center;}
+  .flow-node{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 13px;box-shadow:var(--shadow);font-size:12.5px;font-weight:700;color:var(--text);}
+  .flow-arrow{color:var(--text-faint);font-size:16px;padding:0 8px;}
+  @media (max-width:900px){.flow{flex-direction:column;align-items:flex-start;}.flow-arrow{transform:rotate(90deg);padding:4px 0 4px 16px;}}
+
+  code.mono{display:block;background:#0b1420;color:#c7e8e8;padding:14px 16px;border-radius:8px;font-size:12.3px;line-height:1.7;overflow-x:auto;white-space:pre-wrap;word-break:break-word;margin:8px 0 18px;font-family:var(--mono);}
+
+  figure{margin:8px 0 28px;}
+  figure svg{width:100%;height:auto;display:block;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);}
+  figcaption{font-size:12.5px;color:var(--text-faint);margin-top:10px;text-align:center;}
+
+  .layer-list{display:flex;flex-direction:column;gap:9px;margin:8px 0 4px;}
+  .layer{display:flex;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px 16px;box-shadow:var(--shadow);align-items:flex-start;}
+  .layer .idx{flex-shrink:0;width:24px;height:24px;border-radius:7px;background:var(--accent-tint);border:1px solid var(--accent-tint-border);color:var(--accent-strong);font-weight:800;font-size:11.5px;display:flex;align-items:center;justify-content:center;margin-top:2px;}
+  .layer strong{display:block;font-size:14px;margin-bottom:2px;}
+  .layer span{font-size:13.5px;color:var(--text-muted);}
+
+  footer{max-width:1180px;margin:0 auto;padding:32px 28px 60px;color:var(--text-faint);font-size:12.5px;border-top:1px solid var(--border);}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <div class="topnav-brand">Veriflow · BRD</div>
+    <div class="topnav-links">
+      <a href="#top">Directory</a>
+      <a href="#s06">Requirements</a>
+      <a href="#s08">Risks</a>
+      <a href="#s09">Governance</a>
+    </div>
+  </div>
+</nav>
+
+<div class="hero" id="top">
+  <span class="hero-kicker">Business Requirements Document</span>
+  <h1>Veriflow — the Autonomous Product Intelligence Factory</h1>
+  <p class="hero-sub">The business case, objectives, scope, stakeholders and governance requirements for Problem Statement 05's reimagined solution — independent of implementation choices. See the companion Solution Specification (OpenSpec) for how each requirement is built.</p>
+</div>
+
+<div class="doc-meta">
+  <div class="meta-grid">
+    <div class="meta-cell"><div class="k">Document</div><div class="v">Business Requirements Document v1.0</div></div>
+    <div class="meta-cell"><div class="k">Status</div><div class="v">Draft — Finals Submission</div></div>
+    <div class="meta-cell"><div class="k">Product</div><div class="v">Veriflow</div></div>
+    <div class="meta-cell"><div class="k">Source Problem</div><div class="v">Problem Statement 05</div></div>
+    <div class="meta-cell"><div class="k">Domain</div><div class="v">Retail · Retail Operations</div></div>
+    <div class="meta-cell"><div class="k">Owner</div><div class="v">Product &amp; Engineering Team</div></div>
+    <div class="meta-cell"><div class="k">Prepared</div><div class="v">29 Aug 2026</div></div>
+    <div class="meta-cell"><div class="k">Companion Doc</div><div class="v">Veriflow Solution Specification (OpenSpec)</div></div>
+  </div>
+</div>
+
+<nav class="directory">
+  <div class="dir-card">
+    <div class="dir-title">Contents</div>
+    <div class="dir-cols">
+      <div>
+        <a class="dir-item" href="#s01"><span class="dir-num">01</span>Document Control &amp; Purpose</a>
+        <a class="dir-item" href="#s02"><span class="dir-num">02</span>Business Context &amp; Problem Statement</a>
+        <a class="dir-item" href="#s03"><span class="dir-num">03</span>Business Objectives &amp; Success Metrics</a>
+        <a class="dir-item" href="#s04"><span class="dir-num">04</span>Stakeholders &amp; Operating Model</a>
+        <a class="dir-item" href="#s05"><span class="dir-num">05</span>Scope</a>
+      </div>
+      <div>
+        <a class="dir-item" href="#s06"><span class="dir-num">06</span>Business Requirements</a>
+        <a class="dir-item" href="#s07"><span class="dir-num">07</span>Assumptions, Constraints &amp; Dependencies</a>
+        <a class="dir-item" href="#s08"><span class="dir-num">08</span>Risks &amp; Mitigations</a>
+        <a class="dir-item" href="#s09"><span class="dir-num">09</span>Governance &amp; Compliance Requirements</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<section class="block" id="s01">
+  <div class="block-head">
+    <div class="block-num">01</div>
+    <div><span class="block-eyebrow">Document Control &amp; Purpose</span><h2 class="block-title">Purpose of this document</h2></div>
+  </div>
+  <div class="block-body">
+    <p>This is the Business Requirements Document (BRD) for <strong>Veriflow</strong>, the proposed enterprise response to <strong>Problem Statement 05 — Autonomous Product Intelligence Factory</strong>. It defines the business need, objectives, scope, stakeholders and governance requirements independent of implementation choices. A companion <strong>Solution Specification</strong> — packaged as an OpenSpec change set for spec-driven development — defines how each requirement below is satisfied end to end, including acceptance criteria, architecture and traceability.</p>
+    <table>
+      <thead><tr><th>Field</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Related artifacts</td><td>Problem Statement 05 (business brief) · Veriflow Product Brief (concept, architecture, business case) · Veriflow Solution Specification (OpenSpec) · AI Friday National Finals Engineering Guide · AI Finals Evaluation Criteria</td></tr>
+        <tr><td>Intended audience</td><td>Business sponsors, product owners, solution architects, engineering team, QA/evaluation reviewers, National Finale jury</td></tr>
+        <tr><td>Change control</td><td>Any change to a numbered requirement (BRD-xx) must be reflected in the corresponding OpenSpec capability spec and its scenarios in the companion Solution Specification</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="block" id="s02">
+  <div class="block-head">
+    <div class="block-num">02</div>
+    <div><span class="block-eyebrow">Business Context</span><h2 class="block-title">Why this problem matters</h2></div>
+  </div>
+  <div class="block-body">
+    <p>Retail product data arrives from suppliers in inconsistent formats, while channel, taxonomy and compliance requirements vary by market. The operating environment spans supplier spreadsheets, documents, images, taxonomy, channel rules, regulatory attributes and correction feeds. Evidence can arrive asynchronously, be corrected later, or conflict across systems — so any solution must preserve state, provenance and prior actions as each case evolves.</p>
+    <div class="callout">
+      <span class="callout-label">Complexity the business must accept</span>
+      <p>The solution must reconcile changing evidence across multiple systems, maintain long-running state, support real approvals and continue safely through partial failures. Material changes must trigger targeted re-evaluation rather than silently preserving an outdated conclusion.</p>
+    </div>
+    <p class="lead">Business need, in one line: convert fragmented supplier inputs into governed, source-linked and channel-ready product records — with uncertainty made explicit and every action fully accountable.</p>
+  </div>
+</section>
+
+<section class="block" id="s03">
+  <div class="block-head">
+    <div class="block-num">03</div>
+    <div><span class="block-eyebrow">Business Objectives</span><h2 class="block-title">Objectives &amp; success metrics</h2></div>
+  </div>
+  <div class="block-body">
+    <p>These objectives are stated as directional targets to validate through a pilot, consistent with the illustrative impact model in the Veriflow product brief — not measured results from a live deployment.</p>
+    <table>
+      <thead><tr><th>Objective</th><th>Baseline (industry, today)</th><th>Target with Veriflow</th></tr></thead>
+      <tbody>
+        <tr><td>Reduce supplier catalog onboarding time</td><td>4–6 weeks per catalog</td><td class="good">Days, not weeks, for standard SKUs</td></tr>
+        <tr><td>Reduce onboarding cost</td><td>~€14,000 per 1,000 products</td><td class="good">Materially lower via reduced manual mapping/QA</td></tr>
+        <tr><td>Eliminate full-pipeline restarts on correction</td><td>Full manual re-review across every affected channel</td><td class="good">Targeted republish of only affected fields/channels</td></tr>
+        <tr><td>Reduce compliance/mis-publication incidents</td><td>Ad hoc, role-based screens</td><td class="good">Policy-driven approval gates on every regulated/material claim</td></tr>
+        <tr><td>Reduce agentic-AI project risk</td><td>40%+ of agentic AI projects projected cancelled by 2027 (Gartner)</td><td class="good">Governance-first design (approvals, provenance, audit replay) built in from day one</td></tr>
+      </tbody>
+    </table>
+    <div class="callout info">
+      <span class="callout-label">How success will be judged</span>
+      <p>Beyond the business metrics above, the National Finale rubric additionally scores problem reimagination, working-product completeness, engineering quality, security/controls, traceability, resilience and executive articulation — see the Evaluation Criteria Alignment section of the companion Solution Specification.</p>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="s04">
+  <div class="block-head">
+    <div class="block-num">04</div>
+    <div><span class="block-eyebrow">Stakeholders</span><h2 class="block-title">Stakeholders &amp; the Human + AI + Software operating model</h2></div>
+  </div>
+  <div class="block-body">
+    <p>Per the National Finale design standard, the strongest solution does not automate everything. Veriflow explicitly decides where humans lead, where AI augments, and where software executes predictable enterprise behaviour.</p>
+    <table>
+      <thead><tr><th>Party</th><th>Role</th><th>Primary responsibility in Veriflow</th></tr></thead>
+      <tbody>
+        <tr><td>Supplier</td><td>External data source</td><td>Submits catalog data, specifications and corrections via the Ingestion Mesh.</td></tr>
+        <tr><td>Category / Product Manager</td><td>Human reviewer</td><td>Resolves contested hypotheses, approves material claims, reviews escalations.</td></tr>
+        <tr><td>Compliance / Regulatory Officer</td><td>Human approver</td><td>Owns policy configuration for regulated claim approval gates.</td></tr>
+        <tr><td>Platform / Operations Team</td><td>Human operator</td><td>Monitors observability signals, manages incidents, tunes escalation policy.</td></tr>
+        <tr><td>Humans (role class)</td><td>Judgement layer</td><td>Judgement, accountability, empathy, exceptional decisions, approval and challenge.</td></tr>
+        <tr><td>AI (role class)</td><td>Reasoning layer</td><td>Understanding, reasoning, interpretation, generation, evidence synthesis, contextual assistance and orchestration.</td></tr>
+        <tr><td>Software (role class)</td><td>Execution layer</td><td>Predictable execution, integration, persistence, identity, transactions, workflow state, controls and scale.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="block" id="s05">
+  <div class="block-head">
+    <div class="block-num">05</div>
+    <div><span class="block-eyebrow">Scope</span><h2 class="block-title">In scope / out of scope</h2></div>
+  </div>
+  <div class="block-body">
+    <div class="card-grid">
+      <div class="card"><div class="idx">✓</div><p>Ingesting and reconciling supplier spreadsheets, documents, images, taxonomy, channel rules, regulatory attributes and correction feeds into one evidence graph.</p></div>
+      <div class="card"><div class="idx">✓</div><p>Detecting and surfacing uncertainty (missing, stale, duplicate, contradictory) rather than silently resolving it.</p></div>
+      <div class="card"><div class="idx">✓</div><p>Dynamically planning the next evidence request, enrichment, validation, escalation or publish action per case.</p></div>
+      <div class="card"><div class="idx">✓</div><p>Governance: approval gates for regulated/material claims, full provenance and audit replay.</p></div>
+      <div class="card"><div class="idx">✓</div><p>Propagating late corrections to exactly the affected fields, approvals and published channels (the "finale inject" capability).</p></div>
+      <div class="card"><div class="idx">✓</div><p>Deploying alongside an existing PIM/ERP/channel stack as a governance and orchestration layer, using representative synthetic data.</p></div>
+    </div>
+    <h3 class="sub">Out of scope (v1)</h3>
+    <ul class="clean">
+      <li>Replacing an enterprise's existing PIM, ERP, or channel/commerce platforms outright.</li>
+      <li>Physical logistics, warehousing, inventory allocation, or payment processing.</li>
+      <li>Training foundation AI models from scratch — Veriflow consumes configurable, swappable model/provider endpoints.</li>
+      <li>Live connections to confidential enterprise or partner systems — v1 uses representative synthetic data and mock interfaces per Problem Statement 05's data-availability guidance.</li>
+      <li>Consumer-facing storefront experiences — Veriflow's experience layer is an internal operator/reviewer workspace.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="block" id="s06">
+  <div class="block-head">
+    <div class="block-num">06</div>
+    <div><span class="block-eyebrow">Business Requirements</span><h2 class="block-title">Business-level requirements (BRD)</h2></div>
+  </div>
+  <div class="block-body">
+    <p>These are business-facing "what," not "how" — the implementation is specified in the companion Solution Specification (OpenSpec). Priority uses MoSCoW (Must / Should / Could).</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td><span class="req-id">BRD-01</span></td><td>Assemble and reconcile all supplier and enterprise evidence sources into a coherent, time-aware operating view per product case.</td><td><span class="pill must">MUST</span></td><td>PS05 Capability 1</td></tr>
+          <tr><td><span class="req-id">BRD-02</span></td><td>Detect and explicitly disclose missing, stale, duplicated or contradictory information rather than silently resolving it.</td><td><span class="pill must">MUST</span></td><td>PS05 Capability 2</td></tr>
+          <tr><td><span class="req-id">BRD-03</span></td><td>Dynamically select the next evidence request, analysis, coordination or permitted action from current state and constraints.</td><td><span class="pill must">MUST</span></td><td>PS05 Capability 3</td></tr>
+          <tr><td><span class="req-id">BRD-04</span></td><td>Maintain source provenance, human intervention, approvals and a complete audit trail through the full journey.</td><td><span class="pill must">MUST</span></td><td>PS05 Capability 4</td></tr>
+          <tr><td><span class="req-id">BRD-05</span></td><td>Represent late, corrected or conflicting evidence without losing earlier evidence.</td><td><span class="pill must">MUST</span></td><td>PS05 Expectation 1</td></tr>
+          <tr><td><span class="req-id">BRD-06</span></td><td>Prioritise next actions by deadline, dependency, authority and expected value rather than a fixed happy path.</td><td><span class="pill must">MUST</span></td><td>PS05 Expectation 2</td></tr>
+          <tr><td><span class="req-id">BRD-07</span></td><td>Prevent duplicate evidence requests, duplicate transactions or repeated external actions on long-running cases.</td><td><span class="pill must">MUST</span></td><td>PS05 Expectation 3</td></tr>
+          <tr><td><span class="req-id">BRD-08</span></td><td>Represent competing interpretations or hypotheses and show which evidence supports, weakens or changes each option.</td><td><span class="pill should">SHOULD</span></td><td>PS05 Expectation 4</td></tr>
+          <tr><td><span class="req-id">BRD-09</span></td><td>Maintain versioned state with explicit separation of recorded fact, AI inference, user input, automated action and human decision.</td><td><span class="pill must">MUST</span></td><td>PS05 Expectation 5</td></tr>
+          <tr><td><span class="req-id">BRD-10</span></td><td>Coordinate approved tools/AI components with permission checks, retries, timeouts, idempotency and safe partial-failure recovery.</td><td><span class="pill must">MUST</span></td><td>PS05 Expectation 6</td></tr>
+          <tr><td><span class="req-id">BRD-11</span></td><td>Support role-based intervention, approval gates, audit replay and configurable action boundaries.</td><td><span class="pill must">MUST</span></td><td>PS05 Expectation 7</td></tr>
+          <tr><td><span class="req-id">BRD-12</span></td><td>When a supplier sends a corrected specification after publication, propagate the correction and identify every affected field and channel.</td><td><span class="pill must">MUST</span></td><td>National Finale Inject</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="s07">
+  <div class="block-head">
+    <div class="block-num">07</div>
+    <div><span class="block-eyebrow">Assumptions &amp; Dependencies</span><h2 class="block-title">Assumptions, constraints &amp; dependencies</h2></div>
+  </div>
+  <div class="block-body">
+    <h3 class="sub">Assumptions</h3>
+    <ul class="clean">
+      <li>Representative synthetic supplier spreadsheets, documents, images, taxonomy, channel rules, regulatory attributes and correction feeds are sufficient to demonstrate the complete solution; no live confidential enterprise data is required.</li>
+      <li>Where live enterprise/partner access is unavailable, mock interfaces or simulated services stand in for real integrations, but the solution itself must behave as a deployable product.</li>
+      <li>Model/AI providers are configurable and swappable — no specific vendor or architecture is mandated.</li>
+    </ul>
+    <h3 class="sub">Constraints</h3>
+    <ul class="clean">
+      <li>Must be demonstrable end-to-end within the National Finale's five-day build and evaluation window.</li>
+      <li>Regulated claims and material product assertions require configured human or policy approval — this cannot be bypassed by automation.</li>
+      <li>Technology choices are free, but must be defensible on appropriateness, implementation quality and business impact, not novelty alone.</li>
+    </ul>
+    <h3 class="sub">Dependencies</h3>
+    <ul class="clean">
+      <li>Availability of synthetic data sets covering edge cases, corrections, failure responses and approval states.</li>
+      <li>Configured connectors (real or mocked) to taxonomy, channel-rule and regulatory-attribute sources.</li>
+      <li>An approvals policy configuration owned by Compliance/Category stakeholders before go-live.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="block" id="s08">
+  <div class="block-head">
+    <div class="block-num">08</div>
+    <div><span class="block-eyebrow">Risks</span><h2 class="block-title">Risks &amp; mitigations</h2></div>
+  </div>
+  <div class="block-body">
+    <table>
+      <thead><tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>AI misinterprets ambiguous evidence and silently commits a wrong value</td><td>Incorrect product record published to channels</td><td>Uncertainty &amp; Hypothesis Layer keeps competing interpretations visible; material claims require human/policy approval (BRD-08, BRD-11)</td></tr>
+        <tr><td>Partial failure during multi-channel publish leaves inconsistent state</td><td>Some channels show stale/incorrect data</td><td>Idempotent, per-channel confirmation tracking with targeted retry (BRD-10; see publish-sync capability in the Solution Specification)</td></tr>
+        <tr><td>Correction arrives after publish and is missed downstream</td><td>Stale or non-compliant listings remain live</td><td>Blast-Radius Propagation Engine recomputes and requeues only affected fields/channels (BRD-12)</td></tr>
+        <tr><td>Over-automation erodes accountability for regulated claims</td><td>Compliance exposure</td><td>Governance &amp; Approval Layer with configurable, non-bypassable approval gates (Section 09)</td></tr>
+        <tr><td>Vendor/model lock-in reduces enterprise flexibility</td><td>Higher switching cost, weaker negotiating position</td><td>Vendor-neutral orchestration layer; sits alongside existing PIM/ERP rather than replacing it</td></tr>
+        <tr><td>Agentic AI project cancelled due to weak governance (industry-wide pattern)</td><td>Wasted investment</td><td>Governance-first architecture: provenance, approvals and audit replay are core layers, not add-ons</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="block" id="s09">
+  <div class="block-head">
+    <div class="block-num">09</div>
+    <div><span class="block-eyebrow">Governance</span><h2 class="block-title">Governance &amp; compliance requirements</h2></div>
+  </div>
+  <div class="block-body">
+    <div class="callout warn">
+      <span class="callout-label">Non-negotiable governance requirement</span>
+      <p>Regulated claims and material product assertions require configured human or policy approval — in every environment, for every channel, with no override path that bypasses this gate.</p>
+    </div>
+    <p>Controls must exist in the running product, not only in documentation. Section 09 of the AI Friday Engineering Guide requires that teams explicitly define what AI can do, what requires human approval, and what AI is prohibited from doing:</p>
+    <table>
+      <thead><tr><th>Control category</th><th>Applied in Veriflow</th></tr></thead>
+      <tbody>
+        <tr><td>Allowed AI assistance</td><td>Retrieve, interpret, summarize, compare, generate, recommend and coordinate approved enrichment/mapping activities.</td></tr>
+        <tr><td>Human-approved actions</td><td>Regulated/material claim changes, publishing a corrected specification, overriding a hypothesis, exceptional-case resolution.</td></tr>
+        <tr><td>Prohibited AI actions</td><td>Unauthorized data access, bypassing approval gates, invoking unapproved tools, making irreversible publish decisions without confirmation.</td></tr>
+        <tr><td>Escalation triggers</td><td>Insufficient evidence, low confidence, contradictory information, policy conflict, security concern, or tool failure.</td></tr>
+        <tr><td>Auditability</td><td>Every AI recommendation, evidence used, tool/action requested, human approval/override and final outcome is recorded and replayable.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  Veriflow — Business Requirements Document, prepared for the AI Friday National Finals against Problem Statement 05. See the companion Solution Specification (OpenSpec package) for implementation-level requirements, acceptance criteria and traceability.
+</footer>
+
+</body>
+</html>

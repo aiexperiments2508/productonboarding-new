@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import type { Facets, Preview, ProductHit, ProductRollup, Readiness } from "../api";
-import { IconCheck, IconSpark } from "../icons";
+import { IconCheck, IconGraph, IconSpark } from "../icons";
 import {
   Badge, Button, Code, Panel, SegmentedControl, Skeleton, SkeletonTable,
   Table, Td, Th, Tooltip, cn, useToast,
@@ -9,6 +9,7 @@ import {
 import { RegulatedTag } from "./common";
 import { PageHeader } from "../app/shell/PageHeader";
 import { MediaStrip } from "./MediaStrip";
+import { KnowledgeGraphPanel } from "./kg/KnowledgeGraphPanel";
 import { ProductFilters, ProductRollupStrip } from "./ProductFilters";
 import type { Filters } from "./ProductFilters";
 import { EMPTY_FILTERS } from "./ProductFilters";
@@ -51,15 +52,21 @@ import { NARROW_NOTE, tallyVerdicts, verdictBadge } from "./verdict";
  *  command palette uses. */
 const SEARCH_DEBOUNCE_MS = 220;
 
-/** The four things a record is made of, in the order somebody reads them:
- *  what is wrong, why, what we hold, what we are missing a picture of. */
-type SectionKey = "findings" | "cause" | "record" | "media";
+/** The five things a record is made of, in the order somebody reads them:
+ *  what is wrong, why, what we hold, what we are missing a picture of - and
+ *  then, once all of that is settled, what this thing is connected to.
+ *
+ *  The graph is last on purpose. The first four answer "can this launch";
+ *  the fifth answers a different question, and a reader who opens it before
+ *  the findings has skipped the part with a deadline on it. */
+type SectionKey = "findings" | "cause" | "record" | "media" | "graph";
 
 const SECTIONS: { value: SectionKey; label: string; title: string }[] = [
   { value: "findings", label: "Findings", title: "What has to move before this launches" },
   { value: "cause", label: "Root cause", title: "Why it happened, and who has to fix it" },
   { value: "record", label: "The record", title: "What the estate has said, and who said it" },
   { value: "media", label: "Imagery", title: "What this category cannot launch without" },
+  { value: "graph", label: "Graph", title: "How this product connects to everything else" },
 ];
 
 export function Product360() {
@@ -224,6 +231,7 @@ export function Product360() {
     cause: useRef<HTMLDivElement | null>(null),
     record: useRef<HTMLDivElement | null>(null),
     media: useRef<HTMLDivElement | null>(null),
+    graph: useRef<HTMLDivElement | null>(null),
   };
   const [section, setSection] = useState<SectionKey>("findings");
 
@@ -652,6 +660,31 @@ export function Product360() {
                 <MediaStrip media={readiness.media} />
               </Panel>
               </div>
+
+              {/* --- what it is connected to ------------------------------
+               *
+               * Bounded height on purpose. A full-height interactive canvas
+               * inside a column that scrolls fights the reader for the wheel,
+               * so the panel keeps a fixed box and the graph's own expand
+               * control is the way to a full viewport. */}
+              {selected && (
+                <div ref={sectionRefs.graph} className="scroll-mt-[9.5rem]">
+                  <Panel
+                    title="Knowledge graph"
+                    subtitle="How this product connects to everything else"
+                    icon={<IconGraph size={14} />}
+                  >
+                    {/* Keyed, so switching product resets the panel rather
+                        than showing the previous graph while the new one is
+                        asked for - the same reason RootCausePanel is keyed. */}
+                    <KnowledgeGraphPanel
+                      key={selected}
+                      entityId={selected}
+                      onJumpTo={jumpTo}
+                    />
+                  </Panel>
+                </div>
+              )}
             </>
           )}
         </div>

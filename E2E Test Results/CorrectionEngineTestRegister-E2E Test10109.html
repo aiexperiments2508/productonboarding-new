@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="End-to-end functional and UI test of the Correction Engine and its three estate applications: 33 defects, 9 capability gaps, 9 withdrawn claims.">
+<style>
+  html{color-scheme:light dark}
+  body{margin:0}
+  img{max-width:100%}
+  [hidden]{display:none!important}
+</style>
+<title>Correction Engine Test Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --ground:#F4F6F5;
+  --surface:#FFFFFF;
+  --surface-2:#EDF1EF;
+  --ink:#141A19;
+  --ink-2:#3A4442;
+  --muted:#57625F;
+  --rule:#D5DCDA;
+  --rule-strong:#B9C4C1;
+  --accent:#0F5A52;
+  --accent-soft:#DCEAE7;
+  --critical:#A31F1A;
+  --high:#B0530A;
+  --medium:#7E6413;
+  --low:#57625F;
+  --pass:#256B4B;
+  --critical-bg:#F7E4E3;
+  --high-bg:#FAEADB;
+  --medium-bg:#F5EFDB;
+  --low-bg:#E9EDEC;
+  --pass-bg:#DFEDE6;
+  --shadow:0 1px 2px rgba(20,26,25,.05), 0 8px 24px -16px rgba(20,26,25,.18);
+  --maxw:1180px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#111614;
+    --surface:#191F1D;
+    --surface-2:#212926;
+    --ink:#E9EFEC;
+    --ink-2:#C2CCC9;
+    --muted:#93A09C;
+    --rule:#2B3532;
+    --rule-strong:#3D4946;
+    --accent:#5CC3B2;
+    --accent-soft:#16302C;
+    --critical:#F08A83;
+    --high:#E9A45C;
+    --medium:#D7BC63;
+    --low:#93A09C;
+    --pass:#68C295;
+    --critical-bg:#2E1614;
+    --high-bg:#2C1E10;
+    --medium-bg:#2A2512;
+    --low-bg:#222B28;
+    --pass-bg:#152A21;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#111614;
+  --surface:#191F1D;
+  --surface-2:#212926;
+  --ink:#E9EFEC;
+  --ink-2:#C2CCC9;
+  --muted:#93A09C;
+  --rule:#2B3532;
+  --rule-strong:#3D4946;
+  --accent:#5CC3B2;
+  --accent-soft:#16302C;
+  --critical:#F08A83;
+  --high:#E9A45C;
+  --medium:#D7BC63;
+  --low:#93A09C;
+  --pass:#68C295;
+  --critical-bg:#2E1614;
+  --high-bg:#2C1E10;
+  --medium-bg:#2A2512;
+  --low-bg:#222B28;
+  --pass-bg:#152A21;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--ground);
+  color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:16px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+h1,h2,h3,h4,.ui{font-family:Archivo,"Helvetica Neue",Arial,sans-serif}
+.mono,code,.id{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+h1{font-size:clamp(30px,4.6vw,46px);line-height:1.06;font-weight:700;letter-spacing:-.021em;margin:0;text-wrap:balance}
+h2{font-size:23px;font-weight:700;letter-spacing:-.012em;margin:0;text-wrap:balance}
+h3{font-size:17px;font-weight:600;letter-spacing:-.006em;margin:0;text-wrap:balance}
+p{margin:0}
+a{color:var(--accent)}
+.eyebrow{
+  font-family:Archivo,sans-serif;font-size:11px;font-weight:600;
+  letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+}
+
+/* ---------- masthead ---------- */
+header.masthead{
+  border-bottom:1px solid var(--rule);
+  background:var(--surface);
+}
+.mast-inner{padding:44px 0 34px;display:flex;flex-direction:column;gap:22px}
+.mast-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;flex-wrap:wrap}
+.mast-title{display:flex;flex-direction:column;gap:12px;max-width:41ch}
+.lede{font-size:17px;color:var(--ink-2);line-height:1.55}
+.stamp{
+  border:1px solid var(--rule-strong);border-radius:3px;
+  padding:11px 15px;display:flex;flex-direction:column;gap:5px;
+  background:var(--surface-2);min-width:210px;
+}
+.stamp-row{display:flex;justify-content:space-between;gap:18px;font-size:11.5px;font-family:"IBM Plex Mono",monospace;color:var(--muted)}
+.stamp-row b{color:var(--ink);font-weight:500}
+
+/* ---------- tally ---------- */
+.tally{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:0;border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--surface)}
+.tally-cell{padding:14px 16px;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:3px}
+.tally-cell:last-child{border-right:none}
+.tally-n{font-family:Archivo,sans-serif;font-size:29px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.tally-l{font-family:Archivo,sans-serif;font-size:10.5px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.c-critical{color:var(--critical)} .c-high{color:var(--high)} .c-medium{color:var(--medium)}
+.c-low{color:var(--low)} .c-pass{color:var(--pass)} .c-ink{color:var(--ink)}
+
+/* ---------- sections ---------- */
+section{padding:46px 0}
+section + section{border-top:1px solid var(--rule)}
+.sec-head{display:flex;flex-direction:column;gap:9px;margin-bottom:26px;max-width:70ch}
+.sec-head p{color:var(--ink-2);font-size:15.5px}
+
+/* ---------- controls ---------- */
+.controls{
+  display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  margin-bottom:20px;padding:13px 14px;border:1px solid var(--rule);
+  border-radius:4px;background:var(--surface);position:sticky;top:0;z-index:20;
+}
+.search{
+  flex:1 1 210px;min-width:170px;padding:8px 11px;border:1px solid var(--rule-strong);
+  border-radius:3px;background:var(--ground);color:var(--ink);
+  font-family:"IBM Plex Mono",monospace;font-size:13px;
+}
+.search::placeholder{color:var(--muted)}
+.search:focus-visible,.chip:focus-visible,.disc:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chipset{display:flex;gap:6px;flex-wrap:wrap}
+.chip{
+  font-family:Archivo,sans-serif;font-size:11.5px;font-weight:600;letter-spacing:.04em;
+  padding:6px 11px;border:1px solid var(--rule-strong);border-radius:99px;
+  background:var(--surface);color:var(--muted);cursor:pointer;line-height:1.3;
+  transition:background .12s,color .12s,border-color .12s;
+}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+:root[data-theme="dark"] .chip[aria-pressed="true"],
+html:not([data-theme="light"]) .chip[aria-pressed="true"]{color:#0E1614}
+.count-note{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);margin-left:auto;white-space:nowrap}
+
+/* ---------- finding rows ---------- */
+.register{display:flex;flex-direction:column;gap:9px}
+.f{
+  border:1px solid var(--rule);border-left:4px solid var(--sev,var(--low));
+  border-radius:4px;background:var(--surface);box-shadow:var(--shadow);
+  overflow:hidden;
+}
+.f[data-sev="Critical"]{--sev:var(--critical)}
+.f[data-sev="High"]{--sev:var(--high)}
+.f[data-sev="Medium"]{--sev:var(--medium)}
+.f[data-sev="Low"]{--sev:var(--low)}
+.f[data-sev="Gap"]{--sev:var(--accent)}
+.disc{
+  width:100%;text-align:left;background:none;border:0;padding:15px 17px;
+  display:grid;grid-template-columns:auto 1fr auto;gap:5px 13px;align-items:start;
+  cursor:pointer;color:inherit;font:inherit;
+}
+.disc:hover{background:var(--surface-2)}
+.f-id{
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:600;
+  color:var(--muted);padding-top:3px;letter-spacing:.02em;
+}
+.f-title{font-family:Archivo,sans-serif;font-size:15.5px;font-weight:600;line-height:1.36;letter-spacing:-.008em}
+.f-meta{grid-column:2;display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:2px}
+.pill{
+  font-family:Archivo,sans-serif;font-size:10px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;padding:3px 8px;border-radius:99px;line-height:1.5;
+}
+.p-critical{background:var(--critical-bg);color:var(--critical)}
+.p-high{background:var(--high-bg);color:var(--high)}
+.p-medium{background:var(--medium-bg);color:var(--medium)}
+.p-low{background:var(--low-bg);color:var(--low)}
+.p-gap{background:var(--accent-soft);color:var(--accent)}
+.p-area{background:var(--surface-2);color:var(--muted);text-transform:none;letter-spacing:.03em;font-size:10.5px}
+.caret{color:var(--muted);font-size:13px;padding-top:4px;transition:transform .16s ease}
+.f[open] .caret{transform:rotate(90deg)}
+.body{padding:0 17px 17px 17px;display:none;flex-direction:column;gap:14px}
+.f[open] .body{display:flex}
+.body h4{font-family:Archivo,sans-serif;font-size:10.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin:0 0 5px}
+.body p{font-size:15px;line-height:1.62;color:var(--ink-2);max-width:74ch}
+.ev{
+  background:var(--surface-2);border:1px solid var(--rule);border-radius:3px;
+  padding:12px 14px;font-family:"IBM Plex Mono",monospace;font-size:12.3px;
+  line-height:1.72;color:var(--ink-2);overflow-x:auto;white-space:pre-wrap;
+  word-break:break-word;
+}
+.ev b{color:var(--ink);font-weight:600}
+.impact{border-left:2px solid var(--sev,var(--low));padding-left:13px}
+.impact p{font-size:14.5px;color:var(--ink-2)}
+
+/* ---------- coverage ---------- */
+.cov{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:13px}
+.cov-card{border:1px solid var(--rule);border-radius:4px;background:var(--surface);padding:17px;display:flex;flex-direction:column;gap:11px}
+.cov-card h3{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.port{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--accent);font-weight:500}
+.cov-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.cov-list li{font-size:14px;color:var(--ink-2);display:flex;gap:8px;line-height:1.45}
+.tick{color:var(--pass);flex:none;font-family:"IBM Plex Mono",monospace;font-size:12px;padding-top:2px}
+.cross{color:var(--muted);flex:none;font-family:"IBM Plex Mono",monospace;font-size:12px;padding-top:2px}
+
+.note{
+  border:1px solid var(--rule);border-left:3px solid var(--accent);
+  background:var(--surface);border-radius:4px;padding:16px 18px;
+  display:flex;flex-direction:column;gap:8px;max-width:78ch;
+}
+.note p{font-size:14.8px;color:var(--ink-2);line-height:1.6}
+
+table.tbl{width:100%;border-collapse:collapse;font-size:14px;background:var(--surface)}
+.tblwrap{overflow-x:auto;border:1px solid var(--rule);border-radius:4px}
+.tbl th{
+  font-family:Archivo,sans-serif;font-size:10.5px;font-weight:600;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--muted);text-align:left;padding:11px 14px;
+  border-bottom:1px solid var(--rule);white-space:nowrap;background:var(--surface-2);
+}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--rule);color:var(--ink-2);vertical-align:top;line-height:1.5}
+.tbl tr:last-child td{border-bottom:none}
+.tbl td.mono{font-size:12.3px;color:var(--ink);white-space:nowrap}
+
+footer{border-top:1px solid var(--rule);background:var(--surface);padding:30px 0 40px}
+footer p{font-size:13.5px;color:var(--muted);max-width:76ch}
+
+@media (max-width:640px){
+  .wrap{padding:0 18px}
+  .disc{grid-template-columns:1fr auto;gap:4px 10px}
+  .f-id{grid-column:1;padding-top:0}
+  .f-title{grid-column:1}
+  .f-meta{grid-column:1}
+  .caret{grid-column:2;grid-row:1}
+  .controls{position:static}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+
+<header class="masthead">
+  <div class="wrap mast-inner">
+    <div class="mast-top">
+      <div class="mast-title">
+        <span class="eyebrow">End-to-end functional &amp; UI test</span>
+        <h1>Correction Engine Test Register</h1>
+        <p class="lede">A read-only sweep of the product intelligence factory and the three estate applications around it — every screen, every control, and the 88 API endpoints behind them.</p>
+      </div>
+      <div class="stamp">
+        <div class="stamp-row"><span>Tested</span><b>31 Aug – 1 Sep 2026</b></div>
+        <div class="stamp-row"><span>Build clock</span><b>2026-08-31 22:44</b></div>
+        <div class="stamp-row"><span>Event tape</span><b>5211 / 5211</b></div>
+        <div class="stamp-row"><span>Viewport</span><b>894 × 481 CSS px</b></div>
+        <div class="stamp-row"><span>Method</span><b>Read-only</b></div>
+      </div>
+    </div>
+
+    <div class="tally">
+      <div class="tally-cell"><span class="tally-n c-critical">1</span><span class="tally-l">Critical</span></div>
+      <div class="tally-cell"><span class="tally-n c-high">7</span><span class="tally-l">High</span></div>
+      <div class="tally-cell"><span class="tally-n c-medium">11</span><span class="tally-l">Medium</span></div>
+      <div class="tally-cell"><span class="tally-n c-low">14</span><span class="tally-l">Low</span></div>
+      <div class="tally-cell"><span class="tally-n c-ink">9</span><span class="tally-l">Gaps</span></div>
+      <div class="tally-cell"><span class="tally-n c-pass">9</span><span class="tally-l">Retracted</span></div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Read this first</span>
+      <h2>What the sweep found</h2>
+      <p>The engine is well built. Accessibility naming is close to exemplary, the deterministic validator holds its hash under repeat runs, the agent and MCP instrumentation is genuinely useful, and the copy explains its own limits rather than hiding them. The defects cluster in three places: <b>things that are counted twice and disagree</b>, <b>controls that look live but do nothing</b>, and <b>a layout that only works on a tall screen</b>.</p>
+    </div>
+    <div class="note">
+      <h3>The one to fix first</h3>
+      <p>Two <b>CRITICAL</b> approvals sit in <code class="mono">/api/approvals/pending</code> — one of them an allergen declaration moving from <code class="mono">['milk']</code> to <code class="mono">['gluten','milk','egg']</code> on a regulated product. The sidebar badge counts them. The Review &amp; Audit screen, which exists to action them, says <b>“Nothing awaiting a decision.”</b> They only become reachable if you happen to re-run that case in your own browser session. A human-in-the-loop gate that a second human cannot see is the highest-consequence finding here.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Register</span>
+      <h2>Defects and functional gaps</h2>
+      <p>Every entry was reproduced and measured. Open a row for the evidence and the impact. Gaps are capability the backend already has but the interface never exposes.</p>
+    </div>
+
+    <div class="controls">
+      <input class="search" id="q" type="search" placeholder="filter: allergen, filter, contrast, 200…" aria-label="Search findings">
+      <div class="chipset" id="sev" role="group" aria-label="Filter by severity">
+        <button class="chip" aria-pressed="false" data-v="Critical">Critical</button>
+        <button class="chip" aria-pressed="false" data-v="High">High</button>
+        <button class="chip" aria-pressed="false" data-v="Medium">Medium</button>
+        <button class="chip" aria-pressed="false" data-v="Low">Low</button>
+        <button class="chip" aria-pressed="false" data-v="Gap">Gap</button>
+      </div>
+      <div class="chipset" id="app" role="group" aria-label="Filter by application">
+        <button class="chip" aria-pressed="false" data-v="Correction Engine">Engine</button>
+        <button class="chip" aria-pressed="false" data-v="Vendor Portal">Vendor</button>
+        <button class="chip" aria-pressed="false" data-v="Storefront">Storefront</button>
+        <button class="chip" aria-pressed="false" data-v="Ops Console">Ops</button>
+      </div>
+      <span class="count-note" id="cnt"></span>
+    </div>
+
+    <div class="register" id="reg"></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Discipline</span>
+      <h2>Claims tested and withdrawn</h2>
+      <p>Nine findings looked real and did not survive verification. They are listed because a register you can trust is one that shows its own corrections — and because several are traps the next tester will fall into too.</p>
+    </div>
+    <div class="tblwrap">
+      <table class="tbl">
+        <thead><tr><th>Suspected</th><th>Why it was wrong</th></tr></thead>
+        <tbody>
+          <tr><td>UI claims “ready to launch” while the API says checks are incomplete</td><td>The button calls <span class="mono">readiness?use_model=true</span>; my probe omitted the parameter. With it: <span class="mono">checks_complete: true</span>, caveat cleared. The UI was right.</td></tr>
+          <tr><td>Segmented control missing ARIA state</td><td><span class="mono">role="radiogroup"</span> with correct <span class="mono">aria-checked</span>. I had checked <span class="mono">aria-selected</span>, which is the wrong attribute for radios.</td></tr>
+          <tr><td>Sidebar nav buttons unlabelled</td><td>Real text content plus <span class="mono">aria-current="page"</span>. A tool artefact, not a defect.</td></tr>
+          <tr><td>“Validate again” is decorative — timing never changes</td><td>It does fire <span class="mono">POST /api/scenarios/simulate</span>. The identical 50.54 ms is the documented SQLite response cache replaying the recorded figure.</td></tr>
+          <tr><td>Every text element fails contrast (700 / 700)</td><td>My parser read <span class="mono">oklch()</span> as RGB. Redone via canvas pixel readback: 655 of 869, which is the number reported above.</td></tr>
+          <tr><td>“Channels blocked 1 / 2 listings rejected” contradicts itself</td><td>Two different units — one channel, two listings on it. Correct, if tersely worded.</td></tr>
+          <tr><td>“0 of 2 gaps” contradicts “4 back to source”</td><td>Verified against the batch report: <span class="mono">returned: 4</span> products, <span class="mono">fixable.gaps</span> length 2, both <span class="mono">NO_SOURCE</span>. Both true.</td></tr>
+          <tr><td>Storefront renders unpublished listings</td><td>All 730 listings are <span class="mono">PREPARED</span>; no published/unpublished distinction exists in this dataset to filter on.</td></tr>
+          <tr><td>136 buttons carry <span class="mono">type="submit"</span></td><td>Zero of them sit inside a <span class="mono">&lt;form&gt;</span>, so nothing can be submitted. Code smell, no user impact.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Coverage</span>
+      <h2>What was exercised</h2>
+      <p>Four applications, eleven screens, and the full API surface enumerated from <span class="mono">/openapi.json</span> (88 endpoints). Write paths were deliberately left alone at your instruction.</p>
+    </div>
+    <div class="cov">
+      <div class="cov-card">
+        <h3>Correction Engine <span class="port">:8000</span></h3>
+        <ul class="cov-list">
+          <li><span class="tick">✓</span><span>All 8 sections: Ingest Fabric, Supplier Intake, Product Lifecycle, Product 360, Blast Radius, Readings, Review &amp; Audit, System Control</span></li>
+          <li><span class="tick">✓</span><span>Command palette, reference-library search, document viewer</span></li>
+          <li><span class="tick">✓</span><span>Agent monitor, theme / density / accent, transport bar, sidebar collapse</span></li>
+          <li><span class="tick">✓</span><span>Catalog search, multi-select filters, pagination, page size</span></li>
+          <li><span class="tick">✓</span><span>One full correction run through to the approval interrupt</span></li>
+          <li><span class="tick">✓</span><span>Contrast, landmarks, headings, focus, ARIA — both themes</span></li>
+          <li><span class="cross">—</span><span>Approve / Reject / Re-plan, Accept into catalog, re-index, dispatch, revert, replay Reset</span></li>
+        </ul>
+      </div>
+      <div class="cov-card">
+        <h3>Vendor Portal <span class="port">:8110</span></h3>
+        <ul class="cov-list">
+          <li><span class="tick">✓</span><span>Sign-in, all 3 intake channels, 28 supplier accounts</span></li>
+          <li><span class="tick">✓</span><span>Product list, product detail, all 3 tabs</span></li>
+          <li><span class="tick">✓</span><span>Upload form validation attributes inspected</span></li>
+          <li><span class="cross">—</span><span>Send document / Send image / Revise submission</span></li>
+        </ul>
+      </div>
+      <div class="cov-card">
+        <h3>Orchard &amp; Co storefront <span class="port">:8120</span></h3>
+        <ul class="cov-list">
+          <li><span class="tick">✓</span><span>All 3 channel views — Our website, Marketplace A, Marketplace B</span></li>
+          <li><span class="tick">✓</span><span>Category navigation, listing cards, pricing, imagery</span></li>
+          <li><span class="cross">—</span><span>Add to basket, checkout, delivery log</span></li>
+        </ul>
+      </div>
+      <div class="cov-card">
+        <h3>Ops Console <span class="port">:8130</span></h3>
+        <ul class="cov-list">
+          <li><span class="tick">✓</span><span>All 4 tabs: Estate, Work owed, Ledger, Inspect a SKU</span></li>
+          <li><span class="tick">✓</span><span>Channel estate table, recall / freeze state</span></li>
+          <li><span class="tick">✓</span><span>SKU inspection across all six channels</span></li>
+          <li><span class="cross">—</span><span>Record-it action, redaction workflow</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><b>Method.</b> Browser-driven exploration with DOM and network instrumentation. Counts were checked against the API rather than read off the screen; contrast was measured by canvas pixel readback because the palette is authored in <span class="mono">oklch()</span>. Where a finding depended on a CSS override to reach a control, it was re-verified on a clean page load with no overrides. Severity reflects consequence in a compliance workflow, not effort to fix.</p>
+  </div>
+</footer>
+
+<script>
+const F = [
+{id:"CE-11",sev:"Critical",app:"Correction Engine",area:"Review & Audit",
+ t:"Pending approvals are invisible unless you raised them in your own browser session",
+ d:"The approval queue is session-scoped rather than server-scoped. Approvals raised by an earlier run — or by another reviewer — are counted by the sidebar badge but never listed on the screen that exists to action them. There is no queue view, no picker, and no way to select which pending decision to work.",
+ e:"Sidebar badge:  Review & Audit  [2]\nPage body:      \"Nothing awaiting a decision\"\n\nGET /api/approvals/pending -> 2 items, both severity CRITICAL\n  INC-MTHL2OY0  DOC-107 v1 corrects VAR-225A\n                food.allergens.contains ['milk'] -> ['gluten','milk','egg']\n  INC-MTH3FCCQ  3 concurrent corrections\n\nNeither rendered. No Approve/Reject control present anywhere on the page.\nAfter running a case in-session the panel DID render -> queue is session-scoped.\nPOST /api/approvals/{thread_id} exists and is never reachable for these two.",
+ i:"A safety-class allergen correction on a regulated product cannot be approved or rejected by anyone who did not personally trigger it. Work raised at the end of one shift is invisible at the start of the next."},
+
+{id:"CE-01",sev:"High",app:"Correction Engine",area:"Global layout",
+ t:"Content region collapses to 133 px and there is no page-scroll escape",
+ d:"The shell is locked to viewport height and <main> is overflow-y:hidden, so when the fixed chrome (top bar, page header, transport bar) exceeds the available space the scrollable content column collapses. There is no min-height guard and no fallback to normal page scrolling.",
+ e:"Measured chain at 894 x 481 CSS px:\n  body    481    main 395 (overflow-y: hidden)\n  wrapper 279    content column 133 (overflow-y: auto)\n\nContent inside that 133px column:\n  Ingest Fabric   2,522 px\n  another column 13,696 px\nFull document height with the height lock removed: 23,966 px\n\nCompact density only improves it to 156 px of 9,765 px.",
+ i:"Roughly 1–5% of each screen is visible on a short viewport. Any laptop, or any browser with a side panel or devtools open, loses effectively the whole page."},
+
+{id:"CE-03",sev:"High",app:"Correction Engine",area:"Product 360",
+ t:"Browse list capped at 200; 82 variants unreachable and the header counts silently wrong",
+ d:"The list renders a hard 200 rows out of 282 with no pagination, no load-more, and no indication it has been truncated. The three header pills are then computed client-side over that truncated list, so they disagree with the server-backed tiles directly beneath them.",
+ e:"/api/network       282 variants\nUI renders         200  (82 absent: VAR-200A, VAR-200B, VAR-201A, VAR-201B, ...)\n\nDOM badge tally    clear 111 | findings 1-5: 42+31+8+1+7 = 89\nHeader pills       111 no rule findings / 75 back to source / 14 blocked   (75+14 = 89)\nServer tiles       160 / 99 / 23 over 282\n\nThey agree only under 200 rows: search one SKU and both read 1 / 0 / 0 / 1.\nNo \"showing 200 of 282\" text exists anywhere on the page.",
+ i:"On the screen whose stated job is “find a product by SKU or name”, 29% of the catalogue cannot be browsed to, and the headline figures under-report by the same margin. Direct search does still reach the missing rows, which is what keeps this off the critical line."},
+
+{id:"CE-05",sev:"High",app:"Correction Engine",area:"Global",
+ t:"No routing — every screen lives at “/”",
+ d:"Navigation is entirely in-memory. The URL never changes and the document title never updates, so nothing about the current view can be captured, shared or restored.",
+ e:"Navigate to Product 360:\n  location.href    http://localhost:8000/     (unchanged)\n  document.title   \"Product Intelligence Factory\"  (unchanged on every screen)\n  h1               \"Product 360\"\n\nSame behaviour on the Vendor Portal.",
+ i:"No deep links to a case, no shareable evidence URL, browser Back exits the application, and a refresh drops the reviewer on Ingest Fabric having lost their place. For an audit tool this blocks the everyday “send me that case” exchange."},
+
+{id:"CE-08",sev:"High",app:"Correction Engine",area:"Product 360",
+ t:"“Root cause” renders nothing and the segmented control changes no content",
+ d:"Findings / Root cause / The record / Imagery is a correctly-built radiogroup that has no effect. All four states render the same three sections stacked, and a root-cause panel does not exist in any state.",
+ e:"Fresh page load, no overrides, VAR-101A (2 open findings):\n  click Findings    -> FINDINGS + THE RECORD + IMAGERY\n  click Root cause  -> FINDINGS + THE RECORD + IMAGERY\n  click The record  -> FINDINGS + THE RECORD + IMAGERY\n  click Imagery     -> FINDINGS + THE RECORD + IMAGERY\n\naria-checked flips correctly each time. A ROOT CAUSE section never renders.\nGET /api/products/{id}/rca is never called — the endpoint works:\n  200 {entity_id, verdict, checks_complete, causes, not_explained, unattributed}",
+ i:"Root-cause analysis is the reason a correction engine is bought rather than a spreadsheet. The backend computes it; the interface has no way to show it."},
+
+{id:"CE-09",sev:"High",app:"Correction Engine",area:"Supplier Intake",
+ t:"Tab strip is completely inert",
+ d:"Summary, Products and What AI could fix all render byte-identical content. Unlike the Product 360 control these buttons do not even carry an aria-checked state, so nothing indicates which is active.",
+ e:"Content hash across all three tabs:\n  Summary              len 4223  hash 3544428453\n  Products (6)         len 4223  hash 3544428453\n  What AI could fix(0) len 4223  hash 3544428453\n  DISTINCT HASHES: 1\n\naria-checked: null on all three.\n(The batch selector beside them works correctly — switching batches changes content.)",
+ i:"Two of the three intake views are unreachable, including the one that would show what the engine believes it can fix automatically."},
+
+{id:"CE-10",sev:"High",app:"Correction Engine",area:"Product Lifecycle",
+ t:"The board filter ignores the Proposed lane — the largest lane on the board",
+ d:"Every other lane filters correctly. Proposed always renders all 65 cards whatever is typed, so a name search returns a lane full of unrelated proposals.",
+ e:"filter \"Larkspur\"   Proposed 65 shown / 5 match   (60 non-matching still rendered)\n                    With the supplier 7 / 7\n                    On sale 2 / 2   Cleared 0   Downstream 0   Late change 0\nfilter \"Kestrel\"    Proposed 65 shown / 6 match\nfilter \"Verrick\"    Proposed 65 shown / 1 match\n\nProposed is 65 of 216 cards on the board.",
+ i:"A reviewer looking for one proposed line must read all 65 by eye. The filter appears to work because the other five lanes respond correctly."},
+
+{id:"SF-01",sev:"High",app:"Storefront",area:"Navigation",
+ t:"All three storefront category links are dead",
+ d:"Home & kitchen, Food cupboard and Audio are placeholder anchors. Clicking any of them changes nothing and leaves non-food products in a food category view.",
+ e:"All three are <a href=\"#\">\n  Home & kitchen -> len 439  hash 1400650495  url /\n  Food cupboard  -> len 439  hash 1400650495  url /\n  Audio          -> len 439  hash 1400650495  url /\n  DISTINCT HASHES: 1\n\nAfter clicking \"Food cupboard\" the grid still shows an air purifier and earbuds.",
+ i:"The storefront has no working navigation below the channel switcher. Only the six featured products are reachable."},
+
+{id:"CE-02",sev:"Medium",app:"Correction Engine",area:"Ingest Fabric",
+ t:"The “filtered” chip appears only when nothing is filtered",
+ d:"The label's logic is inverted, and it is a non-interactive span styled to look like the pagination buttons next to it.",
+ e:"no filter                     \"1-10 of 151  [filtered]\"\nsearch \"kettle\"               \"1-2 of 2\"    chip GONE\nsource filter Northaven Home  \"1-2 of 2\"    chip GONE\nsource filter 2 sources       \"1-4 of 4\"    chip GONE\n\nElement is <span>, cursor: auto, no click handler.",
+ i:"The one indicator telling a reviewer whether they are looking at the whole population or a subset states the opposite of the truth."},
+
+{id:"CE-04",sev:"Medium",app:"Correction Engine",area:"Product 360",
+ t:"Variant counts are labelled as product counts",
+ d:"The disposition tile reports the variant total under a caption that says products, and the attribution panel does the same.",
+ e:"/api/network      products 151   variants 282\nTile              \"282  assessed  /  products in this window\"\nWHO HAS TO FIX IT  unattributed 112 products + Digital asset mgmt 53 products\n                   = 165 \"products\" against 151 that exist",
+ i:"Two different units share one label, so scope is ambiguous on the screen most likely to be quoted into a report."},
+
+{id:"CE-06",sev:"Medium",app:"Correction Engine",area:"Global",
+ t:"Continuous polling alongside an already-open event stream",
+ d:"Four endpoints are polled on a short interval while an SSE connection to the event stream is open, duplicating the transport.",
+ e:"782 API calls observed over a few minutes of ordinary use.\nPolled continuously:\n  /api/estate\n  /api/estate/arrivals?limit=14\n  /api/a2a/calls?limit=40\n  /api/mcp/calls?limit=40\nAlready open:\n  /api/events/stream   (SSE)",
+ i:"Avoidable server and battery load, and it makes the network panel hard to read when diagnosing anything else."},
+
+{id:"CE-07",sev:"Medium",app:"Correction Engine",area:"Product 360 / Lifecycle",
+ t:"The same product states two different check totals at the same moment",
+ d:"Two strings visible in the same panel disagree on both how many checks exist and how many ran. The nine-check phrasing appears on Product Lifecycle too.",
+ e:"Reproduced on VAR-01A and again on a fresh product VAR-115A —\nboth strings on screen simultaneously:\n\n  beside the actions:  \"Six checks of nine is a narrower clearance, not a clean one.\"\n  in the findings body:\"The seven rule checks ran. The three that read regulation,\n                        internal documentation and copy meaning have not been\n                        run for this product yet.\"\n\n  6 of 9   vs   7 ran + 3 unrun (= 10)\n\nProduct Lifecycle: \"...has passed six checks rather than nine\"",
+ i:"The figure a reviewer would cite to justify releasing a product is stated two ways within one card."},
+
+{id:"CE-12",sev:"Medium",app:"Correction Engine",area:"Global styling",
+ t:"Light theme fails WCAG AA contrast on 655 elements; dark theme passes cleanly",
+ d:"The muted text tokens are too light against both the page and card grounds, and are used at 10–12 px. Measured by canvas pixel readback because the palette is authored in oklch().",
+ e:"LIGHT — 869 visible text elements checked, 655 failing across 6 styles:\n  3.37:1  (needs 4.5)  11-12px  rgb(132,141,151) on white          375 elements\n  4.46:1  (needs 4.5)  11-12px  rgb(102,111,121) on rgb(237,240,244) 259\n  2.95:1  (needs 4.5)  10px     rgb(132,141,151) on rgb(237,240,244)  20\n  3.96:1  (needs 4.5)  11px     rgb(138,98,198)                        1\n\nDARK — 869 checked, 0 failing.",
+ i:"Attribute paths, timestamps, provenance notes and identifiers are the hardest text to read, and they are the text that carries the evidence."},
+
+{id:"CE-13",sev:"Medium",app:"Correction Engine",area:"Global header",
+ t:"Command-palette label overflows its button by 41 px on every screen",
+ d:"The label wraps to three lines inside a fixed-height button with overflow visible, so it renders above the top of the header and below the button's lower edge.",
+ e:"button box  28 px tall x 182 px wide   spans y 12 -> 40\ntext box    69 px tall                 spans y -9 -> 60\noverflow    41 px  (146% taller than its container)\n\nwhite-space: normal | overflow: visible | text-overflow: clip\nCompact density reduces the overflow to 10 px but does not remove it.",
+ i:"Present on all eight screens in both themes — the most visible cosmetic defect in the product."},
+
+{id:"VP-01",sev:"Medium",app:"Vendor Portal",area:"Header",
+ t:"“Sign out” is painted in exactly its own background colour",
+ d:"The control renders at a 1:1 contrast ratio — the text colour is byte-identical to the header behind it, so the button is invisible and reads as an empty grey blob.",
+ e:"text colour            rgb(31, 78, 121)\neffective background    rgb(31, 78, 121)   from <header>\nCONTRAST RATIO         1:1   (WCAG AA needs 4.5)\n\nControl is present and clickable: 48 x 20 px at (811, 21).",
+ i:"Suppliers cannot find how to sign out, and shared-machine sign-out is a real risk in a supplier portal."},
+
+{id:"VP-02",sev:"Medium",app:"Vendor Portal",area:"Sign-in",
+ t:"“Sign out” is rendered on the sign-in page while signed out",
+ d:"The header control is present before authentication, on the screen headed “Sign in”.",
+ e:"Page heading present: \"Sign in\"\nButton present in header: \"Sign out\"  (visible: true)",
+ i:"Compounds VP-01 — the only always-visible header control is both wrong for the state and invisible."},
+
+{id:"VP-03",sev:"Medium",app:"Vendor Portal",area:"Global",
+ t:"No routing — sign-in, product list and product detail all share “/”",
+ d:"Same in-memory navigation as the engine. Nothing in the portal can be linked to or restored after a refresh.",
+ e:"After sign-in and opening a product:  location.pathname === \"/\"",
+ i:"A supplier cannot bookmark their own product, and support cannot send them a link to the record under discussion."},
+
+{id:"SF-02",sev:"Medium",app:"Storefront",area:"Listing cards",
+ t:"Variant cards show the product name, so distinct variants read as duplicates",
+ d:"The card title uses the parent product name while the card's own image caption uses the variant name — the two disagree inside a single card.",
+ e:"Our website:\n  \"Northaven AP300 Air Purifier\"  GBP 199.00   image caption: Northaven AP300 Max\n  \"Northaven AP300 Air Purifier\"  GBP 149.00   image caption: Northaven AP300\n  \"Harrowfield Trail Mix Bar\"     GBP 1.25     image caption: Trail Mix Bar 40g\n  \"Harrowfield Trail Mix Bar\"     GBP 6.00     image caption: Trail Mix Bar Multipack",
+ i:"A shopper sees the same product listed twice at two prices with nothing to distinguish them but the picture."},
+
+{id:"SF-03",sev:"Medium",app:"Storefront",area:"Marketplace B",
+ t:"A listing renders with no price, on a variant the engine has returned to source",
+ d:"One card on Marketplace B has no price while all six others do. The same variant is flagged RETURN_TO_SOURCE with two open findings in the engine, one of them a missing mandatory image.",
+ e:"Marketplace B card:  \"Ashcombe Women's Long Sleeve Jersey Top\"   (no price)\nAll six other cards on the channel carry a price.\n\nEngine state for VAR-101A:\n  verdict RETURN_TO_SOURCE   ready false   findings 2\n  - textile.care_code has no value\n  - apparel.womens.tops requires a detail image and none is held",
+ i:"An incomplete record is publicly listed, unbuyable, with no price. Whether the storefront should gate on readiness is a product decision — the missing price is not."},
+
+{id:"CE-14",sev:"Low",app:"Correction Engine",area:"Accessibility",
+ t:"No skip link past the eight-item sidebar",
+ d:"WCAG 2.4.1. The sidebar repeats on every screen and keyboard users must traverse it each time. Noted alongside otherwise strong accessibility: 150 SVGs all correctly hidden or labelled, zero unlabelled controls, one h1, landmarks present, lang set, no positive tabindex, aria-current on nav, and focus correctly returned to the trigger on Escape.",
+ e:"skip link: MISSING\nheadings 16, one level skip, h1 count 1\nlandmarks: main 1, nav 2, footer 1   lang: en\npositive tabindex: 0   unlabelled controls: 0 of 139",
+ i:"Minor friction for keyboard and screen-reader users on an otherwise well-built interface."},
+
+{id:"CE-15",sev:"Low",app:"Correction Engine",area:"System Control",
+ t:"Model cost always reads $0.0000",
+ d:"Call and token counters increment; the cost figure never moves off zero.",
+ e:"CALLS 94   TOKENS 277,137   COST $0.0000   avg 5030 ms",
+ i:"Either cost tracking is unwired or the figure is meaningless — a reader cannot tell which."},
+
+{id:"CE-16",sev:"Low",app:"Correction Engine",area:"Agent monitor",
+ t:"“Open the full consoles” lands at the top of System Control",
+ d:"The link navigates to the right screen but not to the console section, which sits well below the fold.",
+ e:"Click -> System Control, scrolled to top. A2A / MCP console controls are further down the page.",
+ i:"Compounded by CE-01: in a 133 px viewport the user has no way to tell where the consoles are."},
+
+{id:"CE-17",sev:"Low",app:"Correction Engine",area:"Ingest Fabric",
+ t:"KPI tiles are not clickable",
+ d:"Fields affected, Channels blocked, Safety flags and Waiting on review are dead ends with no drill-through to the records behind them.",
+ e:"Clicking a tile produces no state change and no navigation.",
+ i:"The natural next question after seeing a count is “which ones”, and there is no path to it."},
+
+{id:"CE-18",sev:"Low",app:"Correction Engine",area:"Ingest Fabric",
+ t:"Supplier filter has no clear-all and no type-ahead across 28 suppliers",
+ d:"Multi-select works correctly but must be unpicked one at a time, and the list has no search.",
+ e:"28 supplier options. No \"all sources\" reset inside the menu, no filter input.\n(Escape correctly closes the menu and returns focus to the trigger.)",
+ i:"Slow to reset once several suppliers are selected."},
+
+{id:"CE-19",sev:"Low",app:"Correction Engine",area:"System Control",
+ t:"Model gateway tunnel URL is displayed in the client",
+ d:"The gateway host is rendered in plain text in the Service Health panel and again in the Model Gateway card.",
+ e:"Gateway  https://laid-respondents-loan-britney.trycloudflare.com",
+ i:"Worth confirming this is intended for the audience that can reach this screen."},
+
+{id:"CE-20",sev:"Low",app:"Correction Engine",area:"Reference library",
+ t:"Raw relevance score shown, and cross-references are not links",
+ d:"The document viewer surfaces an un-normalised retrieval score, and the standards it cites are plain text.",
+ e:"Modal shows:  score 0.027\nBody cites STD-001, CHN-002, CHN-003, CHN-005, POL-002, POL-003, INC-2025-058\n  — none are navigable.",
+ i:"A number with no scale is noise; the citations are the most useful thing on the panel and cannot be followed."},
+
+{id:"CE-21",sev:"Low",app:"Correction Engine",area:"Readings",
+ t:"A reading is marked “cannot publish” for a reason belonging to a different product",
+ d:"The blocker is channel-level and pre-existing, but it is presented as this reading's own reason with no indication it is unrelated to the correction under review.",
+ e:"Correction under review:  VAR-225A  (Ashcombe Strawberry Yoghurt, allergens)\nPUBLISHABLE: cannot publish\nReason shown: \"claim 'low-energy' needs specs.power_w < 50 W;\n               VAR-203A has no usable value for specs.power_w\"\n               (VAR-203A is a Verrick television)",
+ i:"Reads as though the allergen correction is blocked by its own defect, when it is blocked by an unrelated listing on the same channel."},
+
+{id:"OC-01",sev:"Low",app:"Ops Console",area:"Estate",
+ t:"KIND column blank for three channels, and empty cells are treated inconsistently",
+ d:"The three external publisher rows have no kind, rendered as true blank while every other empty cell in the table uses an en-dash placeholder.",
+ e:"CH-WEB     (blank)   CH-PRINT   Print\nCH-MKT-A   (blank)   CH-SHELF   Shelf\nCH-MKT-B   (blank)   CH-SEARCH  Search\nOther empty cells in the same row render as \"–\".",
+ i:"Reads as missing data rather than not-applicable."},
+
+{id:"OC-02",sev:"Low",app:"Ops Console",area:"Inspect a SKU",
+ t:"Enter does not submit the SKU lookup",
+ d:"The field accepts a SKU but only the button runs the lookup; the input is not in a form and has no Enter handler.",
+ e:"Typed HRF-GRC-300 + Enter -> no result (body length unchanged at 167)\nClicked \"Inspect across the estate\" -> full cross-channel result, length 2605",
+ i:"Breaks the expected type-and-Enter rhythm on a lookup tool."},
+
+{id:"OC-03",sev:"Low",app:"Ops Console",area:"Inspect a SKU",
+ t:"The worked example SKU in the placeholder does not exist",
+ d:"The placeholder offers a SKU prefix that appears nowhere in the catalogue.",
+ e:"placeholder: \"SKU, e.g. OVF-GRC-300\"\nSKUs beginning OVF: 0 of 282\nActual SKU:  HRF-GRC-300  (Harrowfield Granola Clusters 300 g)\nValid prefixes: APP BAB CAL ELE FOO GEN HEA HOM HPC HRF NAV STB SUP",
+ i:"Anyone who copies the example to try the tool gets nothing back."},
+
+{id:"OC-04",sev:"Low",app:"Ops Console",area:"Inspect a SKU",
+ t:"Listing status vocabulary differs from the engine's",
+ d:"The console reports listings as LIVE while the engine's own network view reports every listing as PREPARED.",
+ e:"Ops Console:  LST-25 . LIVE . version v1\n/api/network: all 730 listings have status \"PREPARED\"",
+ i:"Two words for one state across two screens of the same estate."},
+
+{id:"MF-01",sev:"Gap",app:"Correction Engine",area:"Assessment",
+ t:"No bulk run of the model-backed checks — the catalogue can only be completed one product at a time",
+ d:"Three of the checks (regulation, internal documentation, copy meaning) do not run by default anywhere. They run only when a user clicks Run the reading checks on a single product. There is no run-all, run-for-this-supplier or run-for-this-batch action.",
+ e:"16 of 16 sampled variants: checks_complete: false\n  — including 6 already marked READY_TO_LAUNCH\n\nPer-product remedy works:\n  GET /api/products/{id}/readiness?use_model=true\n  -> checks_complete true, caveat cleared, \"Open staging page\" unlocks\n\n282 variants = 282 manual clicks.",
+ i:"Every headline figure in the product — 282 assessed, 160 cleared, 23 blocked — is computed without those three checks, and there is no way to make the picture complete at catalogue scale."},
+
+{id:"MF-02",sev:"Gap",app:"Correction Engine",area:"Review & Audit",
+ t:"No pending-approvals queue",
+ d:"Nothing lists what is waiting for a decision. The badge knows the count; no screen shows the contents. See CE-11.",
+ e:"GET /api/approvals/pending returns the queue.\nPOST /api/approvals/{thread_id} accepts the decision.\nNo UI lists, selects or resumes a pending thread.",
+ i:"The approval gate cannot be operated as a shared work queue, which is what an approval gate is for."},
+
+{id:"MF-03",sev:"Gap",app:"Correction Engine",area:"Product 360",
+ t:"Root-cause panel is not built",
+ d:"The tab exists, the endpoint works, the panel does not. See CE-08.",
+ e:"GET /api/products/{entity_id}/rca -> 200 with causes / not_explained / unattributed",
+ i:"The analysis is computed and then discarded."},
+
+{id:"MF-04",sev:"Gap",app:"Correction Engine",area:"API surface",
+ t:"Backend capability with no control found anywhere in the interface",
+ d:"Enumerated from /openapi.json and cross-checked against every screen during the sweep. Listed as not-found rather than not-implemented — a control may exist behind a write path that was not exercised.",
+ e:"POST /api/intake/batches/{id}/fix       auto-close fixable gaps\nPOST /api/scenarios/compare             compare two readings\nPOST /api/plan/rollback                 undo a committed plan\nPOST /api/publication/revert            pull a published change back\nPOST /api/lifecycle/redact / restore    redaction workflow\nPOST /api/llm/config                    model configuration\nGET  /api/catalog/derivation/{id}       how a value was derived\nGET  /api/network/trace/{id}            entity trace\nGET  /api/facts/{id}/lineage            fact lineage\n\n88 endpoints total in the spec.",
+ i:"Roughly a tenth of the built backend is unreachable from the interface, including both undo paths."},
+
+{id:"MF-05",sev:"Gap",app:"Correction Engine",area:"Audit",
+ t:"No export anywhere",
+ d:"No CSV, PDF or copy-to-clipboard on any table, finding, diff or audit record.",
+ e:"Checked: catalog table, Product 360 findings, The record, Blast Radius diff,\nReadings table, Review & Audit ledger, Ops Console estate and ledger.",
+ i:"Evidence for a compliance file has to be screenshotted. Combined with CE-05, a finding cannot be exported or linked."},
+
+{id:"MF-06",sev:"Gap",app:"Correction Engine",area:"Navigation",
+ t:"No drill-through from any summary figure",
+ d:"KPI tiles, disposition tiles, lane counts and the who-has-to-fix-it breakdown are all read-only numbers.",
+ e:"No tile, count or breakdown row is clickable on any of the eight screens.",
+ i:"Every count is a dead end; the reviewer must re-find the same set by hand through filters."},
+
+{id:"MF-07",sev:"Gap",app:"Correction Engine",area:"Ingest Fabric",
+ t:"No saved views or filter persistence",
+ d:"Filters reset on navigation and nothing can be saved or recalled.",
+ e:"Source and category selections are lost when leaving and returning to the screen;\nno saved-view control exists.",
+ i:"A reviewer working one supplier re-applies the same filters on every visit."},
+
+{id:"MF-08",sev:"Gap",app:"Vendor Portal",area:"Uploads",
+ t:"Document upload accepts any file type",
+ d:"Two of the three upload controls constrain type; the document upload does not.",
+ e:"range upload   <input type=file required accept=\".zip\">\nimage upload   <input type=file required accept=\"image/*\">\ndocument upload<input type=file required>            <- no accept\nNo maxlength on any text field (Note, Alt text, Text rendition).",
+ i:"A supplier can attach anything to a specification document, and the parser meets it downstream."},
+
+{id:"MF-09",sev:"Gap",app:"Correction Engine",area:"Reference library",
+ t:"Standards cross-references are not navigable",
+ d:"Retrieved policy chunks cite other documents by identifier as plain text. See CE-20.",
+ e:"POL-001 cites STD-001, CHN-002, CHN-003, CHN-005, POL-002, POL-003, INC-2025-058.\nGET /api/sop/{doc_id} exists and would resolve each of them.",
+ i:"Following a rule to the rule it depends on means going back to search and typing the identifier."}
+];
+
+const reg = document.getElementById('reg');
+const cnt = document.getElementById('cnt');
+const q = document.getElementById('q');
+const sevSel = new Set(), appSel = new Set();
+
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function render(){
+  const term = q.value.trim().toLowerCase();
+  const rows = F.filter(f=>{
+    if(sevSel.size && !sevSel.has(f.sev)) return false;
+    if(appSel.size && !appSel.has(f.app)) return false;
+    if(term){
+      const hay = (f.id+' '+f.t+' '+f.d+' '+f.e+' '+f.i+' '+f.area+' '+f.app).toLowerCase();
+      if(!hay.includes(term)) return false;
+    }
+    return true;
+  });
+  cnt.textContent = rows.length + ' of ' + F.length + ' shown';
+  reg.innerHTML = rows.map(f=>`
+    <article class="f" data-sev="${f.sev}">
+      <button class="disc" aria-expanded="false">
+        <span class="f-id">${f.id}</span>
+        <span class="f-title">${esc(f.t)}</span>
+        <span class="caret" aria-hidden="true">&#9656;</span>
+        <span class="f-meta">
+          <span class="pill p-${f.sev.toLowerCase()}">${f.sev==='Gap'?'Gap':f.sev}</span>
+          <span class="pill p-area">${esc(f.app)} &middot; ${esc(f.area)}</span>
+        </span>
+      </button>
+      <div class="body">
+        <div><h4>What happens</h4><p>${esc(f.d)}</p></div>
+        <div><h4>Evidence</h4><div class="ev">${esc(f.e)}</div></div>
+        <div class="impact"><h4>Why it matters</h4><p>${esc(f.i)}</p></div>
+      </div>
+    </article>`).join('');
+}
+
+reg.addEventListener('click', e=>{
+  const b = e.target.closest('.disc');
+  if(!b) return;
+  const art = b.parentElement;
+  const open = art.hasAttribute('open');
+  if(open){ art.removeAttribute('open'); b.setAttribute('aria-expanded','false'); }
+  else { art.setAttribute('open',''); b.setAttribute('aria-expanded','true'); }
+});
+
+function wire(id, set){
+  document.getElementById(id).addEventListener('click', e=>{
+    const c = e.target.closest('.chip');
+    if(!c) return;
+    const v = c.dataset.v;
+    if(set.has(v)){ set.delete(v); c.setAttribute('aria-pressed','false'); }
+    else { set.add(v); c.setAttribute('aria-pressed','true'); }
+    render();
+  });
+}
+wire('sev', sevSel);
+wire('app', appSel);
+q.addEventListener('input', render);
+render();
+</script>
+
+</body>
+</html>

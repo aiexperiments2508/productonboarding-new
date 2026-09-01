@@ -424,3 +424,51 @@ def test_the_payload_reader_understands_every_spelling_the_tape_uses():
 
     # A payload about a document is not a payload about a product.
     assert reach_mod.products_of(base, {"doc_id": "DOC-01"}) == set()
+
+
+# ---------------------------------------------------------------------------
+# A quiet system is still a system
+
+
+def test_recent_deliveries_finds_a_quiet_system_behind_a_busy_one():
+    """A feed that delivers in ones and twos must not be crowded off its own
+    console by one that delivers in thousands.
+
+    `_recent` used to read the newest five hundred arrivals across the whole
+    estate and filter to one system afterwards, which is not a slower way to
+    the same answer - it is a different answer. Once a busy system has filled
+    that window, a quiet one reports having delivered nothing while its rows
+    sit in the table just past the cut, and the console it feeds goes blank
+    with no error anywhere.
+
+    `label-artwork` is the live example: thirteen documents on the tape against
+    a data pool delivering thousands. This reproduces it with two systems and
+    no tape at all.
+    """
+    from sc.estate import server as estate_server
+
+    busy, quiet = manifest.SYSTEMS[0], manifest.SYSTEMS[1]
+
+    # The quiet system delivers first, so every one of its rows is older than
+    # every one of the busy system's - which is exactly the case an estate-wide
+    # window truncates away.
+    quiet_batch = emitter.Batch(system_id=quiet.id, ordinal=1,
+                                sequences=(1, 2, 3), after=0.0, defects={})
+    arrivals.record(quiet_batch, {1: "EVT-Q1", 2: "EVT-Q2", 3: "EVT-Q3"})
+
+    for ordinal in range(2, 12):
+        base = ordinal * 100
+        seqs = tuple(range(base, base + 60))
+        arrivals.record(
+            emitter.Batch(system_id=busy.id, ordinal=ordinal, sequences=seqs,
+                          after=0.0, defects={}),
+            {s: f"EVT-B{s}" for s in seqs})
+
+    assert db.one("SELECT COUNT(*) AS n FROM arrivals")["n"] > 500
+
+    rows = estate_server._recent(quiet, limit=20)
+    assert [r["event_id"] for r in rows] == ["EVT-Q3", "EVT-Q2", "EVT-Q1"], \
+        "the quiet system's own deliveries were truncated away by the busy one"
+
+    # And the busy system is still capped by what it was asked for.
+    assert len(estate_server._recent(busy, limit=20)) == 20

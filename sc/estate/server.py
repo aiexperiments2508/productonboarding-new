@@ -59,11 +59,14 @@ def _describe(system: System) -> dict:
 def _recent(system: System, limit: int = 20) -> list[dict]:
     from sc.estate import arrivals
 
-    rows = [r for r in arrivals.recent(500) if r["system_id"] == system.id]
+    # Filtered in the query, not after it. See `arrivals.recent_for` for why
+    # the estate-wide window this used to read was a wrong answer for a quiet
+    # system rather than a slow one.
+    rows = arrivals.recent_for(system.id, max(limit, 1))
     return [{"event_id": r["event_id"], "seq": r["seq"],
              "batch": r["batch_id"], "arrived_at": r["arrived_at"],
              "defects": r["defects"]}
-            for r in rows[:limit]]
+            for r in rows]
 
 
 def _payload(system: System, event_id: str) -> dict:

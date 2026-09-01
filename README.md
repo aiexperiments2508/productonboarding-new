@@ -43,6 +43,7 @@ applications:
 | `http://127.0.0.1:8110` | **Vendor Portal** | upstream — suppliers push corrections in |
 | `http://127.0.0.1:8120` | **Storefront** | downstream — what a shopper sees |
 | `http://127.0.0.1:8130` | **Ops Console** | downstream — print, shelf, search, errata |
+| `http://127.0.0.1:8140` | **Back Office** | reference — stock, trading, campaigns, certificates |
 
 `startup.bat solo` runs the platform alone; `startup.bat stage` puts two
 products on sale first, so a late change has something to be late for.
@@ -562,6 +563,158 @@ The scope fallback is deliberately the widest and not the narrowest: with no
 model available the safe assumption is that a correction affects more than you
 can prove, not less.
 
+## Knowledge graph
+
+A second reading of the same catalog. The product record answers *what is wrong
+with this product and who has to fix it*; the graph answers *what is this
+product connected to* — which is a different question, with different joins, and
+the reason it is a graph rather than one more view over the same tables.
+
+Seven domains, and the interesting queries are the ones that cross two of them
+at a shared node. Those shared nodes are the model's real content:
+
+```
+                          ┌──────────────┐
+        CATEGORY ─────────│              │───────── COMPLIANCE
+   Category, Attribute,   │   Product    │   Certificate, Regulation,
+   AttributeValue         │      │       │   Market, HazmatClass
+                          │  HAS_VARIANT │
+                          │      ▼       │
+        MEDIA ────────────│   Variant    │───────── WAREHOUSE
+   MediaNode,             │              │   Warehouse, StorageLocation,
+   AssetRendition         │              │   StockLevel
+                          └───┬──────┬───┘
+                              │      │
+                   SALES ─────┘      └───── MARKETING
+        Channel, Listing,              Campaign, Promotion,
+        PriceRecord, SalesFact          Keyword, Persona
+```
+
+`Variant` is the spine — it is the thing that carries a SKU, and every domain
+hangs off it or off its product. The joins that matter:
+
+| Join point | Bridges | What it makes answerable |
+|---|---|---|
+| `Market` | Compliance ↔ Sales ↔ Warehouse | stock held in a depot that cannot lawfully ship to a market that depot serves |
+| `Category` | Category ↔ Media ↔ Sales | best sellers with no primary image; which subtrees have the weakest imagery |
+| `Supplier` | Warehouse ↔ Category | a category that depends on one supplier |
+| `Campaign` | Marketing ↔ two Products | cross-sell candidates that already share a campaign |
+| `Certificate` | Compliance ↔ many Variants | everything sharing a certificate that lapses in ninety days |
+
+None of those is answerable from any single tab, which is the argument for
+building it at all. The last one is the clearest: `compliance.certificate_ref`
+is carried on seventy-four variants and two of them cite `UKCA-2411`, but
+nothing in the record view can see that they are the same certificate.
+
+**Two of the seven domains are the retailer's own data and four are not.** The
+catalog has products, variants, suppliers, categories, attributes, media,
+channels and listings. It has no warehouse, no price, no sales figure and no
+campaign — so those arrive from four simulated back-office systems declared in
+`sc/estate/manifest.py`, the same way every other external system in this estate
+does, and every node they produce is stamped `synthetic: true`. The graph draws
+those with a dashed stroke and the legend says so. An invented revenue figure
+rendered beside a genuine regulatory finding, with nothing to tell them apart,
+is a claim this system has not earned.
+
+### The schema
+
+`sc/kg/schema.cypher` holds the constraints and indexes, and sits beside the
+code that applies it for the same reason `sc/schema.sql` sits beside `sc/db.py`.
+Every statement is `IF NOT EXISTS`, so applying it to a loaded graph is a no-op.
+
+Three rules govern it, and the first is the load-bearing one:
+
+- **A uniqueness constraint on every business key**, because `MERGE` is the
+  loader. An unconstrained key does not raise — it inserts a second copy of
+  every node of that label on the second run, and the graph doubles quietly
+  while every count still looks plausible. `tests/test_kg_schema.py` reads the
+  keys back out of `sc/kg/model.py` and fails if any is unbacked.
+- **No range index on a constrained property** — a constraint creates its own.
+- **An index only where a query filters**, and each one names the insight that
+  reads it.
+
+`sc/kg/model.py` is the single statement of the model: which domain each label
+belongs to, which property is its key, which labels are generated, and which two
+ends each relationship is allowed to join. The projection, the Cypher builders
+and the schema test all read it, so a label added without a key is a test
+failure rather than a subgraph that silently duplicates.
+
+Note that `MERGE` is idempotent but not convergent: a node that leaves the
+source stays in the graph. `scripts/load_graph.py --prune` is how it leaves.
+
+### Running it
+
+**Nothing is required.** With no Neo4j anywhere the tab works: the same
+projection is walked in process and `GET /api/kg/status` reports
+`backend: memory`. Every response says which engine answered, so the switch is
+a transport decision rather than a behavioural one — the posture `sc/mcp/client.py`
+already takes for `USE_MCP`.
+
+For Cypher against a real graph database — and **without Docker**, in keeping
+with the rest of this repository. Neo4j Community is a zip with a batch file in
+it; on a machine with a JDK 17 or 21 it needs nothing else, and a container
+runtime is one more thing to install, to be blocked on at work, and to explain
+here.
+
+```bash
+startup.bat graph
+```
+
+That fetches Neo4j 5.26 into `neo4j/` (git-ignored), sets its initial password,
+and installs the driver. Put `NEO4J_URI`, `NEO4J_USER` and `NEO4J_PASSWORD` in
+`.env`, and from then on `startup.bat` starts Neo4j alongside everything else —
+it looks for `neo4j/` and steps aside quietly when it is not there.
+
+Then, **with the platform running**:
+
+```bash
+python scripts/load_graph.py
+```
+
+That last condition is the point. The loader does not read the database — it
+dials the four back-office systems on their own MCP endpoints and MERGEs what
+they answer with, the same claim `estate_server.connect_all` makes at startup.
+With the platform down it writes nothing and exits 1 with the real connection
+error rather than half a graph. `--offline` reads SQLite instead, explicitly,
+and stamps every node `via: sqlite` so a graph stays answerable about how it
+was built.
+
+No JDK and no way to get one? Neo4j Aura's free tier needs nothing local —
+point `NEO4J_URI` at the `neo4j+s://` address it gives you. Or do nothing: the
+tab works without any of this.
+
+One consequence worth knowing: once `NEO4J_URI` is in `.env`,
+`tests/test_kg_neo4j.py` stops skipping and the suite grows by about three
+minutes. Those tests write, and write only the same idempotent `MERGE` the
+loader performs — they leave the graph exactly as `load_graph.py` would, and
+they delete nothing.
+
+The queries use only core Cypher. A stock Neo4j ships no plugins, and a query
+that needed APOC would turn one line of setup into a support question this
+README could not answer.
+
+### Where the data comes from
+
+Products, variants, suppliers, categories, attributes, media, channels and
+listings are the retailer's own. Warehouses, prices, sales, campaigns and the
+certificate register are not — they arrive from four simulated back-office
+systems declared in `sc/estate/manifest.py`, delivered onto a third event lane
+(`REF`) at boot, and read over MCP by the Back Office console on port 8140.
+
+That lane is invisible to everything else. The replay transport does not count
+it, play it or lose it on a rewind; the live feed does not announce it; and
+none of it becomes a product fact, because `ingest.HANDLERS` is a four-entry
+table and a type absent from it is skipped by construction. A stock snapshot
+cannot move a readiness verdict, and `tests/test_kg_data.py` asserts it.
+
+Generate the pack with:
+
+```bash
+python scripts/generate_backoffice.py
+```
+
+Same seed, same bytes — `--check` builds it twice and compares.
+
 ## Tests
 
 ```bash
@@ -739,6 +892,11 @@ scripts/     generate_data.py, build_index.py, prepare_demo.py, evaluate.py,
              stage_launch.py (two products on sale, for the late-change arc),
              build_datapack.py (the templates a supplier fills in)
 sc/graph/    nodes, branches, prompts, evidence desk, state, assembly
+neo4j/       Neo4j Community, unpacked by `startup.bat graph`. Optional,
+             git-ignored, and deletable - the graph tab works without it
+sc/kg/       the knowledge graph: the model, schema.cypher, the projection,
+             the Cypher builders and the two backends. Not sc/graph/ - that
+             one is the agent graph, and this one is the product graph
 sc/a2a/      peer agents, their cards, the client that calls them
 sc/mcp/      toolsets split by owning system, plus the stdio client
 sc/lifecycle/ the board, one product's timeline, and accepting a proposed line

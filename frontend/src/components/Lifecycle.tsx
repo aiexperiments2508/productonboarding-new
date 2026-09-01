@@ -47,7 +47,7 @@ const LANE_LABEL: Record<string, string> = {
   LATE_CHANGE: "Late change",
 };
 
-/** The three applications this platform is connected to.
+/** The four applications this platform is connected to.
  *
  *  Addresses rather than routes: these are other processes, and writing them
  *  as paths would imply this server could serve them. */
@@ -72,6 +72,17 @@ const APPS = [
     side: "downstream" as const,
     url: "http://127.0.0.1:8130",
     blurb: "Print, shelf and search. Freeze windows, errata and the ledger.",
+  },
+  {
+    id: "backoffice",
+    label: "Back Office",
+    // Not really downstream - it is reference data, off to the side of the
+    // pipe rather than at either end of it. Filed here because the union is
+    // upstream|downstream and widening it for one entry would touch every
+    // reader of `side` for a label nobody reads.
+    side: "downstream" as const,
+    url: "http://127.0.0.1:8140",
+    blurb: "Stock, trading, campaigns and the certificate register.",
   },
 ];
 

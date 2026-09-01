@@ -1,0 +1,16 @@
+# The Neo4j driver, for the knowledge graph.
+#
+#     pip install -r requirements-graph.txt
+#
+# Optional, like the gateway and the data pack. The Knowledge Graph tab works
+# without it: `sc/kg/backend.py` walks the same projection in process and every
+# response says which engine answered. What this buys is Cypher against a real
+# graph database, which is what `scripts/load_graph.py` loads and what the
+# saved queries are written for.
+#
+# Pure Python, which is the test `requirements-datapack.txt` sets for taking a
+# dependency at all: a pure-Python dependency that does something we cannot
+# meaningfully test is worth taking; a compiled one is not. `sc/kg/driver.py`
+# imports it inside a function, never at module scope, so a checkout without it
+# still imports and still runs.
+neo4j>=5.20,<6

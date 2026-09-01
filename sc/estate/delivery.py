@@ -20,8 +20,14 @@ from __future__ import annotations
 
 from sc import db
 from sc.contracts import Event
-from sc.estate import arrivals, emitter
+from sc.estate import arrivals, emitter, manifest
 from sc.estate.manifest import SYSTEMS
+
+#: Batch ordinals for the reference pack. `deliver` numbers from 0 and
+#: `deliver_live` from 9000, so a band of its own makes a batch id readable as
+#: reference traffic at a glance, without a lookup and without this module
+#: having to name a system to say so.
+REF_ORDINAL_BASE = 7000
 
 
 def deliver(events: list[Event]) -> list[dict]:
@@ -84,6 +90,65 @@ def deliver_live(system_id: str, events: list[Event]) -> list[dict]:
                           sequences=tuple(sorted(e.seq for e in events)),
                           after=0.0, defects={})
     return arrivals.record(batch, {e.seq: e.id for e in events})
+
+
+def deliver_reference(events: list[Event]) -> list[dict]:
+    """Record the reference pack as arrivals from the systems that sent it.
+
+    Follows ``deliver_live`` rather than ``deliver``, for the same two reasons
+    and a third.
+
+    The owner is *derived, not dealt*. ``emitter.owner_of`` shares an event
+    among every system declaring its type, which is right for the recording
+    where the tape knows only a coarse origin. Here exactly one system declares
+    each of these types, so the manifest already answers the question and
+    drawing for it would be a lottery with one ticket. Deriving it also keeps
+    this file free of system-id literals - ``emitters_of`` is asked, so the
+    manifest stays the only place they are written down.
+
+    Nothing is defect-stamped. ``emitter.schedule_for`` stamps from a system's
+    declared ``defect_rate``, and all four of these declare none - because no
+    detector in ``sc/estate/detection.py`` can say anything true about a pallet
+    count or a month's takings. A defect here would be an assertion no rule
+    could check.
+
+    And the batching is fixed rather than seeded. A reference pack is delivered
+    once at bootstrap, not raced against the clock, so there is no interleaving
+    to make visible and nothing for a random schedule to buy.
+    """
+    if not events:
+        return []
+
+    by_system: dict[str, dict[str, list[Event]]] = {}
+    for event in events:
+        origins = manifest.emitters_of(str(event.type))
+        if not origins:
+            # A type nothing declares has no carrier, so there is nobody to
+            # attribute the arrival to. Silently dropping it would leave an
+            # event that exists and cannot be read; this says so instead.
+            raise ValueError(
+                f"no system in the manifest emits {event.type!r} - "
+                f"event {event.id} has no carrier")
+        by_system.setdefault(origins[0].id, {})                  .setdefault(str(event.type), []).append(event)
+
+    recorded: list[dict] = []
+    ordinal = REF_ORDINAL_BASE
+    for system_id in sorted(by_system):
+        system = manifest.BY_ID[system_id]
+        size = max(system.batch_size[1], 1)
+        for event_type in sorted(by_system[system_id]):
+            share = sorted(by_system[system_id][event_type],
+                           key=lambda e: e.seq)
+            for start in range(0, len(share), size):
+                chunk = share[start:start + size]
+                batch = emitter.Batch(
+                    system_id=system_id, ordinal=ordinal,
+                    sequences=tuple(e.seq for e in chunk),
+                    after=0.0, defects={})
+                recorded.extend(
+                    arrivals.record(batch, {e.seq: e.id for e in chunk}))
+                ordinal += 1
+    return recorded
 
 
 def backfill() -> list[dict]:

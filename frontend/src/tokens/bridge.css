@@ -113,6 +113,20 @@
   --color-prov-simulated: var(--prov-simulated);
   --color-prov-committed: var(--prov-committed);
 
+  /* Knowledge-graph domains. Gives fill-kg-core, stroke-kg-compliance,
+     text-kg-sales and so on, theme-following with no dark: prefix.
+
+     Note for anyone drawing with these: Tailwind cannot extract a class it
+     never sees, so `fill-kg-${domain}` produces no CSS at all and every node
+     renders unstyled. The components keep a literal lookup instead. */
+  --color-kg-core: var(--kg-core);
+  --color-kg-category: var(--kg-category);
+  --color-kg-compliance: var(--kg-compliance);
+  --color-kg-warehouse: var(--kg-warehouse);
+  --color-kg-media: var(--kg-media);
+  --color-kg-sales: var(--kg-sales);
+  --color-kg-marketing: var(--kg-marketing);
+
   /* --- data visualisation ------------------------------------------------ */
   --color-viz-grid: var(--viz-grid);
   --color-viz-axis: var(--viz-axis);

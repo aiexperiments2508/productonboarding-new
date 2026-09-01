@@ -1,0 +1,230 @@
+/* Back Office.
+ *
+ * A fourth house. The vendor portal is corporate blue, the storefront is
+ * serif warmth, the ops console is a dark wall display - and this is a paper
+ * registry: warm off-white, ink brown, one amber accent, tabular figures
+ * everywhere. Three applications wearing three faces was the point being made;
+ * a fourth wearing one of theirs would unmake it.
+ *
+ * Light rather than dark on purpose. This is the screen somebody reads a
+ * certificate expiry off and then goes to do something about, not one that
+ * stays open all day.
+ */
+
+:root {
+  --bg: #f6f3ec;
+  --panel: #fffdf8;
+  --panel-2: #efe9dd;
+  --line: #ddd4c3;
+  --ink: #2b2620;
+  --soft: #6b6154;
+  --dim: #948873;
+  --accent: #a8641a;
+  --ok: #4a7c46;
+  --warn: #b07a17;
+  --bad: #a8443a;
+  --mono: "Cascadia Mono", Consolas, "SF Mono", monospace;
+
+  /* Consumed by /shared/base.css, which draws every focus ring and picks no
+     colour of its own. */
+  --focus-ring: var(--accent);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 "Iowan Old Style", Palatino, Georgia, serif;
+}
+
+/* --- chrome -------------------------------------------------------------- */
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background: var(--panel);
+  border-bottom: 2px solid var(--line);
+}
+
+.id { display: flex; align-items: baseline; gap: 8px; }
+.id b { letter-spacing: .12em; font-size: 13px; font-family: var(--mono); }
+.id .sub { color: var(--dim); font-size: 12px; font-style: italic; }
+
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); align-self: center;
+}
+
+.counts { display: flex; gap: 14px; flex: 1; flex-wrap: wrap; }
+.counts .c { font-family: var(--mono); font-size: 12px; color: var(--soft); }
+.counts .c b { color: var(--ink); font-weight: 600; }
+
+.right { display: flex; align-items: center; gap: 12px; }
+.right span { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+
+.btn {
+  font: 12px/1 var(--mono);
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* --- tabs ---------------------------------------------------------------- */
+
+.views {
+  display: flex;
+  gap: 2px;
+  padding: 0 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.view {
+  font: 13px/1 var(--mono);
+  color: var(--soft);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 11px 14px;
+  cursor: pointer;
+}
+.view:hover { color: var(--ink); }
+.view.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+main { padding: 18px; max-width: 1400px; }
+
+.lede {
+  margin: 0 0 16px;
+  max-width: 62ch;
+  color: var(--soft);
+  font-size: 14px;
+}
+.lede em { color: var(--ink); font-style: italic; }
+
+/* --- depot cards --------------------------------------------------------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px 13px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.card:hover { border-color: var(--accent); }
+.card.on { border-color: var(--accent); background: var(--panel-2); }
+
+.card h3 { margin: 0 0 2px; font-size: 15px; }
+.card .where { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.card .figs {
+  margin-top: 9px;
+  display: flex;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.card .figs b { display: block; font-size: 16px; font-weight: 600; }
+.card .figs span { color: var(--dim); font-size: 10px; letter-spacing: .06em; }
+
+/* --- market picker ------------------------------------------------------- */
+
+.picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.picker button {
+  font: 12px/1 var(--mono);
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--soft);
+  cursor: pointer;
+}
+.picker button:hover { color: var(--ink); }
+.picker button.on {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+
+/* --- tables -------------------------------------------------------------- */
+
+/* The frame scrolls, not the page. Six columns on a narrow screen otherwise
+   push the whole document sideways. */
+.tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+.grid th {
+  text-align: left;
+  font: 11px/1 var(--mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.grid td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--panel-2);
+  vertical-align: top;
+}
+.grid tbody tr:last-child td { border-bottom: 0; }
+.grid tbody tr:hover { background: var(--panel-2); }
+
+/* Tabular figures, so a column of numbers reads as a column. */
+.grid .n, .grid td.n {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.grid .k { font-family: var(--mono); font-size: 12px; }
+
+.tag {
+  display: inline-block;
+  font: 10px/1 var(--mono);
+  letter-spacing: .05em;
+  padding: 3px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  color: var(--soft);
+}
+.tag.ok   { color: var(--ok);   border-color: var(--ok); }
+.tag.warn { color: var(--warn); border-color: var(--warn); }
+.tag.bad  { color: var(--bad);  border-color: var(--bad); }
+
+.muted { color: var(--dim); }
+.empty { padding: 26px 12px; text-align: center; color: var(--dim); }
+
+/* --- status -------------------------------------------------------------- */
+
+.status {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  padding: 7px 18px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  font: 11px/1.4 var(--mono);
+  color: var(--dim);
+}
+.status.bad { color: var(--bad); }

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Back Office</title>
+<link rel="stylesheet" href="/shared/base.css">
+<link rel="stylesheet" href="/static/back.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="id">
+    <span class="dot"></span>
+    <b>BACK OFFICE</b>
+    <span class="sub">reference systems</span>
+  </div>
+  <div class="counts" id="counts"></div>
+  <div class="right">
+    <span id="platform"></span>
+    <button class="btn" id="showCalls">protocol</button>
+  </div>
+</header>
+
+<!-- One tab per system, and the tab strip renders before anything is dialled.
+     A console whose shell waits on the platform makes an outage look like a
+     broken application. -->
+<nav class="views" role="tablist" aria-label="Back Office views">
+  <button class="view on" role="tab" aria-selected="true"
+          aria-controls="v-stock" data-view="stock">Stock</button>
+  <button class="view" role="tab" aria-selected="false"
+          aria-controls="v-trading" data-view="trading">Trading</button>
+  <button class="view" role="tab" aria-selected="false"
+          aria-controls="v-campaigns" data-view="campaigns">Campaigns</button>
+  <button class="view" role="tab" aria-selected="false"
+          aria-controls="v-compliance" data-view="compliance">Compliance</button>
+  <button class="view" role="tab" aria-selected="false"
+          aria-controls="v-protocol" data-view="protocol">Protocol</button>
+</nav>
+
+<main>
+
+  <section id="v-stock" role="tabpanel">
+    <p class="lede" id="stock-lede">Six depots, and what is on a pallet in
+      each of them. This system knows nothing about what a product <em>is</em>
+      and everything about where it is.</p>
+    <div class="cards" id="depots"></div>
+    <div class="tablewrap">
+      <table class="grid" id="stock-lines">
+        <thead><tr><th>SKU</th><th>Variant</th><th class="n">On hand</th>
+          <th class="n">Allocated</th><th class="n">Reorder point</th>
+          <th>Standing</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="v-trading" role="tabpanel" hidden>
+    <p class="lede">What each market charged, and what it sold. Advisory about
+      the product and decisive about the order of work: a best seller with no
+      pack shot is a different morning from a dead line with no pack shot.</p>
+    <div class="picker" id="market-picker" role="group"
+         aria-label="Market"></div>
+    <div class="tablewrap">
+      <table class="grid" id="sales-lines">
+        <thead><tr><th class="n">#</th><th>SKU</th><th>Variant</th>
+          <th>Category</th><th class="n">Units</th><th class="n">Revenue</th>
+          </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="v-campaigns" role="tabpanel" hidden>
+    <p class="lede">The only system here that says two products belong
+      together — a claim the catalogue never makes and a shopper reads on every
+      page.</p>
+    <div class="tablewrap">
+      <table class="grid" id="campaigns" >
+        <thead><tr><th>Campaign</th><th>Objective</th><th>Market</th>
+          <th>Runs</th><th class="n">Members</th><th>Keywords</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="v-compliance" role="tabpanel" hidden>
+    <p class="lede">Certificates, the rules they satisfy, and which markets
+      enforce which rules. Not the regulatory feed: a notified body issues a
+      certificate, a market authority stops a sale, and they reach different
+      people.</p>
+    <div class="tablewrap">
+      <table class="grid" id="certificates">
+        <thead><tr><th>Reference</th><th>Scheme</th><th>Issuer</th>
+          <th>Expires</th><th class="n">Days</th><th>Covers</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="v-protocol" role="tabpanel" hidden>
+    <p class="lede">Every call this console has made. It can see the platform's
+      database only through these four MCP servers, and this is the whole of
+      that conversation.</p>
+    <div class="tablewrap">
+      <table class="grid" id="calls">
+        <thead><tr><th>When</th><th>Endpoint</th><th>Tool</th>
+          <th class="n">ms</th><th>Result</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<div class="status" id="status" role="status" aria-live="polite"></div>
+
+<script src="/static/back.js"></script>
+</body>
+</html>

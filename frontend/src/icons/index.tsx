@@ -320,3 +320,18 @@ export const IconTrace = (p: IconProps) => (
     <path d="M7.6 6.9c4 1.4 5.6 2.6 8.8 4.2M7.6 17.1c4-1.4 5.6-2.6 8.8-4.2" />
   </Icon>
 );
+
+/** A knowledge graph. Four nodes and the edges between them, drawn as a
+ *  neighbourhood rather than a chain - `IconTrace` is already the chain, and
+ *  the difference between the two is the whole difference between "what does
+ *  this depend on" and "what is this connected to". */
+export const IconGraph = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="2.4" />
+    <circle cx="4.6" cy="6" r="1.9" />
+    <circle cx="19.4" cy="7.2" r="1.9" />
+    <circle cx="17" cy="19" r="1.9" />
+    <circle cx="5.6" cy="17.4" r="1.9" />
+    <path d="M6.2 7.1 10.2 10.5M17.6 8.2 13.7 10.8M15.6 17.4 13.2 13.9M7.2 16.3 10.2 13.6" />
+  </Icon>
+);

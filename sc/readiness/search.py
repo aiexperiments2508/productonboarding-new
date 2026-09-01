@@ -190,3 +190,66 @@ def with_readiness(query: str, limit: int = 20, *,
         row["findings"] = len(summary["findings"])
         row["checks_complete"] = summary["checks_complete"]
     return rows
+
+
+def resolve(key: str, base=None) -> dict | None:
+    """The variant a caller means, whatever they called it by.
+
+    A SKU, an internal variant id and a product id are three names for
+    overlapping things, and every one of them gets typed by somebody: a
+    merchant reads the SKU off a purchase order, the product screen holds an
+    entity id, and a report names the product. `_band` above already treats all
+    three as an exact match for the same reason.
+
+    A product resolves to its base variant. That is the same widening
+    `Baseline.variants_in_scope` performs for `ScopeLevel.BASE`, and it is the
+    reading a caller means: "the graph around PRD-01" is the graph around the
+    thing PRD-01 is sold as.
+
+    Returns what was asked for *and* what it turned out to be, so a caller
+    never has to guess which of the three it was holding:
+
+        {"key": "NAV-AP300-MAX", "entity_id": "VAR-01B",
+         "sku": "NAV-AP300-MAX", "product_id": "PRD-01"}
+
+    None when nothing matches, which is a 404 rather than an empty graph - a
+    graph with no nodes and a typo'd SKU look identical on a screen.
+    """
+    from sc.state import baseline as baseline_mod
+
+    base = base or baseline_mod.get()
+    needle = (key or "").strip()
+    if not needle:
+        return None
+
+    def _answer(entity_id: str) -> dict:
+        variant = base.variants[entity_id]
+        return {"key": needle, "entity_id": entity_id,
+                "sku": variant.sku or None,
+                "product_id": base.product_of_variant.get(entity_id)}
+
+    if needle in base.variants:
+        return _answer(needle)
+
+    lowered = needle.lower()
+    for entity_id in sorted(base.variants):
+        if (base.variants[entity_id].sku or "").lower() == lowered:
+            return _answer(entity_id)
+
+    product_id = needle if needle in base.products else None
+    if product_id is None:
+        for candidate in base.products:
+            if candidate.lower() == lowered:
+                product_id = candidate
+                break
+    if product_id is not None:
+        variants = base.variants_of.get(product_id, [])
+        # The base variant, or the first if none is marked - sorted, so two
+        # callers asking the same question get the same answer.
+        for entity_id in variants:
+            if base.variants[entity_id].is_base:
+                return _answer(entity_id)
+        if variants:
+            return _answer(variants[0])
+
+    return None

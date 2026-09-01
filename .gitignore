@@ -73,6 +73,14 @@ data/inbox/
 # attribute is added, which is the drift the generator exists to prevent.
 data/datapack/
 
+# Neo4j, unpacked by `startup.bat graph`. A hundred and fifty megabytes of
+# somebody else's database, and `scripts/get_neo4j.py` puts it back in one
+# command - so it is generated output like `data/`, not source.
+neo4j/
+# The archive it unpacks from, kept so a second machine or a re-run does not
+# re-download it.
+.cache/
+
 # Databases: the application store, the LangGraph checkpoints beside it, and
 # the SQLite sidecar files that appear in WAL mode.
 data/*.db

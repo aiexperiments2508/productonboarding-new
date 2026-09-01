@@ -358,6 +358,308 @@ class Catalog(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# The knowledge graph
+#
+# A second reading of the same catalog. The record answers "what is wrong with
+# this product"; this answers "what is this product connected to" - a different
+# question, with different joins, and the reason it is a graph rather than one
+# more view over the same tables.
+#
+# Deliberately not named after ``sc/graph/``. That package is the LangGraph
+# agent graph and ``GET /api/graph`` is its topology; two things called "the
+# graph" in one codebase is how somebody ends up debugging the wrong one.
+# ---------------------------------------------------------------------------
+
+
+class GraphDomain(StrEnum):
+    """The seven domains a product sits inside.
+
+    Ordered by how close each sits to the product rather than alphabetically:
+    what it is, what it is called, what it is allowed to be, where it
+    physically is, what it looks like, what it earns, and who is being told
+    about it. The UI colours nodes by this, so the set is closed - a domain the
+    legend cannot name is a colour nobody can read.
+    """
+
+    CORE = "CORE"
+    CATEGORY = "CATEGORY"
+    COMPLIANCE = "COMPLIANCE"
+    WAREHOUSE = "WAREHOUSE"
+    MEDIA = "MEDIA"
+    SALES = "SALES"
+    MARKETING = "MARKETING"
+
+
+class GraphNodeLabel(StrEnum):
+    """Neo4j labels. The value is the label exactly as it appears in Cypher.
+
+    ``MEDIA_ASSET`` is deliberately ``"MediaNode"``. ``MediaAsset`` is already a
+    model in this file, and a graph label that shadows a contract name makes
+    every stack trace ambiguous about which of the two a reader is holding.
+    """
+
+    # Core - the spine
+    PRODUCT = "Product"
+    VARIANT = "Variant"
+    SUPPLIER = "Supplier"
+    # Category
+    CATEGORY = "Category"
+    ATTRIBUTE = "Attribute"
+    ATTRIBUTE_VALUE = "AttributeValue"
+    # Compliance
+    CERTIFICATE = "Certificate"
+    REGULATION = "Regulation"
+    MARKET = "Market"
+    HAZMAT_CLASS = "HazmatClass"
+    # Warehouse
+    WAREHOUSE = "Warehouse"
+    STORAGE_LOCATION = "StorageLocation"
+    STOCK_LEVEL = "StockLevel"
+    # Media
+    MEDIA_ASSET = "MediaNode"
+    # Sales
+    CHANNEL = "Channel"
+    LISTING = "Listing"
+    PRICE_RECORD = "PriceRecord"
+    SALES_FACT = "SalesFact"
+    # Marketing
+    CAMPAIGN = "Campaign"
+    PROMOTION = "Promotion"
+    KEYWORD = "Keyword"
+    PERSONA = "Persona"
+
+
+class GraphRelType(StrEnum):
+    """Relationship types, in the direction the pattern reads.
+
+    Direction is part of the meaning. A variant is stocked at a warehouse and a
+    warehouse serves a market, so the chain reads one way and the reverse would
+    claim a depot is a property of a pallet. Traversal ignores direction
+    because a neighbourhood is not a hierarchy; the model does not.
+    """
+
+    # Core
+    HAS_VARIANT = "HAS_VARIANT"
+    SUPPLIED_BY = "SUPPLIED_BY"
+    # Category
+    IN_CATEGORY = "IN_CATEGORY"
+    PARENT_OF = "PARENT_OF"
+    HAS_ATTRIBUTE = "HAS_ATTRIBUTE"
+    OF_ATTRIBUTE = "OF_ATTRIBUTE"
+    # Compliance
+    CERTIFIED_BY = "CERTIFIED_BY"
+    SATISFIES = "SATISFIES"
+    REQUIRES = "REQUIRES"
+    RESTRICTED_IN = "RESTRICTED_IN"
+    CLASSIFIED_AS = "CLASSIFIED_AS"
+    # Warehouse
+    HAS_STOCK = "HAS_STOCK"
+    AT_WAREHOUSE = "AT_WAREHOUSE"
+    SERVES = "SERVES"
+    HAS_LOCATION = "HAS_LOCATION"
+    # Media
+    HAS_MEDIA = "HAS_MEDIA"
+    # Sales
+    LISTED_ON = "LISTED_ON"
+    ON_CHANNEL = "ON_CHANNEL"
+    PRICED_AT = "PRICED_AT"
+    FOR_VARIANT = "FOR_VARIANT"
+    IN_MARKET = "IN_MARKET"
+    # Marketing
+    PROMOTES = "PROMOTES"
+    TARGETS = "TARGETS"
+    APPLIES_TO = "APPLIES_TO"
+    RANKS_FOR = "RANKS_FOR"
+    # Product to product
+    COMPLEMENTS = "COMPLEMENTS"
+    SIMILAR_TO = "SIMILAR_TO"
+
+
+#: Which engine answered. Not a setting - a report. The same question is put to
+#: whichever backend is available, so a reader surprised by an answer can tell
+#: which one produced it before going to look for the bug.
+GraphBackend = Literal["neo4j", "memory"]
+
+#: How the data reached the graph. The loader crosses MCP from another process,
+#: which is a real boundary; the in-process backend reads the same rows out of
+#: SQLite, which is not. Saying which is how a graph stays answerable about
+#: where it came from.
+GraphRoute = Literal["mcp", "sqlite"]
+
+
+class GraphNode(BaseModel):
+    """One node, flattened for the wire.
+
+    ``synthetic`` is load-bearing rather than decorative. Four of the seven
+    domains have no source data in this estate and are generated from the seed,
+    and a generated revenue figure rendered beside a real regulatory finding on
+    the same screen is a claim this system has not earned. The UI draws these
+    with a dashed stroke and the legend says so.
+    """
+
+    id: str
+    label: GraphNodeLabel
+    domain: GraphDomain
+    name: str
+    #: Edges reaching this node *inside the returned subgraph*, not in the whole
+    #: graph. The UI sizes nodes by it, and sizing by a degree the reader cannot
+    #: see would make the picture disagree with itself.
+    degree: int = 0
+    synthetic: bool = False
+    props: dict[str, object] = Field(default_factory=dict)
+
+
+class GraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    type: GraphRelType
+    domain: GraphDomain
+    synthetic: bool = False
+    props: dict[str, object] = Field(default_factory=dict)
+
+
+class GraphKey(BaseModel):
+    """What the caller asked for, and what it turned out to be.
+
+    A SKU, an internal variant id and a product id are three names for
+    overlapping things and every one of them gets typed by somebody. Echoing
+    the resolution means the UI never has to guess which of them it is holding.
+    """
+
+    key: str
+    entity_id: str
+    sku: str | None = None
+    product_id: str | None = None
+
+
+class GraphNeighbourhood(BaseModel):
+    """The subgraph around one product.
+
+    ``truncated`` and ``dropped_domains`` are not optional politeness. A view
+    that quietly drew two hundred of eight hundred nodes would be read as a
+    graph of two hundred - the same failure the estate map's row cap exists to
+    prevent - so the caller is told what was left out and by how much.
+    """
+
+    resolved: GraphKey
+    depth: int
+    domains: list[GraphDomain]
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    truncated: bool = False
+    total_nodes: int = 0
+    dropped_domains: dict[str, int] = Field(default_factory=dict)
+    backend: GraphBackend
+    route: GraphRoute
+
+
+class GraphPath(BaseModel):
+    """One route between two products.
+
+    ``narrative`` is the path said in the reader's own vocabulary - "both are
+    stocked at Leeds RDC and both are certified under UKCA-2411" - because a
+    list of nine node ids is a result and not an answer.
+    """
+
+    length: int
+    nodes: list[str]
+    edges: list[str]
+    narrative: str
+
+
+class GraphPaths(BaseModel):
+    source: GraphKey
+    target: GraphKey
+    paths: list[GraphPath]
+    backend: GraphBackend
+    route: GraphRoute
+
+
+class GraphSearchHit(BaseModel):
+    id: str
+    label: GraphNodeLabel
+    domain: GraphDomain
+    name: str
+    detail: str | None = None
+    score: float = 0.0
+
+
+class GraphSearchResult(BaseModel):
+    query: str
+    hits: list[GraphSearchHit]
+    backend: GraphBackend
+    route: GraphRoute
+
+
+class InsightParam(BaseModel):
+    """One knob on a saved query.
+
+    Bounded on purpose. Every parameter reaches Cypher as a bound value, and
+    the ones a query language will not let you bind - a traversal depth, a
+    label - are closed sets checked by name rather than strings pasted into a
+    pattern.
+    """
+
+    name: str
+    kind: Literal["int", "string", "enum"]
+    default: object | None = None
+    options: list[str] | None = None
+    minimum: int | None = None
+    maximum: int | None = None
+
+
+class InsightSpec(BaseModel):
+    """A saved analytical query, and the reason anybody would run it.
+
+    ``question`` and ``why`` are required. An insight that states no question is
+    a chart, and a merchant reading six rows has no way to tell a finding from a
+    coincidence unless the view says what it asked.
+    """
+
+    id: str
+    title: str
+    question: str
+    why: str
+    domains: list[GraphDomain]
+    columns: list[str]
+    params: list[InsightParam] = Field(default_factory=list)
+
+
+class InsightResult(BaseModel):
+    id: str
+    title: str
+    columns: list[str]
+    rows: list[dict[str, object]]
+    params: dict[str, object] = Field(default_factory=dict)
+    #: The instant the query was asked *of*, on the replay clock rather than the
+    #: wall clock. "Expiring within ninety days" is meaningless without it, and
+    #: a horizon read against real time works by coincidence until the
+    #: coincidence expires.
+    as_of: datetime | None = None
+    backend: GraphBackend
+    route: GraphRoute
+    truncated: bool = False
+
+
+class GraphStatus(BaseModel):
+    """Which backend answered, what it holds, and when it was last loaded.
+
+    ``uri`` carries host and port only. Credentials reach this process through
+    the environment and have no business in a response body.
+    """
+
+    backend: GraphBackend
+    route: GraphRoute
+    available: bool
+    uri: str | None = None
+    node_counts: dict[str, int] = Field(default_factory=dict)
+    rel_counts: dict[str, int] = Field(default_factory=dict)
+    ingested_at: str | None = None
+    note: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Bitemporal facts
 # ---------------------------------------------------------------------------
 
@@ -404,17 +706,51 @@ class EventType(StrEnum):
     PUBLISH_TELEMETRY = "PUBLISH_TELEMETRY"  # routine liveness, never a signal
     COMMS = "COMMS"                          # unstructured: email / notice
 
+    # --- reference domains ---------------------------------------------------
+    #
+    # Carried by the estate and deliberately absent from ``ingest.HANDLERS``.
+    # Warehouse stock, a month's takings and a campaign are not launch-readiness
+    # attributes of a product, and recording them as facts would move a
+    # readiness verdict on evidence that has nothing to say about whether a
+    # thing may lawfully be sold. ``_handle`` dispatches through
+    # ``HANDLERS.get``, so absence from that table is the whole of the skip -
+    # there is no second place to keep in step, and adding one would be a guard
+    # that can disagree with the dispatch it guards.
+    #
+    # These never reach the browser. They live on the REF lane and ``released``
+    # is bounded by the tape cursor, which is what keeps ``EVENT_KEYS`` in
+    # ``frontend/src/liveImpact.ts`` - the one place that switches exhaustively
+    # on this enum - correct with no matching edit. Move them to LIVE and that
+    # file becomes a required change rather than an optional one.
+    STOCK_SNAPSHOT = "STOCK_SNAPSHOT"        # one depot's weekly count
+    PRICE_LIST = "PRICE_LIST"                # a market's prices, as issued
+    SALES_PERIOD = "SALES_PERIOD"            # a market's month, after the fact
+    CAMPAIGN = "CAMPAIGN"                    # a campaign and what is in it
+    PROMOTION = "PROMOTION"                  # the mechanic under a campaign
+    AUDIENCE = "AUDIENCE"                    # who a campaign is aimed at
+    CERTIFICATE = "CERTIFICATE"              # a register entry, not a notice
+    REGULATION = "REGULATION"                # the rule a certificate satisfies
+    MARKET_RULE = "MARKET_RULE"              # what one market enforces
+
 
 class Event(BaseModel):
     """One thing that happened, from inside or outside.
 
-    ``lane`` separates the two ways an event can exist. TAPE is the recorded
+    ``lane`` separates the three ways an event can exist. TAPE is the recorded
     flight - eight weeks generated once and released on a controllable clock,
     which the replay transport may rewind, step and re-release at will. LIVE is
     what a supplier submitted through a vendor intake while the process was
     running: it is visible the moment it lands, and the transport does not get
     to rewind it, because rewinding a recording is not the same act as
     retracting somebody's submission.
+
+    REF is neither. It is reference data - what a depot holds, what a market
+    charged, which campaigns ran, what a certificate register says - delivered
+    once at bootstrap by four back-office systems and then simply *there*. It
+    is not part of the recording, so the transport must not count it, play it
+    or rewind it; and it is not a submission, so the live feed must not
+    announce it. Both follow from it being on its own lane rather than from
+    anybody remembering to exclude it.
 
     Defaulted, so every construction site that predates the distinction keeps
     meaning what it meant.
@@ -425,9 +761,10 @@ class Event(BaseModel):
     ts: datetime  # simulated wall-clock of the event
     type: EventType
     source: str   # "SUPPLIER_PORTAL" | "MAILBOX" | "PIM" | "CHANNEL_GATEWAY"
+                  # | "WMS" | "EPOS" | "CAMPAIGN_MANAGER" | "CERT_REGISTRY"
     payload: dict[str, object]
     body: str | None = None  # raw text for COMMS and SPEC_DOC events
-    lane: str = "TAPE"       # TAPE | LIVE - see the docstring
+    lane: str = "TAPE"       # TAPE | LIVE | REF - see the docstring
 
 
 class CorrectionKind(StrEnum):

@@ -23,6 +23,20 @@ runs:
     market-signals         category management's view of what sells
     logistics-tms          how a thing ships, from transport operations
 
+and four that carry reference data rather than assertions about a product:
+
+    wms-inventory          what is on a pallet, and in which depot
+    trading-epos           what each market charged, and what it sold
+    campaign-manager       campaigns, their mechanics, and who they aim at
+    cert-registry          certificates, the rules they satisfy, the markets
+                           that enforce them
+
+The split matters. The eleven above say things *about a product* and can be
+wrong about them, which is what defects model. The four below say things about
+the world the product sits in - a depot, a month's takings, a register entry -
+and a defect rate on one of those would be a claim no rule in
+``sc/estate/detection.py`` could ever check. See ``well_behaved`` below.
+
 Two properties are deliberate and load-bearing.
 
 **Conformance is per system, not per record.** A supplier portal where a human
@@ -285,6 +299,78 @@ SYSTEMS: tuple[System, ...] = (
         batch_size=(2, 6),
         interval=(1.0, 3.5),
         precedence=18,
+    ),
+
+    # --- reference systems --------------------------------------------------
+    #
+    # Appended, and it has to be appended. ``INDEX`` below is positional and is
+    # the tie-break when two systems emit at the same simulated instant, so
+    # inserting one of these higher up would renumber the eleven above and
+    # change an ordering that arrival counts and trace hashes are built from.
+    #
+    # Each declares only event types nothing else declares, which is why adding
+    # them cannot reassign a taped event: ``emitter.owner_of`` draws from
+    # ``emitters_of(event_type)``, and that candidate list is unchanged in both
+    # length and order for every type the recording already contains. The
+    # warning on ``accepts`` below is about *widening* an existing system's
+    # ``emits``; none of this does that.
+    System(
+        id="wms-inventory",
+        title="Warehouse Management",
+        owner="Distribution and fulfilment",
+        why="Six depots, and what is actually on a pallet in each of them. It "
+            "knows nothing about what a product is and everything about where "
+            "it is, which is how a launch comes to be blocked by a system that "
+            "has never read a specification: stock held in a depot that cannot "
+            "lawfully ship to a market that depot serves is neither a data "
+            "fault nor a supplier's, and nothing else in the estate can see it.",
+        emits=("STOCK_SNAPSHOT",),
+        # No defects, and this is an argument rather than an omission. Every
+        # detector in `sc/estate/detection.py` reads an attribute path, a
+        # document version or a media requirement. None of the three can say
+        # anything true about a pallet count, so a defect rate here would be a
+        # claim no rule could report - which is the thing
+        # `test_every_stamped_defect_is_detected` exists to prevent.
+        accepts=(), defects=(), defect_rate=0.0,
+        batch_size=(3, 6), interval=(2.0, 6.0), precedence=12,
+    ),
+    System(
+        id="trading-epos",
+        title="Trading and EPOS",
+        owner="Commercial and pricing",
+        why="What each market is charging and what it actually sold. Advisory "
+            "about the product and decisive about the order of work: a best "
+            "seller with no pack shot and a dead line with no pack shot are "
+            "the same finding until somebody says which one is the best seller.",
+        accepts=(), defects=(), defect_rate=0.0,
+        emits=("PRICE_LIST", "SALES_PERIOD"),
+        batch_size=(2, 4), interval=(3.0, 8.0), precedence=8,
+    ),
+    System(
+        id="campaign-manager",
+        title="Campaign Management",
+        owner="Marketing and CRM",
+        why="Campaigns, the mechanics under them, and who they are aimed at. "
+            "The only system here that says two products belong together - a "
+            "claim the catalog never makes and a shopper reads on every page.",
+        accepts=(), defects=(), defect_rate=0.0,
+        emits=("CAMPAIGN", "PROMOTION", "AUDIENCE"),
+        batch_size=(2, 6), interval=(1.5, 5.0), precedence=6,
+    ),
+    System(
+        id="cert-registry",
+        title="Certification Registry",
+        owner="Product compliance",
+        why="Certificates, the rules they satisfy, and which markets enforce "
+            "which rules. Deliberately not the regulatory feed: a notified "
+            "body issues a certificate and a market authority stops a sale, "
+            "and this estate already keeps a lapsed certificate and an order "
+            "to withdraw apart because they reach different people. Folding "
+            "them together would also bury thirteen genuine notices under "
+            "ninety register entries, on the one feed a reviewer reads hardest.",
+        accepts=(), defects=(), defect_rate=0.0,
+        emits=("CERTIFICATE", "REGULATION", "MARKET_RULE"),
+        batch_size=(4, 12), interval=(2.0, 6.0), precedence=42,
     ),
 )
 

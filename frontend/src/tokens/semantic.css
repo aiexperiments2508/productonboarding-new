@@ -130,6 +130,18 @@
   --prov-simulated: var(--warn-600);
   --prov-committed: var(--danger-600);
 
+  /* --- knowledge-graph domains ------------------------------------------ */
+  /* Held at one lightness and one chroma so none of them reads as more
+     important than another - the distinction is categorical, not ordinal,
+     exactly as with --prov-* above. A domain is not a severity. */
+  --kg-core:       oklch(0.520 0.128 var(--h-kg-core));
+  --kg-category:   oklch(0.520 0.128 var(--h-kg-category));
+  --kg-compliance: oklch(0.520 0.128 var(--h-kg-compliance));
+  --kg-warehouse:  oklch(0.520 0.128 var(--h-kg-warehouse));
+  --kg-media:      oklch(0.520 0.128 var(--h-kg-media));
+  --kg-sales:      oklch(0.520 0.128 var(--h-kg-sales));
+  --kg-marketing:  oklch(0.520 0.128 var(--h-kg-marketing));
+
   /* --- data visualisation ------------------------------------------------ */
   --viz-grid: var(--n-150);
   --viz-axis: var(--n-300);
@@ -227,6 +239,15 @@
     --prov-simulated: var(--warn-400);
     --prov-committed: var(--danger-400);
 
+    /* Lifted, matching the --prov-* light/dark pairing. */
+    --kg-core:       oklch(0.720 0.118 var(--h-kg-core));
+    --kg-category:   oklch(0.720 0.118 var(--h-kg-category));
+    --kg-compliance: oklch(0.720 0.118 var(--h-kg-compliance));
+    --kg-warehouse:  oklch(0.720 0.118 var(--h-kg-warehouse));
+    --kg-media:      oklch(0.720 0.118 var(--h-kg-media));
+    --kg-sales:      oklch(0.720 0.118 var(--h-kg-sales));
+    --kg-marketing:  oklch(0.720 0.118 var(--h-kg-marketing));
+
     --viz-grid: var(--n-900);
     --viz-axis: var(--n-800);
     --viz-mark: var(--n-600);
@@ -305,6 +326,14 @@
   --prov-decided: var(--a-400);
   --prov-simulated: var(--warn-400);
   --prov-committed: var(--danger-400);
+
+  --kg-core:       oklch(0.720 0.118 var(--h-kg-core));
+  --kg-category:   oklch(0.720 0.118 var(--h-kg-category));
+  --kg-compliance: oklch(0.720 0.118 var(--h-kg-compliance));
+  --kg-warehouse:  oklch(0.720 0.118 var(--h-kg-warehouse));
+  --kg-media:      oklch(0.720 0.118 var(--h-kg-media));
+  --kg-sales:      oklch(0.720 0.118 var(--h-kg-sales));
+  --kg-marketing:  oklch(0.720 0.118 var(--h-kg-marketing));
 
   --viz-grid: var(--n-900);
   --viz-axis: var(--n-800);

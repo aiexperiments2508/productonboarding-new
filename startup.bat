@@ -12,13 +12,18 @@ REM    startup.bat clean    reinstall frontend dependencies, rebuild, run.
 REM    startup.bat reset    wipe the database and reload the seed pack.
 REM    startup.bat stage    put two products on sale, ready for a late change.
 REM    startup.bat studio   LangGraph Studio dev server on :2024 (optional).
+REM    startup.bat graph    fetch Neo4j, unpack it, and load the knowledge
+REM                         graph into it. Once, then `startup.bat` as usual.
 REM
-REM  FOUR processes, on four ports:
+REM  FIVE processes, on six ports:
 REM
 REM    8000   the platform  - API, the UI, and every MCP server
 REM    8110   Vendor Portal - upstream. Suppliers push corrections in here.
 REM    8120   Storefront    - downstream. What a shopper sees.
 REM    8130   Ops Console   - downstream. Print, shelf, search, errata.
+REM    8140   Back Office   - reference. Stock, trading, campaigns, certificates.
+REM    7474   Neo4j browser - optional. Only if neo4j\ has been unpacked.
+REM    7687   Neo4j bolt    - optional. What the loader and the API speak.
 REM
 REM  The three connected applications reach the platform over MCP and by no
 REM  other route - they have no database and no access to its API. That is the
@@ -29,6 +34,13 @@ REM  No Docker. The only hard requirement is Python; the frontend ships
 REM  pre-built in frontend\dist, so Node is needed only for `dev` and `build`.
 REM  When it is needed it must be Node 20 or newer: the UI compiles its CSS
 REM  with Tailwind v4, whose compiler is a native addon needing Node 20 up.
+REM
+REM  Neo4j is no exception to that. It is a zip with a batch file in it, and on
+REM  a machine with a JDK 17 or 21 it needs nothing else - `startup.bat graph`
+REM  fetches and unpacks it into neo4j\, and this script starts it from there
+REM  whenever it finds it. Nothing here requires it: with no Neo4j at all the
+REM  Knowledge Graph tab walks the same projection in process, and every
+REM  response says which engine answered.
 REM ===========================================================================
 
 setlocal enabledelayedexpansion
@@ -112,6 +124,7 @@ set "API_PORT=8000"
 set "VENDOR_PORT=8110"
 set "STOREFRONT_PORT=8120"
 set "OPS_PORT=8130"
+set "BACKOFFICE_PORT=8140"
 set "EXTERNAL_GATEWAY="
 if exist ".env" (
     for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
@@ -119,6 +132,7 @@ if exist ".env" (
         if /i "%%A"=="VENDOR_PORT" set "VENDOR_PORT=%%B"
         if /i "%%A"=="STOREFRONT_PORT" set "STOREFRONT_PORT=%%B"
         if /i "%%A"=="OPS_PORT" set "OPS_PORT=%%B"
+        if /i "%%A"=="BACKOFFICE_PORT" set "BACKOFFICE_PORT=%%B"
         if /i "%%A"=="LITELLM_BASE_URL" set "EXTERNAL_GATEWAY=%%B"
     )
 )
@@ -127,6 +141,12 @@ for /f "tokens=* delims= " %%A in ("!API_PORT!") do set "API_PORT=%%A"
 for /f "tokens=* delims= " %%A in ("!VENDOR_PORT!") do set "VENDOR_PORT=%%A"
 for /f "tokens=* delims= " %%A in ("!STOREFRONT_PORT!") do set "STOREFRONT_PORT=%%A"
 for /f "tokens=* delims= " %%A in ("!OPS_PORT!") do set "OPS_PORT=%%A"
+for /f "tokens=* delims= " %%A in ("!BACKOFFICE_PORT!") do set "BACKOFFICE_PORT=%%A"
+
+REM  only unpacks a zip and installs a driver - it binds nothing, so it
+REM is dispatched before the port checks. Refusing to fetch Neo4j because the
+REM platform is already running would be a confusing way to fail.
+if /i "%MODE%"=="graph" goto :graph
 
 REM Refuse to start on a port somebody else already owns. Without this the
 REM server fails to bind, the browser opens anyway, and whatever was already
@@ -142,8 +162,14 @@ if /i not "%MODE%"=="solo" (
     call :check_port "!STOREFRONT_PORT!" "the Storefront" "STOREFRONT_PORT"
     if errorlevel 1 goto :fail
     call :check_port "!OPS_PORT!" "the Ops Console" "OPS_PORT"
+    call :check_port "!BACKOFFICE_PORT!" "the Back Office" "BACKOFFICE_PORT"
     if errorlevel 1 goto :fail
 )
+
+REM Neo4j is deliberately not port-checked. The check exists so this script
+REM never starts a server over somebody else's; an already-running Neo4j is
+REM the one case where the thing on the port is exactly what we want, and
+REM :start_neo4j steps aside for it.
 
 REM --- 5. gateway -------------------------------------------------------------
 REM Two ways to reach models: attach to a gateway that is already running, or
@@ -340,6 +366,7 @@ popd
 
 :serve
 if /i not "%MODE%"=="solo" call :start_satellites
+call :start_neo4j
 
 echo.
 echo  Platform       http://127.0.0.1:!API_PORT!        API, UI, MCP servers
@@ -347,10 +374,12 @@ if /i not "%MODE%"=="solo" (
     echo  Vendor Portal  http://127.0.0.1:!VENDOR_PORT!        upstream - suppliers push here
     echo  Storefront     http://127.0.0.1:!STOREFRONT_PORT!        downstream - what a shopper sees
     echo  Ops Console    http://127.0.0.1:!OPS_PORT!        downstream - print, shelf, errata
+    echo  Back Office    http://127.0.0.1:!BACKOFFICE_PORT!        reference - stock, trading, campaigns, certificates
     echo.
-    echo  The three connected applications reach the platform over MCP and by no
+    echo  The four connected applications reach the platform over MCP and by no
     echo  other route. They open inside Product Lifecycle, or on their own.
 )
+if defined NEO4J_STARTED echo  Neo4j          http://127.0.0.1:7474        the knowledge graph, bolt on 7687
 echo.
 echo  Ctrl-K / Cmd-K   command palette: jump, drive the replay, search the corpus
 echo  Status bar       replay transport, on screen from every view
@@ -363,9 +392,62 @@ start "" "http://127.0.0.1:!API_PORT!"
 goto :done
 
 
+:graph
+REM Fetch Neo4j and load the graph into it. Run once; after that plain
+REM `startup.bat` starts it alongside everything else.
+REM
+REM The loader needs the platform running, because it does not read the
+REM database - it dials the four back-office systems on their own MCP
+REM endpoints and MERGEs what they answer with. So this starts Neo4j, waits
+REM for it, and tells you to run the loader once the platform is up.
+echo.
+echo  [.] Fetching Neo4j ^(no Docker; needs a JDK 17 or 21^) ...
+"%VPY%" scripts\get_neo4j.py
+if errorlevel 1 goto :fail
+echo.
+echo  [.] Installing the Neo4j driver ...
+"%VPY%" -m pip install -q -r requirements-graph.txt
+if errorlevel 1 goto :fail
+echo.
+echo  Neo4j is unpacked. Now:
+echo    1. put NEO4J_URI, NEO4J_USER and NEO4J_PASSWORD in .env
+echo    2. startup.bat            ^(starts Neo4j with everything else^)
+echo    3. python scripts\load_graph.py   ^(with the platform running^)
+echo.
+echo  Step 3 needs the platform up because the loader crosses MCP rather than
+echo  reading the database. `--offline` reads SQLite instead, and says so.
+goto :done
+
+
 REM --- helpers ----------------------------------------------------------------
+:start_neo4j
+REM Optional, and silent about it when absent.
+REM
+REM Started here rather than left to the reader because a graph database that
+REM has to be launched by hand is a graph database the tab quietly falls back
+REM from, and "why is it saying backend: memory" is a worse five minutes than
+REM one more window. If neo4j\ is not unpacked this prints one line and moves
+REM on - the tab works either way.
+set "NEO4J_STARTED="
+if not exist "neo4j\bin\neo4j.bat" (
+    echo  [.] No local Neo4j - the Knowledge Graph tab will walk the graph in
+    echo      process. `startup.bat graph` fetches one ^(no Docker needed^).
+    exit /b 0
+)
+where java >nul 2>&1
+if errorlevel 1 (
+    echo  [!] neo4j\ is unpacked but there is no java on PATH, so it cannot
+    echo      start. Neo4j 5 needs a JDK 17 or 21. The tab still works.
+    exit /b 0
+)
+echo  [.] Starting Neo4j ...
+start "Neo4j - knowledge graph" cmd /k "cd /d "%~dp0" && neo4j\bin\neo4j.bat console"
+set "NEO4J_STARTED=1"
+exit /b 0
+
+
 :start_satellites
-REM The three connected applications, each in its own window.
+REM The four connected applications, each in its own window.
 REM
 REM Their own windows rather than one supervisor, deliberately: each is a
 REM separate system and each keeps its own log, so "the Storefront cannot reach
@@ -380,6 +462,7 @@ echo  [.] Starting the connected applications ...
 start "Vendor Portal - upstream" cmd /k "cd /d "%~dp0" && .venv\Scripts\python.exe -m apps.vendor.server"
 start "Storefront - downstream" cmd /k "cd /d "%~dp0" && .venv\Scripts\python.exe -m apps.storefront.server"
 start "Ops Console - downstream" cmd /k "cd /d "%~dp0" && .venv\Scripts\python.exe -m apps.ops.server"
+start "Back Office - reference" cmd /k "cd /d "%~dp0" && .venv\Scripts\python.exe -m apps.backoffice.server"
 exit /b 0
 
 

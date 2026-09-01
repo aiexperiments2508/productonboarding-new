@@ -53,11 +53,18 @@ def ensure_ready(index: bool = True) -> dict:
 
     ``index`` builds the lexical half only - embeddings need the gateway, and
     a front door should open without waiting on a network call.
+
+    The reference pack loads beside the tape rather than on the clock. It is
+    not part of the recording - see the lane note in ``sc/replay/tape.py`` -
+    and a knowledge graph that only filled in once somebody pressed play would
+    be a graph nobody ever saw. A checkout that has not generated the pack yet
+    boots without it.
     """
     from sc.replay import tape
 
     db.init_db()
     tape_status = tape.load_tape()
+    reference_status = tape.load_reference()
 
     index_status: dict = {"skipped": True}
     if index:
@@ -66,7 +73,9 @@ def ensure_ready(index: bool = True) -> dict:
         if rag_index.status()["chunks"] == 0:
             index_status = rag_index.build(embed=False)
 
-    return {"events": tape_status.get("total", 0), "index": index_status}
+    return {"events": tape_status.get("total", 0),
+            "reference": reference_status.get("total", 0),
+            "index": index_status}
 
 
 def release_to_inject(extra_steps: int = 12) -> dict:

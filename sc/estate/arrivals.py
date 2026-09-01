@@ -114,6 +114,26 @@ def recent(limit: int = RECENT_LIMIT) -> list[dict]:
     return [{**dict(r), "defects": db.loads(r["defects"])} for r in rows]
 
 
+def recent_for(system_id: str, limit: int = RECENT_LIMIT) -> list[dict]:
+    """This one system's newest arrivals, newest first.
+
+    Separate from ``recent`` because reading the newest N across the whole
+    estate and filtering afterwards is not a slower route to the same answer -
+    it is a different answer, and a wrong one for a quiet system. A feed that
+    delivers in ones and twos is crowded out of any fixed window by one that
+    delivers in tens, so it reports having sent nothing while its rows sit in
+    the table just past the cut. ``label-artwork`` is the live example: thirteen
+    documents against a data pool that delivers thousands.
+
+    ``idx_arrivals_system`` is on ``(system_id, seq)`` for exactly this.
+    """
+    rows = db.query(
+        "SELECT * FROM arrivals WHERE system_id = ?"
+        " ORDER BY arrived_at DESC, seq DESC LIMIT ?",
+        (system_id, limit))
+    return [{**dict(r), "defects": db.loads(r["defects"])} for r in rows]
+
+
 def summary() -> list[dict]:
     """Per system: how much has landed, in how many batches, how much of it
     defective. What the estate panel counts."""

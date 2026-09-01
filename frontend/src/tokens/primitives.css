@@ -94,6 +94,23 @@
   --purple-400: oklch(0.712 0.136 var(--h-purple));
   --purple-950: oklch(0.246 0.058 var(--h-purple));
 
+  /* --- knowledge-graph domain hues --------------------------------------- */
+  /* Seven domains, seven hues, spread evenly and kept clear of the status
+     hues above. A Compliance node must not read as a danger badge and a
+     Warehouse node must not read as "ok" - these say what a thing *is*, not
+     how worried to be about it.
+
+     Categorical, so no ramp: there is no such thing as a darker Sales. They
+     are consumed at one lightness, the way --prov-* is, and for the same
+     reason. */
+  --h-kg-core:       265;   /* indigo   - the product spine */
+  --h-kg-category:   205;   /* cyan     */
+  --h-kg-compliance: 355;   /* crimson  - near danger, deliberately not it */
+  --h-kg-warehouse:  135;   /* green    - 20 deg off --h-ok */
+  --h-kg-media:      315;   /* magenta  */
+  --h-kg-sales:      100;   /* olive    - 25 deg off --h-warn */
+  --h-kg-marketing:   40;   /* amber    */
+
   /* --- type ramp --------------------------------------------------------- */
   /* "Inter Variable" is the family @fontsource-variable/inter registers; the
      older "Inter var" name is kept ahead of the system stack for a machine

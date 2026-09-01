@@ -1287,6 +1287,166 @@ export interface RedactionOutcome {
   refused: number;
 }
 
+/* --- the knowledge graph ---------------------------------------------------
+ *
+ * Mirrors the block in sc/contracts.py. Deliberately not named after `graph:`
+ * below - that one is the LangGraph agent topology, and two things called the
+ * graph in one client is how a caller reaches for the wrong one.
+ */
+
+export type KgDomain =
+  | "CORE" | "CATEGORY" | "COMPLIANCE" | "WAREHOUSE"
+  | "MEDIA" | "SALES" | "MARKETING";
+
+/** Which engine answered. A report, not a setting - see sc/kg/backend.py. */
+export type KgBackend = "neo4j" | "memory";
+
+/** How the data reached the graph: over MCP from another process, or read
+ *  in-process out of SQLite. */
+export type KgRoute = "mcp" | "sqlite";
+
+export interface KgNode {
+  id: string;
+  label: string;
+  domain: KgDomain;
+  name: string;
+  /** Edges reaching this node *inside the returned subgraph*. The canvas sizes
+   *  by it, and sizing by a degree the reader cannot see would make the
+   *  picture disagree with itself. */
+  degree: number;
+  /** Generated from the seed rather than read from the retailer's own data.
+   *  Drawn with a dashed stroke, and the legend says so. */
+  synthetic: boolean;
+  props: Record<string, unknown>;
+}
+
+export interface KgEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+  domain: KgDomain;
+  synthetic: boolean;
+  props: Record<string, unknown>;
+}
+
+/** What the caller asked for, and what it turned out to be. */
+export interface KgKey {
+  key: string;
+  entity_id: string;
+  sku: string | null;
+  product_id: string | null;
+}
+
+export interface KgNeighbourhood {
+  resolved: KgKey;
+  root: string;
+  depth: number;
+  domains: KgDomain[];
+  nodes: KgNode[];
+  edges: KgEdge[];
+  truncated: boolean;
+  total_nodes: number;
+  /** Domain -> how many nodes the cap dropped. A view that quietly drew two
+   *  hundred of eight hundred would be read as a graph of two hundred. */
+  dropped_domains: Record<string, number>;
+  backend: KgBackend;
+  route: KgRoute;
+  note?: string | null;
+}
+
+export interface KgExpansion {
+  nodes: KgNode[];
+  edges: KgEdge[];
+  truncated: boolean;
+  total_nodes: number;
+  backend: KgBackend;
+  route: KgRoute;
+}
+
+export interface KgPath {
+  length: number;
+  nodes: string[];
+  edges: string[];
+  /** The path in the reader's own words. A list of nine node ids is a result;
+   *  "via the depot Leeds RDC" is an answer. */
+  narrative: string;
+}
+
+export interface KgPaths {
+  source: KgKey;
+  target: KgKey;
+  paths: KgPath[];
+  backend: KgBackend;
+  route: KgRoute;
+}
+
+export interface KgSearchHit {
+  id: string;
+  label: string;
+  domain: KgDomain;
+  name: string;
+  detail: string | null;
+  score: number;
+}
+
+export interface KgSearchResult {
+  query: string;
+  hits: KgSearchHit[];
+  backend: KgBackend;
+  route: KgRoute;
+}
+
+export interface KgInsightParam {
+  name: string;
+  kind: "int" | "string" | "enum";
+  default: unknown;
+  options: string[] | null;
+  minimum: number | null;
+  maximum: number | null;
+}
+
+export interface KgInsightSpec {
+  id: string;
+  title: string;
+  /** What the view asks. Required, because an insight that states no question
+   *  is a chart. */
+  question: string;
+  /** Why anybody would run it. */
+  why: string;
+  domains: KgDomain[];
+  columns: string[];
+  params: KgInsightParam[];
+}
+
+export interface KgInsightResult {
+  id: string;
+  title: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  params: Record<string, unknown>;
+  /** The instant the query was asked *of*, on the replay clock. */
+  as_of: string;
+  backend: KgBackend;
+  route: KgRoute;
+  truncated: boolean;
+}
+
+export interface KgStatus {
+  backend: KgBackend;
+  route: KgRoute;
+  available: boolean;
+  uri: string | null;
+  node_counts: Record<string, number>;
+  rel_counts: Record<string, number>;
+  ingested_at: string | null;
+  note: string | null;
+  reference_events: number;
+  preference: string;
+  max_depth: number;
+  max_nodes: number;
+}
+
 export const api = {
   health: () => get<Health>("/api/health"),
 
@@ -1650,6 +1810,49 @@ export const api = {
     post<A2ATransport>("/api/a2a/transport", { enabled }),
 
   graph: () => get<GraphTopology>("/api/graph"),
+
+  /* --- the knowledge graph ------------------------------------------------
+   * `graph` above is the agent topology. These are the product graph. */
+
+  productGraph: (key: string, opts: {
+    depth?: number; domains?: string[]; limit?: number;
+  } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.depth != null) p.set("depth", String(opts.depth));
+    if (opts.domains?.length) p.set("domains", opts.domains.join(","));
+    if (opts.limit != null) p.set("limit", String(opts.limit));
+    return get<KgNeighbourhood>(
+      `/api/products/${encodeURIComponent(key)}/graph?${p.toString()}`);
+  },
+
+  productGraphPaths: (key: string, target: string) =>
+    get<KgPaths>(`/api/products/${encodeURIComponent(key)}/graph/paths`
+      + `?target=${encodeURIComponent(target)}`),
+
+  /** One node's own neighbours. `seen` is what is already on screen, so an
+   *  expansion adds rather than repeats. */
+  kgExpand: (nodeId: string, opts: {
+    seen?: string[]; domains?: string[]; limit?: number;
+  } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.seen?.length) p.set("seen", opts.seen.join(","));
+    if (opts.domains?.length) p.set("domains", opts.domains.join(","));
+    if (opts.limit != null) p.set("limit", String(opts.limit));
+    // The path, not a query parameter: a graph id carries a colon and the
+    // route takes a path converter for exactly that reason.
+    return get<KgExpansion>(`/api/kg/expand/${nodeId}?${p.toString()}`);
+  },
+
+  kgSearch: (q: string, limit = 20) =>
+    get<KgSearchResult>(
+      `/api/kg/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+
+  kgInsights: () => get<{ insights: KgInsightSpec[] }>("/api/kg/insights"),
+
+  kgQuery: (id: string, params: Record<string, unknown> = {}) =>
+    post<KgInsightResult>("/api/kg/query", { id, params }),
+
+  kgStatus: () => get<KgStatus>("/api/kg/status"),
   pending: () =>
     get<{ pending: { id: string; thread_id: string; severity: string;
                      title: string; opened_at: string; interrupt: unknown }[] }>(

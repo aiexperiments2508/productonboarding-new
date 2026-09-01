@@ -1093,6 +1093,118 @@ def product_preview(entity_id: str, use_model: bool = True,
 
 
 # ---------------------------------------------------------------------------
+# The knowledge graph
+#
+# A second reading of the same catalog. The record answers "what is wrong with
+# this product"; these answer "what is this product connected to" - its
+# category lineage, the obligations on it, where it physically sits, what it
+# looks like, what it earns and who is being told about it.
+#
+# Under /api/kg rather than /api/graph. `GET /api/graph` already means the
+# LangGraph agent topology and `sc/graph/` is that graph's package; two things
+# called "the graph" under one prefix is how somebody debugs the wrong one.
+#
+# Answered by Neo4j when it is reachable and by an in-process walk over the
+# same projection when it is not. Every response says which, because a reader
+# surprised by an answer should not have to guess what produced it.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/products/{key}/graph")
+def product_graph(key: str, depth: int = 2, domains: str | None = None,
+                  limit: int = 200) -> dict:
+    """The neighbourhood around one product, out to `depth` hops.
+
+    `key` is a SKU, a variant id or a product id - all three get typed by
+    somebody, and the response echoes which it turned out to be.
+    """
+    from sc import kg
+
+    try:
+        answer = kg.neighbourhood(key, depth=depth, domains=_csv(domains),
+                                  limit=limit)
+    except kg.BadRequest as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if answer is None:
+        raise HTTPException(status_code=404, detail="no such product")
+    return answer
+
+
+@app.get("/api/products/{key}/graph/paths")
+def product_graph_paths(key: str, target: str) -> dict:
+    """How two products are connected, said in words as well as ids."""
+    from sc import kg
+
+    try:
+        answer = kg.paths(key, target)
+    except kg.BadRequest as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if answer is None:
+        raise HTTPException(status_code=404, detail="no such product")
+    return answer
+
+
+@app.get("/api/kg/expand/{node_id:path}")
+def graph_expand(node_id: str, seen: str | None = None,
+                 domains: str | None = None, limit: int = 40) -> dict:
+    """One node's own neighbours. What a double-click asks for.
+
+    `node_id` takes a path converter because a graph id carries a colon -
+    `Variant:VAR-01B` - and the default converter would stop at it.
+    """
+    from sc import kg
+
+    try:
+        return kg.expand(node_id, seen=_csv(seen), domains=_csv(domains),
+                         limit=limit)
+    except kg.BadRequest as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/kg/search")
+def graph_search(q: str, limit: int = 20) -> dict:
+    """Node search with type-ahead, over the labels a merchant names."""
+    from sc import kg
+
+    return kg.search_nodes(q, limit=limit)
+
+
+@app.get("/api/kg/insights")
+def graph_insights() -> dict:
+    """The saved queries, with the question each one asks."""
+    from sc import kg
+
+    return {"insights": kg.catalogue()}
+
+
+@app.post("/api/kg/query")
+def graph_query(body: dict) -> dict:
+    """Run a saved query. Templated and allowlisted - no supplied Cypher.
+
+    The id is checked against `sc.kg.insights.CATALOGUE` before anything else
+    happens, so an unknown one never reaches a driver. There is no endpoint
+    here that executes a statement a caller wrote.
+    """
+    from sc import kg
+
+    insight_id = (body or {}).get("id", "")
+    if not insight_id:
+        raise HTTPException(status_code=400, detail="id is required")
+    try:
+        return kg.run_insight(insight_id, (body or {}).get("params"))
+    except kg.BadRequest as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/kg/status")
+def graph_status() -> dict:
+    """Which backend answered, what it holds, and how it was built."""
+    from sc import kg
+
+    return kg.status()
+
+
+# ---------------------------------------------------------------------------
 # The publication estate
 #
 # The other end of the pipe. These read the blast radius the catalog already

@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useRef } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "./cn";
 
 /* Small shared pieces. Each is a few lines and none of them earns a file.
@@ -58,7 +59,14 @@ export function ProgressBar({
 
 /** Segmented control. Used for theme and density, where the options are few,
  *  mutually exclusive, and worth showing all at once rather than behind a
- *  menu. Arrow keys move between options, per the radiogroup pattern. */
+ *  menu. Arrow keys move between options, per the radiogroup pattern.
+ *
+ *  That last sentence was a lie for a long time. The roles were right and
+ *  there was no key handling at all, so every option was an independently
+ *  tabbable button - which is the one thing a radiogroup is specified not to
+ *  be, and it meant tabbing through a page with a five-option control cost
+ *  five stops. The roving tabindex below is what the docstring was always
+ *  describing. */
 export function SegmentedControl<T extends string>({
   value, onChange, options, ariaLabel, className,
 }: {
@@ -68,10 +76,42 @@ export function SegmentedControl<T extends string>({
   ariaLabel?: string;
   className?: string;
 }) {
+  const container = useRef<HTMLDivElement | null>(null);
+
+  // Arrow keys select *and* move focus, because in a radiogroup they are the
+  // same act: the checked option is the focused one. Home and End go to the
+  // ends, which is the rest of the pattern and costs two lines.
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const keys = ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp",
+                  "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+
+    const at = options.findIndex((opt) => opt.value === value);
+    const last = options.length - 1;
+    let next = at;
+    if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = last;
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      next = at >= last ? 0 : at + 1;
+    } else {
+      next = at <= 0 ? last : at - 1;
+    }
+    if (next === at) return;
+
+    onChange(options[next].value);
+    // The DOM has not re-rendered yet, so focus by position rather than by
+    // looking for the checked one.
+    const buttons = container.current?.querySelectorAll("button");
+    buttons?.[next]?.focus();
+  };
+
   return (
     <div
+      ref={container}
       role="radiogroup"
       aria-label={ariaLabel}
+      onKeyDown={onKeyDown}
       className={cn(
         "inline-flex items-center gap-0.5 rounded-sm border border-subtle",
         "bg-sunken p-0.5",
@@ -85,6 +125,9 @@ export function SegmentedControl<T extends string>({
             key={opt.value}
             role="radio"
             aria-checked={active}
+            // One tab stop for the whole control, on whichever option is
+            // checked. This is the roving half of the roving tabindex.
+            tabIndex={active ? 0 : -1}
             title={opt.title}
             onClick={() => onChange(opt.value)}
             className={cn(

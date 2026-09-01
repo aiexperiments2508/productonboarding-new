@@ -66,31 +66,23 @@ data/eval/
 # things the repository describes.
 data/inbox/
 
-# The catalog extension and env file belonging to the scratch database
-# `scripts/generate_supplier_packs.py` reads the estate through. The database
-# itself is already covered by the `data/*.db` rules below; these two are not,
-# and they are working files rather than packs.
+# One uploadable bundle per supplier, built by scripts/generate_supplier_packs.py
+# from the catalog and from what each variant's record actually holds. Derived
+# output like the pack above, and rewritten wholesale on every run - and the
+# scratch database it reads the estate through, which must never be the one the
+# app is serving.
+data/supplier-packs/
+data/supplier_packs.db
+data/supplier_packs.db-*
 data/supplier_packs.live.json
 data/supplier_packs.env
 
-# `data/datapack/` and `data/supplier-packs/` are deliberately NOT ignored, and
-# they are the exception to everything above.
-#
-# Both are generated - the templates by `scripts/build_datapack.py`, the
-# per-supplier bundles by `scripts/generate_supplier_packs.py` - so by the rule
-# this file otherwise applies they would be derived output and belong nowhere
-# near a repository. They are committed anyway, because they are the *input* a
-# demo needs rather than the output a run produced: a venue with no time to
-# regenerate, and a machine with no gateway to regenerate against, still has to
-# be able to send a supplier feed. `docs/demo-automation-prompt.md` states the
-# same requirement for the feeds it builds.
-#
-# The cost is real and is the reason this note exists. A committed pack is the
-# one copy of the attribute schema that does not move when an attribute is
-# added, so it will drift from the registry it was derived from - which is the
-# drift the generator exists to prevent. Rebuild both after any change to the
-# attribute registry or the retailer profile, and treat a stale pack as a bug
-# in the commit that changed the registry rather than as a surprise.
+# The supplier data pack. Built by scripts/build_datapack.py from the catalog
+# and the retailer profile, so it is derived twice over and belongs in the
+# repository no more than the seed pack it is derived from. A committed pack
+# would also be the one copy of the schema that does not move when an
+# attribute is added, which is the drift the generator exists to prevent.
+data/datapack/
 
 # Neo4j, unpacked by `startup.bat graph`. A hundred and fifty megabytes of
 # somebody else's database, and `scripts/get_neo4j.py` puts it back in one

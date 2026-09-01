@@ -77,6 +77,11 @@ body {
 }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
 
+/* The one <a> wearing .btn - the Neo4j Browser link. Buttons and links differ in
+   line-height and decoration by default, and a row of controls where one sits
+   two pixels high reads as a mistake. */
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+
 /* --- tabs ---------------------------------------------------------------- */
 
 .views {

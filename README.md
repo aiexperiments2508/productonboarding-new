@@ -458,7 +458,7 @@ density and the brand accent are in the appearance menu; all three persist.
 | A2A | Peers with Agent Cards and JSON-RPC (`sc/a2a/`) |
 | MCP | Toolsets split by owning system (`sc/mcp/`), one of them able to write; connections made at runtime by a real handshake |
 | Discovery | One directory at `/.well-known/agent-cards.json`, built from the cards it lists |
-| UI | React + Vite, Tailwind v4 tokens, Radix primitives; every diagram is hand-rolled SVG — no chart or graph library |
+| UI | React + Vite, Tailwind v4 tokens, Radix primitives; every diagram is hand-rolled SVG, with one exception — see below |
 
 ### Why these choices
 
@@ -615,6 +615,41 @@ does, and every node they produce is stamped `synthetic: true`. The graph draws
 those with a dashed stroke and the legend says so. An invented revenue figure
 rendered beside a genuine regulatory finding, with nothing to tell them apart,
 is a claim this system has not earned.
+
+### The one graph library
+
+Every other diagram in this application is hand-rolled SVG, and the README said
+so without qualification until the Knowledge Graph tab arrived. The exception is
+**NVL** — `@neo4j-nvl/base`, Neo4j's own renderer, the one under Neo4j Browser
+and Bloom. It was taken deliberately, with its costs measured rather than
+assumed:
+
+- Its licence is proprietary, not OSS.
+- `@neo4j-nvl/base` depends on `@segment/analytics-next`, and peers on
+  `neo4j-driver`. Neither reaches the browser — Rollup drops both, verified by
+  grepping the built bundle — but both sit in `node_modules`, and
+  `npm audit` reports four high-severity advisories that chain from NVL.
+- The bundle grew from 610 kB to 2,401 kB (183 kB to 706 kB gzipped). On a
+  localhost application that is not a load-time problem; it is still a fourfold
+  increase and worth knowing.
+- `disableTelemetry: true` is set on the instance.
+
+The official React wrapper is **not** installed. It declares
+`peer react "18.0.0 || ^19.0.0"` — exact 18.0.0 — which will not resolve against
+this project's 18.3.1 and would have made `--legacy-peer-deps` permanent and
+`startup.bat clean` a special case. Binding NVL to React by hand is forty lines
+in `GraphCanvas.tsx` and `npm install` keeps working with no flags.
+
+**NVL renders; it does not arrange.** The layout is `free` and the coordinates
+come from `radialLayout.ts`: rings are hop distance from the SKU, sectors are
+domains, in a fixed order. That is the part that actually fixed the picture. A
+force layout — NVL's or anyone's — was being asked to rediscover, badly, two
+things the data already knew, and what it produced was a hairball. Swapping
+renderers alone would have produced the same shape in nicer pixels.
+
+A canvas has no DOM per node, so the keyboard and screen-reader path is a real
+focusable list beneath it rather than the per-node `aria-label` and `tabIndex`
+the SVG carried.
 
 ### The schema
 

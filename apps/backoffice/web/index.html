@@ -18,6 +18,15 @@
   <div class="counts" id="counts"></div>
   <div class="right">
     <span id="platform"></span>
+    <!-- Neo4j's own developer console, in a new tab and never an iframe: it
+         sends X-Frame-Options: DENY and frame-ancestors 'none', so it cannot
+         be embedded anywhere. It is a Cypher console for whoever is working on
+         the graph, not part of the product surface - and it only answers when
+         Neo4j is actually running. The port is fixed at 7474 the same way the
+         four application ports are written down in Lifecycle.tsx. -->
+    <a class="btn" id="browser" href="http://127.0.0.1:7474" target="_blank"
+       rel="noreferrer noopener"
+       title="Neo4j Browser - Neo4j's own Cypher console. Opens in a new tab; needs Neo4j running.">neo4j browser</a>
     <button class="btn" id="showCalls">protocol</button>
   </div>
 </header>

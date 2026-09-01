@@ -1,48 +1,150 @@
-/* The graph itself: hand-rolled SVG, laid out once, then still.
+/* The graph, rendered by NVL, arranged by us.
  *
- * The idioms are `NetworkMap`'s, because a second diagram in this application
- * that behaved differently from the first would be a second thing to learn:
- * markers for arrowheads, a `<title>` and an `aria-label` on every node, a
- * transparent oversized hit target so a 5px circle is still clickable, and the
- * whole thing in an `overflow-x-auto` frame so a wide graph scrolls inside its
- * panel rather than pushing the page sideways.
+ * NVL is Neo4j's own visualisation library - the renderer under Neo4j Browser
+ * and Bloom. It is the first chart or graph library in this repository, which
+ * `README.md` used to rule out, and it was taken deliberately with its costs
+ * known: a proprietary licence, a Segment analytics SDK among its transitive
+ * dependencies, and four high-severity advisories at the time of writing. That
+ * is recorded here rather than only in a commit message, because the next
+ * person to read this file is the one who needs to know it.
  *
- * **Zoom is a viewBox, not a CSS transform.** A transform would scale stroke
- * widths with the drawing - a hairline edge becomes a rope at 4x - and would
- * put hit targets somewhere other than where they are painted. Changing the
- * viewBox moves the camera and leaves the drawing alone.
+ * Only `@neo4j-nvl/base` and `@neo4j-nvl/interaction-handlers` are installed.
+ * The official React wrapper declares `peer react "18.0.0 || ^19.0.0"` - exact
+ * 18.0.0 - which will not resolve against this project's 18.3.1 and would have
+ * made `--legacy-peer-deps` permanent, and `startup.bat clean` a special case.
+ * Binding it to React by hand is forty lines and costs nothing.
  *
- * **Plain wheel scrolls the page; ctrl or cmd wheel zooms.** This panel lives
- * inside a column that scrolls, and a canvas that swallowed the wheel would
- * trap a reader trying to get past it. That is also why there is an expand
- * control: the full-screen dialog is where the graph gets the whole viewport
- * and the wheel can mean what it likes.
+ * **NVL renders; it does not arrange.** The layout is `free` and every node
+ * arrives with coordinates from `radialLayout.ts`. Letting NVL run its own
+ * force layout would undo the entire point - rings mean hop distance, angle
+ * means domain - and replace both with a hairball that merely looks nicer.
+ *
+ * **Two things a canvas costs, and what is done about them.**
+ *
+ * Colour: NVL takes colour strings, not Tailwind classes, so the domain tokens
+ * are resolved at runtime and re-resolved when the theme moves, which
+ * `useTokenPalette` watches for. Every other surface here gets theming free
+ * through `@theme inline`; this is the one that has to ask.
+ *
+ * Accessibility: a canvas has no DOM per node, so the `aria-label`, `tabIndex`
+ * and Enter/Space handling the previous SVG gave every node are simply gone.
+ * They are replaced below by a real focusable list - not an `sr-only`
+ * afterthought, but the same two actions, reachable by keyboard.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NVL } from "@neo4j-nvl/base";
+import type { Node as NvlNode, Relationship as NvlRel } from "@neo4j-nvl/base";
+import {
+  ClickInteraction, DragNodeInteraction, PanInteraction, ZoomInteraction,
+} from "@neo4j-nvl/interaction-handlers";
 
-import type { KgEdge, KgNode } from "../../api";
-import { useReducedMotion } from "../../hooks/useReducedMotion";
+import type { KgDomain, KgEdge, KgNode } from "../../api";
 import { cn } from "../../ui";
-import { DOMAIN_FILL, DOMAIN_STROKE } from "./domains";
-import { bounds, forceLayout } from "./forceLayout";
+import { DOMAIN_LABEL, DOMAIN_ORDER, labelNoun } from "./domains";
+import { radialLayout } from "./radialLayout";
 
-/** The frame the solver lays out inside.
+/** Node size by degree. A well-connected node is worth more ink, but the range
+ *  stays narrow: a hub forty times the size of a leaf is a picture of one node
+ *  rather than of a neighbourhood.
  *
- *  Not the frame it is drawn in - the viewBox fits to whatever the solver
- *  produces - so this is only ever about how much room the nodes have to
- *  spread into, and it is free to be generous. It was 1000x620, and at a
- *  hundred and twenty nodes that left Fruchterman-Reingold's ideal edge length
- *  short enough that a hub's children settled into a regular lattice against
- *  the margins: a picture of the clamp, not of the graph. */
-const FRAME_W = 1800;
-const FRAME_H = 1120;
+ *  These were three times bigger to begin with, which turned every wedge into
+ *  a solid band of touching circles - the layout was right and unreadable at
+ *  the same time. Node size has to be read against the arc spacing in
+ *  `radialLayout.ts`, not chosen on its own. */
+function sizeOf(degree: number): number {
+  return Math.min(19, 8 + Math.sqrt(Math.max(degree, 0)) * 1.5);
+}
 
-/** Node radius by degree. A well-connected node is worth more ink, but the
- *  range is deliberately narrow: a hub forty times bigger than a leaf is a
- *  picture of one node. */
-function radiusOf(degree: number): number {
-  return Math.min(15, 5.5 + Math.sqrt(Math.max(degree, 0)) * 1.3);
+/** Turn a CSS custom property into something NVL can paint with.
+ *
+ *  The design tokens are `oklch(...)` and NVL parses colours with tinycolor2,
+ *  which predates oklch: handed one, it produces an invalid colour and the
+ *  node is drawn with nothing. Every node in the graph came out blank exactly
+ *  once for this reason, and the first attempted fix - assign the value to an
+ *  element and read `getComputedStyle().color` back - does not work either,
+ *  because current Chrome preserves the authored colour space and returns
+ *  `oklch(...)` unchanged.
+ *
+ *  Reading `fillStyle` back does not work either, and for the same underlying
+ *  reason: Chrome now preserves the authored colour space there too, so an
+ *  `oklch()` goes in and an `oklch()` comes out.
+ *
+ *  **Rasterising is the only conversion that cannot be preserved away.** Paint
+ *  one pixel and read its bytes: a pixel has no colour space to remember, only
+ *  four numbers. That also gives a free validity check - an unparseable colour
+ *  paints nothing, so the alpha byte comes back zero.
+ */
+function normaliseColour(probe: CanvasRenderingContext2D | null,
+                         value: string, fallback: string): string {
+  if (!probe || !value) return fallback;
+  try {
+    probe.clearRect(0, 0, 1, 1);
+    probe.fillStyle = value;
+    probe.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
+    return a === 0 ? fallback : `rgb(${r}, ${g}, ${b})`;
+  } catch {
+    return fallback;
+  }
+}
+
+function resolveColour(probe: CanvasRenderingContext2D | null,
+                       token: string, fallback: string) {
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue(token).trim();
+  return normaliseColour(probe, raw, fallback);
+}
+
+interface Palette {
+  domain: Record<KgDomain, string>;
+  edge: string;
+  edgeSelected: string;
+}
+
+/** The domain colours, resolved, and re-resolved whenever the theme moves.
+ *
+ *  The theme is an attribute on `<html>`, so a MutationObserver on it is the
+ *  whole mechanism - plus the media query, because "system" sets no attribute
+ *  at all. Without this the graph keeps its light-mode colours on a dark
+ *  background until something unrelated re-renders it, which reads as a
+ *  rendering bug rather than a missing subscription.
+ */
+function useTokenPalette(): Palette {
+  const read = useCallback((): Palette => {
+    // willReadFrequently: this is a read-back-per-colour probe, which is
+    // exactly the pattern that hint exists for.
+    const probe = document.createElement("canvas")
+      .getContext("2d", { willReadFrequently: true });
+    const domain = {} as Record<KgDomain, string>;
+    for (const name of DOMAIN_ORDER) {
+      domain[name] = resolveColour(
+        probe, `--kg-${name.toLowerCase()}`, "#7a7a7a");
+    }
+    return {
+      domain,
+      edge: resolveColour(probe, "--viz-edge", "#b4b4b4"),
+      edgeSelected: resolveColour(probe, "--a-500", "#3c78dc"),
+    };
+  }, []);
+
+  const [palette, setPalette] = useState<Palette>(read);
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => setPalette(read()));
+    observer.observe(document.documentElement,
+                     { attributes: true,
+                       attributeFilter: ["data-theme", "class", "style"] });
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const onScheme = () => setPalette(read());
+    media.addEventListener("change", onScheme);
+    return () => {
+      observer.disconnect();
+      media.removeEventListener("change", onScheme);
+    };
+  }, [read]);
+
+  return palette;
 }
 
 export interface GraphCanvasProps {
@@ -52,8 +154,8 @@ export interface GraphCanvasProps {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onExpand: (id: string) => void;
-  /** Bumped by the caller to force a re-fit - after a reset, or a domain
-   *  filter change that moved everything. */
+  /** Bumped by the caller to force a re-fit - after a reset, or a filter
+   *  change that moved everything. */
   fitToken: number;
   className?: string;
   height?: number;
@@ -63,324 +165,191 @@ export function GraphCanvas({
   nodes, edges, rootId, selectedId, onSelect, onExpand, fitToken,
   className, height = 420,
 }: GraphCanvasProps) {
-  const reduced = useReducedMotion();
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const [pinned, setPinned] = useState<Map<string, [number, number]>>(new Map());
-  const [view, setView] = useState({ x: 0, y: 0, w: FRAME_W, h: FRAME_H });
+  const frame = useRef<HTMLDivElement | null>(null);
+  const nvl = useRef<NVL | null>(null);
+  const interactions = useRef<{ destroy: () => void }[]>([]);
+  const palette = useTokenPalette();
 
-  /* --- layout ------------------------------------------------------------
-   * Once per data change, in a memo. See forceLayout.ts on why this is not a
-   * running simulation. */
-  const layout = useMemo(() => {
-    const index = new Map(nodes.map((node, i) => [node.id, i]));
-    const pairs: [number, number][] = [];
-    for (const edge of edges) {
-      const a = index.get(edge.source);
-      const b = index.get(edge.target);
-      if (a !== undefined && b !== undefined && a !== b) pairs.push([a, b]);
-    }
-    const held = new Map<number, [number, number]>();
-    for (const [id, at] of pinned) {
-      const i = index.get(id);
-      if (i !== undefined) held.set(i, at);
-    }
-    const result = forceLayout({
-      ids: nodes.map((n) => n.id),
-      edges: pairs,
-      pinned: held,
-      width: FRAME_W,
-      height: FRAME_H,
-    });
-    return { ...result, index };
-  }, [nodes, edges, pinned]);
+  // The interaction handlers are attached once, so a callback captured then
+  // would close over the first render's props for ever. A ref is the seam.
+  const handlers = useRef({ onSelect, onExpand });
+  handlers.current = { onSelect, onExpand };
 
-  const at = useCallback((id: string): [number, number] => {
-    const i = layout.index.get(id);
-    if (i === undefined) return [FRAME_W / 2, FRAME_H / 2];
-    return [layout.x[i], layout.y[i]];
-  }, [layout]);
+  const placed = useMemo(
+    () => radialLayout({ nodes, edges, rootId }), [nodes, edges, rootId]);
 
-  const fit = useCallback(() => {
-    const box = bounds(layout.x, layout.y);
-    setView({ x: box.x, y: box.y, w: box.w, h: box.h });
-  }, [layout]);
+  // Positions are applied through `setNodePositions` below rather than as
+  // fields here. NVL's own note on the free layout says so - "arbitrary
+  // positioning ... using NVL's setPosition method" - and passing x/y on the
+  // node objects instead leaves the renderer with nothing to draw and throws
+  // inside its animation loop, which is a long way from the mistake.
+  const placedNodes = useMemo<NvlNode[]>(
+    () => placed.map((entry) => ({ id: entry.id, x: entry.x, y: entry.y })),
+    [placed]);
 
-  useEffect(() => { fit(); }, [fit, fitToken]);
-
-  /* --- panning and dragging ---------------------------------------------
-   * The dragged node's transform is written straight to the DOM on every
-   * pointermove and only committed to React state on pointerup. A setState per
-   * move would re-run the solver sixty times a second. */
-  const drag = useRef<
-    { id: string | null; startX: number; startY: number;
-      originX: number; originY: number } | null>(null);
-
-  const toFrame = useCallback((clientX: number, clientY: number) => {
-    const box = svgRef.current?.getBoundingClientRect();
-    if (!box) return [0, 0] as const;
-    return [
-      view.x + ((clientX - box.left) / box.width) * view.w,
-      view.y + ((clientY - box.top) / box.height) * view.h,
-    ] as const;
-  }, [view]);
-
-  const onPointerDown = (event: React.PointerEvent, id: string | null) => {
-    (event.target as Element).setPointerCapture?.(event.pointerId);
-    const [fx, fy] = toFrame(event.clientX, event.clientY);
-    const origin = id ? at(id) : [view.x, view.y] as [number, number];
-    drag.current = { id, startX: fx, startY: fy,
-                     originX: origin[0], originY: origin[1] };
-  };
-
-  const onPointerMove = (event: React.PointerEvent) => {
-    const held = drag.current;
-    if (!held) return;
-    const [fx, fy] = toFrame(event.clientX, event.clientY);
-    if (held.id === null) {
-      // Background drag pans the camera. Inverted, because moving the mouse
-      // right should move the drawing right, which means moving the camera
-      // left.
-      setView((v) => ({ ...v,
-        x: held.originX - (fx - held.startX),
-        y: held.originY - (fy - held.startY) }));
-      return;
-    }
-    const node = svgRef.current?.querySelector(
-      `[data-node="${CSS.escape(held.id)}"]`);
-    node?.setAttribute("transform",
-      `translate(${held.originX + (fx - held.startX)},`
-      + `${held.originY + (fy - held.startY)})`);
-  };
-
-  const onPointerUp = (event: React.PointerEvent) => {
-    const held = drag.current;
-    drag.current = null;
-    if (!held?.id) return;
-    const [fx, fy] = toFrame(event.clientX, event.clientY);
-    const moved = Math.abs(fx - held.startX) + Math.abs(fy - held.startY);
-    // A click is a drag that went nowhere. Below a few frame units it is a
-    // selection, not a pin - otherwise every click would pin.
-    if (moved < 4) return;
-    setPinned((held2) => {
-      const next = new Map(held2);
-      next.set(held.id!, [held.originX + (fx - held.startX),
-                          held.originY + (fy - held.startY)]);
-      return next;
-    });
-  };
-
-  const zoom = useCallback((factor: number, cx?: number, cy?: number) => {
-    setView((v) => {
-      const w = Math.min(FRAME_W * 3, Math.max(120, v.w * factor));
-      const h = w * (v.h / v.w);
-      const ax = cx ?? v.x + v.w / 2;
-      const ay = cy ?? v.y + v.h / 2;
-      return { w, h,
-               x: ax - (ax - v.x) * (w / v.w),
-               y: ay - (ay - v.y) * (h / v.h) };
-    });
-  }, []);
-
-  const onWheel = (event: React.WheelEvent) => {
-    // Only with a modifier. See the file header: this panel sits in a column
-    // that scrolls, and swallowing the wheel would trap the reader in it.
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    const [fx, fy] = toFrame(event.clientX, event.clientY);
-    zoom(event.deltaY > 0 ? 1.12 : 0.89, fx, fy);
-  };
-
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    const pan = view.w * 0.12;
-    if (event.key === "+" || event.key === "=") zoom(0.85);
-    else if (event.key === "-") zoom(1.18);
-    else if (event.key === "0") fit();
-    else if (event.key === "ArrowLeft") setView((v) => ({ ...v, x: v.x - pan }));
-    else if (event.key === "ArrowRight") setView((v) => ({ ...v, x: v.x + pan }));
-    else if (event.key === "ArrowUp") setView((v) => ({ ...v, y: v.y - pan }));
-    else if (event.key === "ArrowDown") setView((v) => ({ ...v, y: v.y + pan }));
-    else return;
-    event.preventDefault();
-  };
-
-  const byId = useMemo(
-    () => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-
-  /* The dozen best connected, which is about as many labels as fit before
-     they start colliding. Ties break on id so the set does not flicker. */
-  const labelled = useMemo(() => new Set(
+  /** The dozen best-connected nodes, which is about as many captions as fit
+   *  before they start colliding. Ties break on id so the set does not
+   *  flicker between renders. */
+  const captioned = useMemo(() => new Set(
     [...nodes]
       .sort((a, b) => b.degree - a.degree || a.id.localeCompare(b.id))
       .slice(0, 12)
       .map((node) => node.id),
   ), [nodes]);
 
+  const nvlNodes = useMemo<NvlNode[]>(() => nodes.map((node) => {
+    const isRoot = node.id === rootId;
+    return {
+      id: node.id,
+      size: sizeOf(node.degree) * (isRoot ? 1.5 : 1),
+      color: palette.domain[node.domain],
+      // Captions on the root, the selection, and a dozen others - never a
+      // fixed degree threshold, which put captions on eighty-three of a
+      // hundred and twenty-three nodes and produced a grey smear. A count is
+      // the right control here: it holds however dense the graph gets.
+      caption: isRoot || node.id === selectedId || captioned.has(node.id)
+        ? node.name.slice(0, 24) : "",
+      captionAlign: "bottom" as const,
+      selected: node.id === selectedId,
+    };
+  }), [nodes, palette, rootId, selectedId, captioned]);
+
+  const nvlRels = useMemo<NvlRel[]>(() => edges.map((edge) => {
+    const touched = Boolean(selectedId)
+      && (edge.source === selectedId || edge.target === selectedId);
+    return {
+      id: edge.id,
+      from: edge.source,
+      to: edge.target,
+      color: touched ? palette.edgeSelected : palette.edge,
+      width: touched ? 2 : 1,
+    };
+  }), [edges, palette, selectedId]);
+
+  /* --- the instance, created once ---------------------------------------- */
+  useEffect(() => {
+    if (!frame.current) return undefined;
+
+    const instance = new NVL(frame.current, [], [], {
+      // See the file header: we arrange, NVL renders.
+      layout: "free",
+      renderer: "canvas",
+      initialZoom: 1,
+      // NVL phones home through @segment/analytics-next otherwise. This
+      // application does not send anything anywhere, and a graph library is
+      // not the place to start.
+      disableTelemetry: true,
+    } as never, {});
+    nvl.current = instance;
+
+    // NVL types every interaction callback as `(...args: unknown[]) => void`,
+    // so the first argument is narrowed here rather than in the signature.
+    const click = new ClickInteraction(instance);
+    click.updateCallback("onNodeClick", (...args: unknown[]) =>
+      handlers.current.onSelect((args[0] as NvlNode).id));
+    click.updateCallback("onNodeDoubleClick", (...args: unknown[]) =>
+      handlers.current.onExpand((args[0] as NvlNode).id));
+    click.updateCallback("onCanvasClick", () =>
+      handlers.current.onSelect(null));
+
+    interactions.current = [
+      new ZoomInteraction(instance),
+      new PanInteraction(instance),
+      new DragNodeInteraction(instance),
+      click,
+    ];
+
+    return () => {
+      for (const handler of interactions.current) handler.destroy();
+      interactions.current = [];
+      instance.destroy();
+      nvl.current = null;
+    };
+  }, []);
+
+  /* --- data, whenever it changes ----------------------------------------- */
+  useEffect(() => {
+    const instance = nvl.current;
+    if (!instance) return;
+    instance.addAndUpdateElementsInGraph(nvlNodes, nvlRels);
+    // Then the arrangement. `false` means "do not let a layout algorithm move
+    // them afterwards" - which with `layout: free` is belt and braces, and
+    // costs nothing if the layout is ever changed.
+    instance.setNodePositions(placedNodes, false);
+  }, [nvlNodes, nvlRels, placedNodes]);
+
+  /* --- fit, on demand ---------------------------------------------------- */
+  useEffect(() => {
+    const instance = nvl.current;
+    if (!instance || nvlNodes.length === 0) return undefined;
+    // Deferred a frame: `fit` measures the container, and on the first paint
+    // after a filter change the container has not been laid out yet.
+    const timer = window.setTimeout(
+      () => instance.fit(nvlNodes.map((node) => node.id)), 80);
+    return () => window.clearTimeout(timer);
+  }, [fitToken, nvlNodes]);
+
+  const byDegree = useMemo(
+    () => [...nodes].sort(
+      (a, b) => b.degree - a.degree || a.id.localeCompare(b.id)),
+    [nodes]);
+
   return (
     <div className={cn("relative min-w-0", className)}>
-      <svg
-        ref={svgRef}
-        role="img"
-        aria-label={`Knowledge graph: ${nodes.length} nodes, `
-          + `${edges.length} connections`}
-        tabIndex={0}
-        viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
-        onWheel={onWheel}
-        onKeyDown={onKeyDown}
-        onPointerDown={(e) => onPointerDown(e, null)}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        className={cn(
-          "block w-full touch-none rounded-sm bg-sunken outline-none",
-          "focus-visible:ring-2 focus-visible:ring-focus",
-        )}
+      <div
+        ref={frame}
         style={{ height }}
-      >
-        <defs>
-          <marker id="kg-arrow" viewBox="0 0 8 8" refX="7" refY="4"
-                  markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-            <path d="M0 1 L7 4 L0 7 z" className="fill-viz-edge" />
-          </marker>
-          <filter id="kg-halo" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="5" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+        className="w-full overflow-hidden rounded-sm bg-sunken"
+      />
 
-        {/* Edges first, so nodes sit on top of them. */}
-        <g>
-          {edges.map((edge, i) => {
-            const [x1, y1] = at(edge.source);
-            const [x2, y2] = at(edge.target);
-            const touched = selectedId
-              && (edge.source === selectedId || edge.target === selectedId);
-            return (
-              <line
-                key={edge.id}
-                x1={x1} y1={y1} x2={x2} y2={y2}
-                markerEnd="url(#kg-arrow)"
-                strokeWidth={touched ? 1.8 : 1}
-                strokeDasharray={edge.synthetic ? "4 3" : undefined}
-                className={cn(
-                  touched ? "stroke-accent" : "stroke-viz-edge",
-                  !reduced && "sc-draw",
-                )}
-                style={!reduced
-                  ? ({ "--draw-length": "600",
-                       animationDelay: `${Math.min(i, 40) * 8}ms` } as never)
-                  : undefined}
-                opacity={selectedId && !touched ? 0.35 : 1}
-              >
-                <title>{`${byId.get(edge.source)?.name ?? edge.source} `
-                  + `${edge.type.toLowerCase().replace(/_/g, " ")} `
-                  + `${byId.get(edge.target)?.name ?? edge.target}`}</title>
-              </line>
-            );
-          })}
-        </g>
-
-        <g>
-          {nodes.map((node) => {
-            const [cx, cy] = at(node.id);
-            const r = radiusOf(node.degree);
-            const isRoot = node.id === rootId;
-            const isSelected = node.id === selectedId;
-            const isPinned = pinned.has(node.id);
-            return (
-              <g key={node.id} data-node={node.id}
-                 transform={`translate(${cx},${cy})`}>
-                {/* The spine is a square, everything else a circle - so the
-                    picture still parses without colour. */}
-                {node.domain === "CORE" ? (
-                  <rect
-                    x={-r} y={-r} width={r * 2} height={r * 2} rx={3}
-                    className={cn(DOMAIN_FILL[node.domain],
-                                  DOMAIN_STROKE[node.domain])}
-                    strokeWidth={isRoot ? 2.5 : 1.2}
-                    strokeDasharray={node.synthetic ? "3 2" : undefined}
-                    fillOpacity={isSelected ? 1 : 0.82}
-                    filter={isSelected && !reduced ? "url(#kg-halo)" : undefined}
-                  />
-                ) : (
-                  <circle
-                    r={r}
-                    className={cn(DOMAIN_FILL[node.domain],
-                                  DOMAIN_STROKE[node.domain])}
-                    strokeWidth={isRoot ? 2.5 : 1.2}
-                    strokeDasharray={node.synthetic ? "3 2" : undefined}
-                    fillOpacity={isSelected ? 1 : 0.82}
-                    filter={isSelected && !reduced ? "url(#kg-halo)" : undefined}
-                  />
-                )}
-
-                {isPinned && (
-                  <circle r={r + 4} fill="none" strokeWidth={1}
-                          strokeDasharray="2 2" className="stroke-strong" />
-                )}
-
-                {/* Labels only where they can be read.
-                    Degree alone was the wrong test: in a dense neighbourhood
-                    forty nodes clear any fixed threshold and their labels
-                    overlap into a grey smear, which is worse than no labels at
-                    all. `labelled` picks the dozen best-connected in this view,
-                    so the count stays constant however dense the graph is.
-                    Every node is named in its <title> and aria-label
-                    regardless, so nothing is hidden from a screen reader. */}
-                {(isRoot || isSelected || labelled.has(node.id)) && (
-                  <text
-                    y={-r - 5}
-                    textAnchor="middle"
-                    className="pointer-events-none fill-muted text-[10px]"
-                  >
-                    {node.name.length > 26
-                      ? `${node.name.slice(0, 24)}…` : node.name}
-                  </text>
-                )}
-
-                {/* A transparent target, so a small node is still clickable
-                    and reachable by keyboard. NetworkMap does the same. */}
-                <circle
-                  r={Math.max(r + 7, 14)}
-                  fill="transparent"
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`${node.name}, ${node.label}`
-                    + `${node.synthetic ? ", generated data" : ""}`
-                    + `, ${node.degree} connections`}
-                  className="cursor-pointer outline-none focus-visible:stroke-focus"
-                  strokeWidth={2}
-                  onPointerDown={(e) => { e.stopPropagation();
-                                          onPointerDown(e, node.id); }}
-                  onClick={(e) => { e.stopPropagation();
-                                    onSelect(isSelected ? null : node.id); }}
-                  onDoubleClick={(e) => { e.stopPropagation();
-                                          onExpand(node.id); }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onSelect(isSelected ? null : node.id);
-                    } else if (e.key === "e") {
-                      e.preventDefault();
-                      onExpand(node.id);
-                    }
-                  }}
-                >
-                  <title>{node.name} — {node.label}</title>
-                </circle>
-              </g>
-            );
-          })}
-        </g>
-      </svg>
-
-      <div className="pointer-events-none absolute bottom-1.5 right-2 text-2xs
+      <div className="pointer-events-none absolute right-2 top-1.5 text-2xs
                       text-faint">
-        ctrl + wheel to zoom · drag to pan · double-click to expand
+        distance from the centre is hops · direction is domain
+      </div>
+
+      {/* The keyboard and screen-reader path.
+        *
+        * Not decoration: a canvas cannot be tabbed into, so this is the only
+        * way to reach a node without a mouse. Ordered by connectedness so the
+        * most useful nodes come first rather than whatever order the walk
+        * happened to return, and kept to a scrolling strip so it costs little
+        * room on a screen that is mostly picture.
+        */}
+      <div className="mt-2">
+        <h4 className="mb-1 text-2xs uppercase tracking-caps text-faint">
+          Nodes in this view — Enter selects, E expands
+        </h4>
+        <ul className="flex max-h-20 flex-wrap gap-1 overflow-y-auto">
+          {byDegree.map((node) => (
+            <li key={node.id}>
+              <button
+                onClick={() => onSelect(node.id === selectedId ? null : node.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "e" || event.key === "E") {
+                    event.preventDefault();
+                    onExpand(node.id);
+                  }
+                }}
+                aria-pressed={node.id === selectedId}
+                aria-label={`${node.name}, ${labelNoun(node.label)}, `
+                  + `${DOMAIN_LABEL[node.domain]}`
+                  + `${node.synthetic ? ", generated data" : ""}`
+                  + `, ${node.degree} connections`}
+                className={cn(
+                  "rounded-xs border px-1.5 py-0.5 text-2xs",
+                  node.id === selectedId
+                    ? "border-accent-border bg-accent-soft text-accent-text"
+                    : "border-subtle text-muted hover:text-fg",
+                  node.synthetic && "border-dashed",
+                )}
+              >
+                {node.name.length > 22
+                  ? `${node.name.slice(0, 20)}…` : node.name}
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
 }
-
-export { FRAME_H, FRAME_W };

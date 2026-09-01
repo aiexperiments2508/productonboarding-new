@@ -97,6 +97,19 @@ TOOLSETS: tuple[Toolset, ...] = (
         tools=("open_reservations",),
     ),
     Toolset(
+        id="control-tower",
+        module="sc.mcp.control_tower",
+        title="Control tower",
+        owner="Category and platform operations",
+        why="Where every feed's rows have got to, the KPIs over a window, and "
+            "what the models spent reaching them. Nothing here decides "
+            "anything - it joins what the readiness, onboarding and lifecycle "
+            "surfaces already derived, which is why it is read-only and why "
+            "the spend cap that goes with it is not a tool.",
+        tools=("tower_flow", "tower_feeds", "tower_feed", "tower_kpis",
+               "tower_spend"),
+    ),
+    Toolset(
         id="knowledge-base",
         module="sc.mcp.knowledge_base",
         title="Knowledge base",

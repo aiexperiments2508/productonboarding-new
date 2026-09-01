@@ -1,6 +1,6 @@
 """Each publication system, as its own MCP endpoint.
 
-The ingest estate is ten servers because ten systems send data. The publication
+The ingest estate is fifteen servers because fifteen systems send data. The publication
 estate is six because six channels own listings, and the same argument applies:
 one server with a channel argument is one system with a protocol bolted on.
 

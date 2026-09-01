@@ -275,6 +275,161 @@ def llm_usage(run_id: str | None = None) -> dict:
     return gateway.usage_summary(run_id)
 
 
+# ---------------------------------------------------------------------------
+# Control Tower - spend
+# ---------------------------------------------------------------------------
+# `/api/llm/usage` above answers "what has this process spent, ever". These
+# answer the questions an operator with a budget actually asks: what did *this
+# window* cost, which model and which part of the system spent it, and what did
+# the cache save. They read `llm_ledger`, which is one row per call; the usage
+# route reads `llm_calls`, which is one row per distinct prompt. Both are true
+# and they are not the same number, so both are kept.
+
+
+@app.get("/api/tower/flow")
+def tower_flow(start: str | None = None, end: str | None = None,
+               supplier: str | None = None, system: str | None = None,
+               limit: int = 200, use_model: bool = False) -> dict:
+    """Every feed's rows in the window, counted into the seven states.
+
+    The grain is the row a supplier sent, which is a variant. Product Lifecycle
+    places a *product*, and a product is as blocked as its worst variant - so
+    the two screens can show a different number for the same pack and both be
+    right. `grain` says which question was answered.
+    """
+    from sc.tower import register as register_mod
+
+    return register_mod.feeds(start, end, supplier=supplier, system=system,
+                              limit=limit, use_model=use_model,
+                              with_states=True)
+
+
+@app.get("/api/tower/feeds")
+def tower_feeds(start: str | None = None, end: str | None = None,
+                supplier: str | None = None, system: str | None = None,
+                kind: str | None = None, limit: int = 200,
+                states: bool = False, use_model: bool = False) -> dict:
+    """The feed register: what arrived, from whom, carried by what.
+
+    `states` off by default. Listing a hundred feeds does not need every row in
+    each of them assessed to be useful, and the detail route below asks for the
+    full picture - the same trade `readiness.assess_all` makes for the product
+    list.
+    """
+    from sc.tower import register as register_mod
+
+    return register_mod.feeds(start, end, supplier=supplier, system=system,
+                              kind=kind, limit=limit, use_model=use_model,
+                              with_states=states)
+
+
+@app.get("/api/tower/feeds/{submission_id}")
+def tower_feed(submission_id: str, use_model: bool = False) -> dict:
+    """One feed, row by row, with the state and the gate outcome for each."""
+    from sc.tower import flow as flow_mod
+
+    detail = flow_mod.for_feed(submission_id, use_model=use_model)
+    if detail is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no supplier data pack with id {submission_id}")
+    return detail
+
+
+@app.get("/api/tower/kpis")
+def tower_kpis(start: str | None = None, end: str | None = None,
+               supplier: str | None = None, system: str | None = None,
+               limit: int = 200, use_model: bool = False) -> dict:
+    """Volume, quality, correction, reliability, speed and cost for a window.
+
+    Durations are on the real clock and windows on the simulated one, which is
+    the only pairing that means anything on a replay. `clock` says so on the
+    response rather than leaving it to be worked out.
+    """
+    from sc.tower import kpis as kpis_mod
+
+    return kpis_mod.summary(start, end, supplier=supplier, system=system,
+                            limit=limit, use_model=use_model)
+
+
+@app.get("/api/tower/personas")
+def tower_personas() -> dict:
+    """The six roles, what each opens on, and the note saying it is a lens.
+
+    `enforced: false` is part of the contract, not a caveat in prose. A client
+    reading this must not be able to conclude the server is filtering anything.
+    """
+    from sc.tower import personas as personas_mod
+
+    return personas_mod.describe()
+
+
+@app.get("/api/tower/spend")
+def tower_spend(start: str | None = None, end: str | None = None,
+                group_by: str = "model") -> dict:
+    """Tokens and cost for a window, sliced by model, surface, feed or kind."""
+    from sc.tower import spend as spend_mod
+
+    try:
+        return spend_mod.summary(start, end, group_by=group_by)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/tower/budget")
+def tower_budget() -> dict:
+    """The spend cap, and what has gone against it since it was set."""
+    return gateway.budget()
+
+
+@app.post("/api/tower/budget")
+def set_tower_budget(body: dict) -> dict:
+    """Set or clear the cap. Needs a name, for the reason the threshold does.
+
+    Two caps, either of which is enough on its own: `usd` and `tokens`. The
+    token cap is not decoration - cost comes from the gateway's own
+    `response_cost`, and on a gateway whose price map does not know a model
+    there is no cost to cap, so a money-only control would be one that could
+    never fire. Passing both as null clears them.
+
+    A breached cap does not halt the factory - it raises the same error an
+    unreachable gateway raises, so every deterministic fallback in the system
+    runs and the work continues, narrower.
+    """
+    actor = str((body or {}).get("actor") or "").strip()
+    if not actor:
+        raise HTTPException(
+            status_code=400,
+            detail=("moving the spend cap is a governance decision and has to be "
+                    "attributable to somebody"))
+    raw = (body or {}).get("usd")
+    limit = None
+    if raw is not None:
+        try:
+            limit = float(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400,
+                                detail="usd must be a number, or null to clear")
+    raw_tokens = (body or {}).get("tokens")
+    tokens = None
+    if raw_tokens is not None:
+        try:
+            tokens = int(raw_tokens)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="tokens must be a whole number, or null to clear")
+    try:
+        return gateway.set_budget(limit, actor=actor, tokens=tokens)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Catalog
+# ---------------------------------------------------------------------------
+
+
 @app.get("/api/network")
 def get_network(as_of: str | None = None,
                 as_of_recorded: str | None = None) -> dict:

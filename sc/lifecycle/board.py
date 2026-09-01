@@ -24,7 +24,6 @@ def build(*, q: str = "", suppliers: list[str] | None = None,
     from sc.readiness import search as search_mod
     from sc.state import baseline as baseline_mod
     from sc.state import overlay as overlay_mod
-    from sc.tools import planning
 
     base = baseline_mod.get()
     rows = search_mod.find(q, limit=limit, suppliers=suppliers,
@@ -37,9 +36,7 @@ def build(*, q: str = "", suppliers: list[str] | None = None,
     records = record_mod.build_many([r["entity_id"] for r in rows],
                                     overlay=overlay, base=base)
 
-    dispatched = _dispatched_products(base)
-    corrected = _corrected_products(base)
-    redactions = _redactions_by_product(base, planning.open_redactions())
+    dispatched, corrected, redactions = signals(base)
 
     by_product: dict[str, stages_mod.Placement] = {}
     for row in rows:
@@ -167,6 +164,24 @@ def _place(by_product, row, summary, base, overlay, dispatched, corrected,
         system = finding.get("system")
         if system and system not in placement.systems:
             placement.systems.append(system)
+
+
+def signals(base) -> tuple[set[str], dict[str, dict], dict[str, list]]:
+    """The three product-level facts a lane depends on besides its verdict.
+
+    Which products something has been committed against, which are carrying a
+    correction nobody has resolved, and which have something hidden downstream.
+
+    Public because the control tower needs the same three to place a *variant*
+    in the same lanes this module places a *product* in. Two readings of
+    "has this been dispatched" would disagree the first time it mattered, and
+    the screen that disagreed would be the one somebody was presenting.
+    """
+    from sc.tools import planning
+
+    return (_dispatched_products(base),
+            _corrected_products(base),
+            _redactions_by_product(base, planning.open_redactions()))
 
 
 def _dispatched_products(base) -> set[str]:

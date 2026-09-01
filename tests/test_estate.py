@@ -63,7 +63,12 @@ def _event_ids() -> dict[int, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_manifest_declares_ten_systems_with_owners():
+def test_the_manifest_declares_every_system_with_an_owner():
+    """Named for the property rather than for a count. It was
+    `..._declares_ten_systems_...` while the manifest held fifteen, and the
+    assertion below is `>=` so nothing failed - only the name was wrong, which
+    is the kind of drift that survives because it costs nothing until somebody
+    reads it and believes it."""
     systems = manifest.SYSTEMS
 
     assert len(systems) >= 10

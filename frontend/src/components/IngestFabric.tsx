@@ -81,9 +81,9 @@ type TraceResult = Awaited<ReturnType<typeof api.trace>>;
 /** Whether the rail is open. Shut on a first visit, and remembered after -
  *  the same treatment the nav rail gets, for the same reason: it is a working
  *  preference and re-collapsing it on every load would be a small daily tax. */
-const RAIL_KEY = "sc.towerRail";
+const RAIL_KEY = "sc.fabricRail";
 
-export function ControlTower({
+export function IngestFabric({
   catalog, events, run, onStartRun, busy,
 }: {
   catalog: CatalogState | null;
@@ -348,7 +348,7 @@ export function ControlTower({
   return (
     <>
       <PageHeader
-        section="tower"
+        section="fabric"
         actions={
           <div className="flex items-center gap-2">
             {worstOpen && (

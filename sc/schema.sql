@@ -293,6 +293,9 @@ CREATE TABLE IF NOT EXISTS arrivals (
 CREATE INDEX IF NOT EXISTS idx_arrivals_system ON arrivals (system_id, seq);
 CREATE INDEX IF NOT EXISTS idx_arrivals_batch ON arrivals (batch_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_arrivals_event ON arrivals (event_id);
+-- The control tower windows arrivals by date. Without this every window is
+-- a full scan of the table, which grows by one row per delivered event.
+CREATE INDEX IF NOT EXISTS idx_arrivals_at ON arrivals (arrived_at);
 
 -- What is connected right now. Persisted rather than held in memory so a
 -- connection survives a restart, and so "what was the estate when this ran"
@@ -455,3 +458,53 @@ CREATE INDEX IF NOT EXISTS idx_suggestions_path
 -- batch must refresh the row rather than stack a second decision beside it.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_suggestion_open
   ON onboarding_suggestions (submission_id, entity_id, attribute_path);
+
+-- ---------------------------------------------------------------------------
+-- Model spend ledger - one row per invocation, cache hits included
+-- ---------------------------------------------------------------------------
+-- `llm_calls` above is a cache that has been doing double duty as the cost
+-- ledger, and the two jobs want opposite shapes. Its primary key is the cache
+-- key, so asking the same question twice bumps `hits` rather than inserting a
+-- second row - which is exactly right for a cache and wrong for a ledger in
+-- three ways at once. `created_at` is the *first* time that prompt was ever
+-- seen, so a window over it answers a question nobody asked. There is one row
+-- per distinct prompt, so "what did July cost" cannot be computed. And there is
+-- no column naming the feed, so spend cannot be attributed to the archive that
+-- caused it.
+--
+-- So the cache stays a cache and this is the ledger: append-only, one row per
+-- call, and never read on the hot path.
+--
+-- **A cache hit is recorded, not skipped.** It lands with
+-- `served_from_cache = 1`, its token counts intact and `cost_usd = 0`. That
+-- makes spend and spend-avoided two separate sums over the same table rather
+-- than one number with a footnote - and it means the honest reading and the
+-- flattering one are the same reading, which is the only reason to prefer it.
+--
+-- Two clocks, deliberately. `at` is real: money is spent when it is spent, and
+-- a spend event does not belong to the simulated flight. `sim_at` is the tape's
+-- clock, and it is what every window filters on, because every other date on
+-- this dashboard is simulated and one real column among them would silently
+-- return nothing - see the note in `sc/readiness/window.py`.
+
+CREATE TABLE IF NOT EXISTS llm_ledger (
+  id                TEXT PRIMARY KEY,       -- LLC-<hex12>
+  cache_key         TEXT NOT NULL,          -- joins to llm_calls
+  model             TEXT NOT NULL,
+  kind              TEXT NOT NULL,          -- COMPLETION | EMBEDDING
+  surface           TEXT NOT NULL,          -- the caller: readiness.reading, onboarding.suggest, ...
+  run_id            TEXT,
+  submission_id     TEXT,                   -- the feed, when one is in scope
+  prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd          REAL NOT NULL DEFAULT 0,
+  priced            INTEGER NOT NULL DEFAULT 0,  -- did anything actually price it
+  served_from_cache INTEGER NOT NULL DEFAULT 0,
+  latency_ms        REAL NOT NULL DEFAULT 0,
+  at                TEXT NOT NULL,          -- real wall clock
+  sim_at            TEXT NOT NULL           -- tape.sim_now(), what windows filter on
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_sim ON llm_ledger (sim_at, model);
+CREATE INDEX IF NOT EXISTS idx_ledger_feed ON llm_ledger (submission_id);
+CREATE INDEX IF NOT EXISTS idx_ledger_surface ON llm_ledger (surface, sim_at);

@@ -9,8 +9,8 @@ So each system gets its own server, its own endpoint, and its own tools, and
 they are mounted at ``/mcp/{system_id}`` on the same process the UI is served
 from. That is a deployment choice, not an architectural one: the calls still
 cross the protocol, the endpoints are still separately addressable, and moving
-one system to its own host would be a change to a URL. Running ten processes to
-prove a point about boundaries would cost a demo ten things that can fail.
+one system to its own host would be a change to a URL. Running fifteen processes to
+prove a point about boundaries would cost a demo fifteen things that can fail.
 
 Every tool here is **read-only**. A supplier system that could write to the
 retailer's catalog is not a supplier system, it is a compromise waiting to
@@ -99,7 +99,7 @@ def build(system: System) -> Any:
     Built per system rather than parameterised at call time so that each
     endpoint's tool list is genuinely that system's own - a client asking
     ``tools/list`` gets an answer scoped to who it is talking to, which is the
-    difference between ten servers and one server with a system argument.
+    difference between fifteen servers and one server with a system argument.
     """
     from mcp.server.fastmcp import FastMCP
 

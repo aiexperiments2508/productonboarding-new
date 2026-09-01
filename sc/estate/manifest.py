@@ -8,8 +8,9 @@ question "why is this attribute wrong" is answered by the second one at least
 as often as by the first.
 
 So the estate is declared here, as data, and nothing else in the application
-names one. Eleven systems, each standing for something a retailer genuinely
-runs:
+names one. Fifteen systems - eleven that assert things about a product, and
+four back-office systems appended below that only supply reference data. Each
+stands for something a retailer genuinely runs:
 
     supplier-portal        where a supplier types its own data
     supplier-pim           the supplier's master data, sent machine to machine

@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import {
-  IconApprovals, IconIntake, IconInvestigate, IconLifecycle, IconProduct,
-  IconScenarios, IconSystem, IconTower,
+  IconActivity, IconApprovals, IconIntake, IconInvestigate, IconLifecycle,
+  IconProduct, IconScenarios, IconSystem, IconTower,
 } from "../icons";
 import type { IconProps } from "../icons";
 
@@ -23,12 +23,12 @@ export interface Section {
 }
 
 export type SectionId =
-  | "tower" | "intake" | "lifecycle" | "product360" | "investigation"
-  | "scenarios" | "approvals" | "system";
+  | "fabric" | "intake" | "lifecycle" | "product360" | "investigation"
+  | "scenarios" | "approvals" | "tower" | "system";
 
 export const SECTIONS: Section[] = [
   {
-    id: "tower",
+    id: "fabric",
     label: "Ingest Fabric",
     description:
       "The catalog as a graph — every product, variant and channel, what a correction there would reach, and the tape arriving over it. What is in force opens from the rail.",
@@ -86,6 +86,19 @@ export const SECTIONS: Section[] = [
     description:
       "The suspended run, the change diff it is waiting on, and the append-only record of what was published.",
     Icon: IconApprovals,
+  },
+  {
+    id: "tower",
+    // "Control Tower", and it is the only section that reports on the estate
+    // rather than on one product, one correction or one batch. Ninth rather
+    // than first on purpose: it is the screen you read after the work, not the
+    // one you start it from.
+    label: "Control Tower",
+    description:
+      "Every feed from received to on sale, the KPIs over any date range, and "
+      + "what the models cost reaching them. Pick a persona to change what you "
+      + "are shown - it is a lens, not a permission boundary.",
+    Icon: IconActivity,
   },
   {
     id: "system",

@@ -283,7 +283,8 @@ def test_model(model: str | None = None) -> dict:
     try:
         text, usage = gateway.complete(
             [{"role": "user", "content": "Reply with exactly: OK"}],
-            model=target, temperature=0.0, use_cache=False)
+            model=target, temperature=0.0, use_cache=False,
+            agent="gateway.test")
         return {"ok": True, "model": target, "response": text.strip()[:80],
                 "latency_ms": round((time.time() - started) * 1000, 1),
                 "usage": usage.model_dump(mode="json")}

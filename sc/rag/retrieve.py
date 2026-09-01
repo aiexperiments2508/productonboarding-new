@@ -111,7 +111,8 @@ def search(
 
 
 def _semantic(index, query: str, allowed: set[int]) -> list[int]:
-    vector = np.asarray(gateway.embed([query])[0], dtype=np.float32)
+    vector = np.asarray(
+        gateway.embed([query], agent="retrieval.query")[0], dtype=np.float32)
     vector /= max(float(np.linalg.norm(vector)), 1e-9)
 
     # Vectors are normalised at build time, so the dot product is the cosine.

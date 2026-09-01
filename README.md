@@ -105,6 +105,11 @@ startup by a real `initialize` and `tools/list`; each declares what it emits and
 how badly it behaves. Connect another by pasting a URL, and the dependency map
 redraws from a topology message without a reload.
 
+(V9 appended four more — a warehouse, an EPOS, a campaign manager and a
+certificate register — which supply reference data and never a product fact, so
+the estate the platform mounts is **fifteen**. `sc/estate/manifest.py` is the
+one place either number lives.)
+
 Deliveries are asynchronous, batched and irregularly timed. Ingestion is
 sequenced. That split is the whole correctness argument and it is not a
 detail - the consumer cursor is a single watermark, so feeding interleaved
@@ -342,6 +347,83 @@ is arithmetic, and publishing is a separate decision behind a gate this does
 not touch. `tests/test_onboarding.py` pins that by counting the three tables
 before and after.
 
+## What V14 added
+
+Everything up to here answers a question about *one* thing — one correction,
+one product, one batch. **Control Tower** is the section that answers one about
+the estate: this supplier sent forty rows on the fourth of July, where are they
+now, how much of that is normal, and what did it cost.
+
+It is a join and a surface rather than a new pipeline, because the data was
+already there and nothing was reading it together.
+
+**Two state spines existed and neither met the other.** `sc/estate/submissions`
+walks a submission through nine stages and stops at `verdict` — it knows what
+arrived and what the system made of it, and nothing about what happened next.
+`sc/lifecycle/stages` places a product in one of six lanes from its *current*
+state — it knows a product is on sale and nothing about which archive delivered
+it. `sc/tower/flow.py` is the join: seven states from received to on sale,
+derived on read, with `state_of` a pure function in the same shape as
+`stage_of` and every input read from the module that owns it.
+
+**The grain is the row a supplier sent, and the screen says so.** Product
+Lifecycle places a *product*, and a product is as blocked as its worst variant —
+so a pack whose 500 ml is fit to sell and whose 1 L is not appears there as one
+product with its supplier, and here as one row cleared and one not. Both are
+right. The two screens will show different numbers for the same pack, and a
+caption saying which question was answered is what stops that reading as a bug.
+
+`RETURN_TO_SOURCE` is deliberately **not** blocked. Blocked means the gate
+stopped it or a finding blocks it — the two things a supplier has to fix. A
+record with a gap in it that the gate let through is mid-flight, and filing it
+as a failure would count the entire AI-correction lane as one.
+
+**A cache is not a ledger, and `llm_calls` was being asked to be both.** Its
+primary key is the cache key, so asking the same question twice left one row and
+a counter: `created_at` was the first time that prompt was ever seen, there was
+no row per invocation, and no column named the feed. None of "what did July
+cost", "what did this archive cost" or "which model" could be answered from it.
+
+So the cache stays a cache and `llm_ledger` is the ledger — append-only, one row
+per call, written at the two choke points `gateway.complete` already had, plus
+`embed`, which means retrieval spend stopped being invisible. **A cache hit is
+recorded, not skipped**, with its tokens intact and no cost, so spend and spend
+avoided are two sums over one table rather than one number with a footnote.
+
+**Two clocks, and each is used only for what it can answer.** Windows filter
+`submitted_at` and `sim_at`, which run on the replay clock; durations measure
+`wall_at`, `audit.ts` and `committed_at`, which run on the real one. Subtracting
+across them would say a feed that arrived in simulated August and published this
+morning took four weeks. In production these are one clock and the distinction
+disappears; on a replay it is the difference between an SLA and a fiction.
+
+**A cost of zero is not a fact about the price.** Cost is the gateway's own
+`response_cost`, and a model its price map does not recognise returns none — so
+the ledger carries a `priced` flag and a window nothing priced says so instead
+of reporting a confident $0.0000. Measured here: two of two live calls came back
+unpriced.
+
+Which is also why the cap is **two caps**. A money cap on a gateway that prices
+nothing is a governance control that can never fire, so there is a token cap
+beside it and either trips on its own. Past it the gateway raises the same error
+an unreachable gateway raises, so every deterministic fallback already written
+runs and the work continues with narrower answers — `checks_complete` goes false
+and says so. A control that halted the factory would be switched off within a
+day of somebody meeting it. It overshoots by up to one batch of concurrent calls
+and the docstring says why that is the trade rather than an oversight.
+
+**Six personas, and the screen calls them a lens.** There is no identity
+provider in this system, no session and no password; a decision records the name
+whoever took it typed. A persona changes which figures lead and nothing else,
+the API says `enforced: false` in its own contract, and the panel says it in a
+sentence. A picker that implied it were access control would be worse than no
+picker, because somebody would build a process on top of it.
+
+Everything is queryable before it is visible: `/api/tower/{flow,feeds,kpis,
+spend,personas,budget}`, and a seventh built-in MCP toolset carrying the reads.
+The spend cap is deliberately not one of its tools, for the same reason the
+approval gate is not an A2A peer.
+
 ## Driving the demo
 
 The seed pack is a UK superstore onboarding an air purifier and a packaged
@@ -453,7 +535,7 @@ density and the brand accent are in the appearance menu; all three persist.
 | Lineage | Typed edge walk: document → attribute → variant → asset → listing → channel |
 | Retrieval | BM25 + dense embeddings fused with weighted RRF, numpy matrix |
 | Event plane | SQLite tape with per-consumer cursors, replay clock |
-| Source estate | Eleven external systems, each an MCP server over HTTP, delivering in seeded batches at irregular times (`sc/estate/`) |
+| Source estate | Fifteen external systems, each an MCP server over HTTP, delivering in seeded batches at irregular times (`sc/estate/`) |
 | Readiness | Ten checks over a product record - seven rules, three that read and must cite - and a verdict that is arithmetic (`sc/readiness/`) |
 | Supplier packs | Templates derived from the attribute registry and the retailer profile, in five formats; one .zip back (`sc/datapack/`) |
 | Onboarding | A batch is a submission; a sequential readiness pass over it; a fill bounded by what a model can cite (`sc/onboarding/`) |
@@ -883,7 +965,7 @@ sitting in a temp file afterwards.
 python -m pytest tests/ -q
 ```
 
-677 tests, about eight and a half minutes. Three skip without an embedding
+866 tests, about five minutes across all cores. Three skip without an embedding
 matrix; the rest need no network.
 
 Four of them are load-bearing beyond their own subject, and are worth knowing
@@ -941,6 +1023,7 @@ protocol bolted on.
 | `channel-registry` | Channel specifications | no |
 | `content-store` | Content and asset management | no |
 | `knowledge-base` | Document management | no |
+| `control-tower` | Category and platform operations | no |
 | `event-plane` | Integration bus | tape advance |
 | `publishing-execution` | Channel publishing | **publishes** |
 
@@ -954,7 +1037,7 @@ toolset that owns them; the console shows each call with the transport it
 actually used, and a toolset that fails to spawn falls back in-process rather
 than losing the run.
 
-Beside those six, the **estate**: eleven external systems, each its own server at
+Beside those six, the **estate**: fifteen external systems, each its own server at
 `/mcp/{system}` over Streamable HTTP, dialled at startup by a real handshake.
 They are not toolsets this repository owns - they are systems it talks to, and
 the listing labels which is which.
@@ -1043,7 +1126,7 @@ corpus/      authored content standards, channel specs, policies, prior incident
 data/        generated seed pack, incl. golden/extractions.jsonl - the answer
              key the eval grades against (reproducible; git-ignored)
 sc/          contracts, db, state, sim, rag, llm, graph, tools, replay
-sc/estate/   the eleven external systems: manifest, emitter, defects, arrivals,
+sc/estate/   the fifteen external systems: manifest, emitter, defects, arrivals,
              their MCP servers, and the publication side
 sc/readiness/ the ten checks, the verdict, the staging page
 sc/datapack/ the supplier templates, in five formats, derived from the

@@ -5,7 +5,8 @@ import type {
   SCEvent, TraceStep,
 } from "../api";
 import { Approvals } from "../components/Approvals";
-import { ControlTower } from "../components/ControlTower";
+import { ControlTowerPanel } from "../components/tower/ControlTowerPanel";
+import { IngestFabric } from "../components/IngestFabric";
 import { Investigation } from "../components/Investigation";
 import { IntakeReport } from "../components/IntakeReport";
 import { Lifecycle } from "../components/Lifecycle";
@@ -52,7 +53,7 @@ export function App() {
 function Shell() {
   const toast = useToast();
 
-  const [section, setSection] = useState<SectionId>("tower");
+  const [section, setSection] = useState<SectionId>("fabric");
   const [navCollapsed, setNavCollapsed] = useState(
     () => localStorage.getItem(NAV_KEY) === "1"
   );
@@ -387,6 +388,19 @@ function Shell() {
     }
   }, [toast]);
 
+  /* The recorded flight's first and last day, so a date picker cannot offer a
+   * day the tape has nothing on. Derived rather than fetched: the catalog
+   * already carries the start and the length, and a second source for the same
+   * two dates is a second thing to keep in step. */
+  const horizon = useMemo(() => {
+    if (!catalog?.horizon_start) return null;
+    const start = new Date(catalog.horizon_start);
+    const end = new Date(start);
+    end.setDate(end.getDate() + (catalog.horizon_days ?? 0));
+    return { start: catalog.horizon_start.slice(0, 10),
+             end: end.toISOString().slice(0, 10) };
+  }, [catalog?.horizon_start, catalog?.horizon_days]);
+
   const paletteActions = useMemo(
     () => ({
       navigate: setSection,
@@ -446,8 +460,8 @@ function Shell() {
               rail, header, transport - stays up either way, and the run behind
               it is checkpointed server-side. */}
           <ErrorBoundary key={section} label={sectionById(section).label}>
-          {section === "tower" && (
-            <ControlTower
+          {section === "fabric" && (
+            <IngestFabric
               catalog={catalog} events={events} run={run}
               onStartRun={startRun} busy={busy}
             />
@@ -473,6 +487,9 @@ function Shell() {
               pending={pending} onOpenThread={openThread}
               onRefreshPending={refreshPending}
             />
+          )}
+          {section === "tower" && (
+            <ControlTowerPanel horizon={horizon} />
           )}
           {section === "system" && (
             <SystemControl

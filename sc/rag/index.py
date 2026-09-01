@@ -146,7 +146,8 @@ def _embed_all(texts: list[str]) -> np.ndarray:
     """
     rows: list[list[float]] = []
     for start in range(0, len(texts), EMBED_BATCH):
-        rows.extend(gateway.embed(texts[start:start + EMBED_BATCH]))
+        rows.extend(gateway.embed(texts[start:start + EMBED_BATCH],
+                                  agent="retrieval.index"))
 
     matrix = np.asarray(rows, dtype=np.float32)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)

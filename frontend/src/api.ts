@@ -1530,6 +1530,218 @@ export interface ChatVoiceStatus {
   note: string;
 }
 
+/* --- Control Tower -------------------------------------------------------
+ *
+ * Every response here carries the window it applied, `bounded` saying whether
+ * one was applied at all, and - where a model could have been involved -
+ * `checks_complete` and a caveat. The screen renders all four rather than the
+ * numbers alone, because a count that does not say what it left out is the
+ * thing this product spends its design avoiding.
+ */
+
+export type TowerState =
+  | "RECEIVED" | "PROCESSING" | "BLOCKED" | "ON_HOLD" | "ALL_CLEAR"
+  | "PUSHED_DOWNSTREAM" | "ON_SALE";
+
+export interface TowerFeedRow {
+  feed_id: string;
+  supplier: string;
+  system: string;
+  kind: string;
+  submitted_at: string;
+  wall_at: string;
+  doc_ref: string;
+  rows: number;
+  media_files: number;
+  carries_media: boolean;
+  events: number;
+  ingested: boolean;
+  counts: Record<TowerState, number>;
+  ai_corrected: number;
+  decided_by_person: number;
+  proposals?: number;
+  checks_complete: boolean;
+  spend: {
+    calls: number; cache_hits: number; tokens: number;
+    cost_usd: number; cost_avoided_usd: number;
+  };
+}
+
+export interface TowerRegister {
+  window: { start: string | null; end: string | null };
+  bounded: boolean;
+  filters: { supplier: string | null; system: string | null; kind: string | null };
+  feeds: TowerFeedRow[];
+  count: number;
+  /** What the window holds before `limit` was applied. Differs from `count`
+   *  when the cap bit, and then every figure on the screen is a sample. */
+  matched: number;
+  truncated: boolean;
+  limit: number;
+  by_kind: { key: string; feeds: number; rows: number }[];
+  by_supplier: { key: string; feeds: number; rows: number }[];
+  by_system: { key: string; feeds: number; rows: number }[];
+  totals: Record<TowerState, number>;
+  products: number;
+  states_assessed: boolean;
+  assessable_feeds: number;
+  checks_complete: boolean;
+  caveat: string | null;
+}
+
+export interface TowerProductRow {
+  entity_id: string;
+  product_id: string;
+  sku: string;
+  name: string;
+  category: string;
+  supplier: string;
+  state: TowerState;
+  verdict: string;
+  gate: {
+    passed: boolean; outcome: string;
+    authority: string | null; why: string;
+  };
+  open_findings: number;
+  awaiting_decision: number;
+  ai_corrected: number;
+  decided_by_person: number;
+  lane: string;
+}
+
+export interface TowerFeedDetail {
+  feed_id: string;
+  supplier: string;
+  system: string;
+  submitted_at: string;
+  kind: string;
+  /** "variant" - the row a supplier sent. Product Lifecycle places a product,
+   *  and the two can differ for the same pack without either being wrong. */
+  grain: string;
+  ingested: boolean;
+  rows: number;
+  assessed: number;
+  media_events: number;
+  proposals: number;
+  counts: Record<TowerState, number>;
+  ai_corrected: number;
+  decided_by_person: number;
+  checks_complete: boolean;
+  caveat: string | null;
+  products: TowerProductRow[];
+}
+
+export interface TowerKpis {
+  window: { start: string | null; end: string | null };
+  bounded: boolean;
+  grain: string;
+  feeds_received: number;
+  feeds_matched: number;
+  truncated: boolean;
+  rows_received: number;
+  rows_assessed: number;
+  states: Record<TowerState, number>;
+  /** Every rate is null rather than 0 when its denominator is empty. */
+  compliance_pass_rate: number | null;
+  all_clear_rate: number | null;
+  blocked_rate: number | null;
+  awaiting_decision_rate: number | null;
+  residual_error_rate: number | null;
+  residual_errors: number;
+  proposals: number;
+  autonomous_fills: number;
+  decisions_by_person: number;
+  awaiting_decision: number;
+  autonomous_fill_rate: number | null;
+  human_decision_rate: number | null;
+  feed_success_rate: number | null;
+  feeds_with_defects: number;
+  /** "real" - both ends of every duration are wall clock, while the window
+   *  filters the simulated one. Subtracting across the two means nothing. */
+  clock: string;
+  median_hours_to_downstream: number | null;
+  median_hours_to_first_fill: number | null;
+  measured_downstream: number;
+  measured_first_fill: number;
+  tokens: number;
+  tokens_avoided: number;
+  cost_usd: number;
+  cost_avoided_usd: number;
+  cost_per_row_cleared_usd: number | null;
+  priced: boolean;
+  checks_complete: boolean;
+  caveat: string | null;
+}
+
+export interface TowerSpendGroup {
+  key: string;
+  calls: number;
+  cache_hits: number;
+  tokens: number;
+  tokens_avoided: number;
+  cost_usd: number;
+  cost_avoided_usd: number;
+}
+
+export interface TowerBudget {
+  limit_usd: number | null;
+  /** The cap in tokens. Not redundant with the money one: cost comes from the
+   *  gateway's own price map, and on a gateway that prices nothing a money cap
+   *  can never be reached. Tokens are always counted. */
+  limit_tokens: number | null;
+  since: string | null;
+  spent_usd: number;
+  spent_tokens: number;
+  calls: number;
+  remaining_usd: number | null;
+  remaining_tokens: number | null;
+  exceeded: boolean;
+  /** Which cap tripped - "cost", "tokens", or null. A refusal that did not say
+   *  would send an operator to raise the wrong number. */
+  exceeded_by: "cost" | "tokens" | null;
+}
+
+export interface TowerSpend {
+  window: { start: string | null; end: string | null };
+  bounded: boolean;
+  group_by: string;
+  calls: number;
+  live_calls: number;
+  cache_hits: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  tokens: number;
+  tokens_avoided: number;
+  cost_usd: number;
+  /** What the cache saved, read off the cached calls' own recorded price.
+   *  Never added to `cost_usd` - they are two sums over one table. */
+  cost_avoided_usd: number;
+  unpriced_calls: number;
+  avg_latency_ms: number;
+  priced: boolean;
+  caveat: string | null;
+  groups: TowerSpendGroup[];
+  budget: TowerBudget;
+}
+
+export interface TowerPersona {
+  id: string;
+  label: string;
+  question: string;
+  default_tab: string;
+  tiles: string[];
+  scope: string[];
+}
+
+export interface TowerPersonas {
+  personas: TowerPersona[];
+  default: string;
+  tabs: string[];
+  /** Always false. A client must not be able to conclude the server filters. */
+  enforced: boolean;
+  note: string;
+}
+
 export const api = {
   health: () => get<Health>("/api/health"),
 
@@ -2051,6 +2263,79 @@ export const api = {
   testModel: (model?: string) =>
     post<{ ok: boolean; model: string; response?: string; error?: string;
            latency_ms: number }>("/api/llm/test", { model }),
+  /* --- Control Tower ---------------------------------------------------- */
+
+  /** The feed register. `states` off by default: listing a hundred feeds does
+   *  not need every row in each of them assessed to be useful, and the detail
+   *  call below asks for the full picture. */
+  towerFeeds: (o: {
+    start?: string; end?: string; supplier?: string; system?: string;
+    kind?: string; limit?: number; states?: boolean;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (o.start) q.set("start", o.start);
+    if (o.end) q.set("end", o.end);
+    if (o.supplier) q.set("supplier", o.supplier);
+    if (o.system) q.set("system", o.system);
+    if (o.kind) q.set("kind", o.kind);
+    if (o.limit != null) q.set("limit", String(o.limit));
+    if (o.states) q.set("states", "true");
+    const tail = q.toString();
+    return get<TowerRegister>("/api/tower/feeds" + (tail ? "?" + tail : ""));
+  },
+
+  /** The same window with every row placed in its state. */
+  towerFlow: (o: {
+    start?: string; end?: string; supplier?: string; system?: string;
+    limit?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (o.start) q.set("start", o.start);
+    if (o.end) q.set("end", o.end);
+    if (o.supplier) q.set("supplier", o.supplier);
+    if (o.system) q.set("system", o.system);
+    if (o.limit != null) q.set("limit", String(o.limit));
+    const tail = q.toString();
+    return get<TowerRegister>("/api/tower/flow" + (tail ? "?" + tail : ""));
+  },
+
+  towerFeed: (submissionId: string) =>
+    get<TowerFeedDetail>("/api/tower/feeds/" + encodeURIComponent(submissionId)),
+
+  towerKpis: (o: {
+    start?: string; end?: string; supplier?: string; system?: string;
+    limit?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (o.start) q.set("start", o.start);
+    if (o.end) q.set("end", o.end);
+    if (o.supplier) q.set("supplier", o.supplier);
+    if (o.system) q.set("system", o.system);
+    if (o.limit != null) q.set("limit", String(o.limit));
+    const tail = q.toString();
+    return get<TowerKpis>("/api/tower/kpis" + (tail ? "?" + tail : ""));
+  },
+
+  towerSpend: (o: { start?: string; end?: string; groupBy?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (o.start) q.set("start", o.start);
+    if (o.end) q.set("end", o.end);
+    if (o.groupBy) q.set("group_by", o.groupBy);
+    const tail = q.toString();
+    return get<TowerSpend>("/api/tower/spend" + (tail ? "?" + tail : ""));
+  },
+
+  towerPersonas: () => get<TowerPersonas>("/api/tower/personas"),
+
+  towerBudget: () => get<TowerBudget>("/api/tower/budget"),
+
+  /** Set or clear the model spend cap. `usd: null` clears it. Needs a name for
+   *  the same reason the autonomy threshold does: it is a governance decision,
+   *  and one nobody can attribute is one nobody can audit. */
+  setTowerBudget: (usd: number | null, actor: string,
+                   tokens: number | null = null) =>
+    post<TowerBudget>("/api/tower/budget", { usd, actor, tokens }),
+
   usage: () =>
     get<{ calls: number; cache_hits: number; prompt_tokens: number;
           completion_tokens: number; cost_usd: number; avg_latency_ms: number }>(

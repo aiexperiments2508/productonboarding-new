@@ -366,7 +366,7 @@ def _attribute_row(event: Event, raw: dict, signal_id: str, conn,
                                        system=system, defects=defects))
 
     definition = base.attr_defs.get(row.path)
-    if _is_gap(definition, row.value):
+    if is_gap(definition, row.value):
         return _signal(
             event, signal_id, row, held, CorrectionKind.DATA_GAP,
             entities=[row.entity_id, row.doc_id],
@@ -605,12 +605,17 @@ def _material(base, path: str, old: object, new: object) -> bool:
     return True
 
 
-def _is_gap(definition, value: object) -> bool:
+def is_gap(definition, value: object) -> bool:
     """A mandatory attribute that arrived with nothing in it.
 
     An empty list is not a gap - an empty ``may_contain`` is a declared absence
     of allergens, and the validator counts it as answered. Only "no value at
     all" is missing information.
+
+    Public because ``sc.graph.nodes`` derives the open DATA_GAP cases from the
+    facts in force and has to answer this question exactly the way ingestion
+    answered it. Two copies of the predicate would be two definitions of a gap,
+    and the queue would disagree with the record that filled it.
     """
     if definition is None or not definition.required_for:
         return False

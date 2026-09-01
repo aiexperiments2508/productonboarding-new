@@ -69,6 +69,12 @@ function Shell() {
   // three sections are not each fetching the same catalog.
   const [catalog, setCatalog] = useState<CatalogState | null>(null);
   const [events, setEvents] = useState<SCEvent[]>([]);
+  // How many times a portal has pushed something while this tab has been open.
+  // A counter rather than the submissions themselves: the Ingest Fabric reads
+  // the queue from its own endpoint, and this only has to tell it that reading
+  // again would be worthwhile. The shell has no business holding a second
+  // copy of a list one section renders.
+  const [portalArrivals, setPortalArrivals] = useState(0);
   const [replay, setReplay] = useState<ReplayState | null>(null);
   const [run, setRun] = useState<RunSnapshot | null>(null);
   // The shared approval queue, read from the server rather than assembled from
@@ -181,6 +187,11 @@ function Shell() {
         const incoming = (m.events as SCEvent[]) ?? [];
         setEvents((prev) => [...incoming, ...prev].slice(0, 200));
         setReplay(m.replay as ReplayState);
+        // A supplier submitted something rather than the tape releasing it.
+        // The server already tells the two apart - `_on_live` stamps the lane -
+        // and the difference is the whole reason the incoming queue can fill
+        // itself without polling.
+        if (m.lane === "LIVE") setPortalArrivals((n) => n + 1);
         // Facts change as documents land, so which corrections are in force -
         // and which listings they hold back - moves with the tape.
         refreshCatalog();
@@ -271,8 +282,17 @@ function Shell() {
    *
    * `caseId` names the product to scope to. Without it the graph picks the
    * worst case open rather than sweeping every correction in force into one
-   * recommendation - a reviewer approves a decision about a product. */
-  const startRun = useCallback(async (caseId?: string) => {
+   * recommendation - a reviewer approves a decision about a product.
+   *
+   * `navigate` is what makes this callable in a loop. One run finishing is
+   * news worth a screen change and a toast; the eleventh of a sweep the reader
+   * started deliberately is not, and moving them off the Ingest Fabric after
+   * the first case would take away the map they are watching the sweep on. The
+   * sweep announces its own tally when it is done.
+   */
+  const startRun = useCallback(async (caseId?: string,
+                                      options: { navigate?: boolean } = {}) => {
+    const announce = options.navigate !== false;
     setBusy(true);
     setNodeTrail([]);
     setLiveTrace([]);
@@ -295,26 +315,34 @@ function Shell() {
       threadRef.current = incident;
       localStorage.setItem("thread_id", incident);
       setRun(snapshot);
-      // Blast Radius, not the review screen. request_approval is the normal
-      // terminal state, so routing on it walked straight past the two sections
-      // the run exists to produce - what the correction reaches, and the
-      // readings of it. The pending decision keeps its own affordances: the
-      // rail badge, and the way onward on the toast below.
-      setSection("investigation");
-      toast.push({
-        tone: snapshot.awaiting_approval ? "warn" : "ok",
-        title: snapshot.awaiting_approval
-          ? "Waiting on review before anything republishes"
-          : "Correction loop finished",
-        // Which product was worked, not just which incident id it was filed
-        // under - the case is what the reviewer is being called to.
-        detail: snapshot.values.case?.title ?? incident,
-        action: snapshot.awaiting_approval
-          ? { label: "Go to Review & Audit", onClick: () => setSection("approvals") }
-          : undefined,
-      });
+      if (announce) {
+        // Blast Radius, not the review screen. request_approval is the normal
+        // terminal state, so routing on it walked straight past the two
+        // sections the run exists to produce - what the correction reaches,
+        // and the readings of it. The pending decision keeps its own
+        // affordances: the rail badge, and the way onward on the toast below.
+        setSection("investigation");
+        toast.push({
+          tone: snapshot.awaiting_approval ? "warn" : "ok",
+          title: snapshot.awaiting_approval
+            ? "Waiting on review before anything republishes"
+            : "Correction loop finished",
+          // Which product was worked, not just which incident id it was filed
+          // under - the case is what the reviewer is being called to.
+          detail: snapshot.values.case?.title ?? incident,
+          action: snapshot.awaiting_approval
+            ? { label: "Go to Review & Audit", onClick: () => setSection("approvals") }
+            : undefined,
+        });
+      }
+      return snapshot;
     } catch (e) {
+      // A sweep has to know a run failed, and it is the caller that decides
+      // whether to carry on. Reported here either way, because a silent
+      // failure inside a loop of eleven is the one that gets missed.
       toast.error("The correction run failed", String(e));
+      if (!announce) throw e;
+      return null;
     } finally {
       setBusy(false);
       setLiveNode(null);
@@ -467,6 +495,8 @@ function Shell() {
             <IngestFabric
               catalog={catalog} events={events} run={run}
               onStartRun={startRun} busy={busy}
+              onReplay={doReplay} arrivals={portalArrivals}
+              onOpenBatch={(id) => { setBatchId(id); setSection("intake"); }}
             />
           )}
           {section === "intake" && (
@@ -497,7 +527,6 @@ function Shell() {
           {section === "system" && (
             <SystemControl
               health={health} replay={replay} onReplay={doReplay}
-              events={events} catalog={catalog}
               busy={busy} onRefresh={refreshCore}
             />
           )}

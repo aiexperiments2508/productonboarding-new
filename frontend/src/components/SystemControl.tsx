@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, fmt } from "../api";
-import type {
-  CatalogState, Health, IndexStatus, ModelListing, ReplayState, SCEvent,
-} from "../api";
+import type { Health, IndexStatus, ModelListing, ReplayState } from "../api";
 import { PageHeader } from "../app/shell/PageHeader";
 import {
   IconAlert, IconJump, IconPause, IconPlay, IconRefresh, IconReset, IconStep,
@@ -19,7 +17,6 @@ import { AutonomyPanel } from "./AutonomyPanel";
 import { PolicyLibraryPanel } from "./corpus/PolicyLibraryPanel";
 import { CapabilityBoard } from "./CapabilityBoard";
 import { EstatePanel } from "./EstatePanel";
-import { EventFeed } from "./EventFeed";
 import { FactLineage } from "./FactLineage";
 import { MCPConsole } from "./MCPConsole";
 
@@ -30,13 +27,16 @@ import { MCPConsole } from "./MCPConsole";
  * and the response cache that makes a rehearsal deterministic and survivable
  * when the venue's network is not.
  *
- * It is tabbed rather than piled into two columns, and that is not tidying. The
- * Ingest Fabric is the graph now, so everything that used to sit under the map -
- * the estate, the arrivals pulse, the live feed - arrived here at once, and a
+ * It is tabbed rather than piled into two columns, and that is not tidying: a
  * single column of a dozen panels is a list nobody reads to the end of. Five
  * groups, each answering one question: what is the tape doing, what is plugged
  * in, what is it reading with, what may it decide on its own, and is any of it
  * healthy.
+ *
+ * The live feed used to be here, under the transport that releases it. It has
+ * gone to the Ingest Fabric, where the graph those arrivals reach is - see the
+ * note at the top of ``EventFeed``. What stays is the machinery: this tab is
+ * the tape's controls, not its output.
  *
  * The transport is also in the status strip, deliberately duplicated. This is
  * the full panel - speed, progress, the reset, the clear - and the strip is the
@@ -48,15 +48,10 @@ const SPEEDS = [1, 5, 10, 50];
 type TabId = "replay" | "estate" | "model" | "policy" | "library" | "health";
 
 export function SystemControl({
-  health, replay, events, catalog, onReplay, busy, onRefresh,
+  health, replay, onReplay, busy, onRefresh,
 }: {
   health: Health | null;
   replay: ReplayState | null;
-  /** The released tape, for the feed. Held by the shell so one subscription
-   *  serves every section that reads it. */
-  events: SCEvent[];
-  /** Names the ids the feed turns into sentences. */
-  catalog: CatalogState | null;
   onReplay: (body: { action: string; steps?: number; speed?: number; to_seq?: number }) => void;
   busy: boolean;
   onRefresh: () => Promise<void>;
@@ -113,7 +108,7 @@ export function SystemControl({
 
       <Tabs fill value={tab} onValueChange={(v) => setTab(v as TabId)}>
         <TabList ariaLabel="Parts of the machinery">
-          <Tab value="replay">Replay &amp; feed</Tab>
+          <Tab value="replay">Replay transport</Tab>
           <Tab value="estate">Estate &amp; connectors</Tab>
           <Tab value="model">Model &amp; retrieval</Tab>
           <Tab value="policy">Onboarding policy</Tab>
@@ -202,16 +197,14 @@ export function SystemControl({
                 correction — the portal feed that certified the old value, the
                 corrected spec sheet, and the marketplace rejection that follows
                 arrive as separate events. The same controls are in the status
-                bar, so you can step the tape without leaving the Ingest Fabric.
+                bar, so you can step the tape without leaving the Ingest Fabric
+                — which is where what it releases now reads, beside the graph
+                the arrivals reach.
               </p>
             </div>
           </Panel>
 
           <ClearPanel busy={busy} onDone={onRefresh} />
-
-          <EventFeed
-            events={events} catalog={catalog} busy={busy} onReplay={onReplay}
-          />
         </TabPanel>
 
         <TabPanel value="estate" scroll>

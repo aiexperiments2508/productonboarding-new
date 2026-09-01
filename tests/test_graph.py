@@ -416,6 +416,132 @@ def test_a_run_with_no_case_named_takes_the_worst_one_open():
     assert SNACK in named[0]["summary"]
 
 
+# ---------------------------------------------------------------------------
+# What is allowed to open a case
+# ---------------------------------------------------------------------------
+#
+# The case list is what a reviewer picks from and what `monitor` takes when the
+# caller names none, so a correction it cannot see is a correction the loop
+# cannot be run against at all. It used to see two things: a value that moved,
+# and a channel that refused a feed. These are the three it was blind to.
+#
+# All three arrive on the live lane rather than the recording, which is not a
+# testing convenience - it is where they happen. A supplier typing into the
+# portal is exactly what contradicts a pack label and exactly what leaves a
+# mandatory field empty.
+
+
+def _live_row(entity_id: str, path: str, value: object, doc_id: str,
+              version: str = "v9"):
+    """One attribute row, shaped the way the intake server shapes a portal
+    submission."""
+    from sc.contracts import EventType
+
+    return tape.append_live(
+        EventType.SUPPLIER_FEED, "VENDOR_PORTAL",
+        {"doc_id": doc_id, "doc_version": version, "supplier": "SUP-01",
+         "entity_id": entity_id, "path": path, "value": value,
+         "kind": "ATTRIBUTE"},
+        system_id="supplier-portal")
+
+
+def test_a_feed_row_that_lost_a_precedence_contest_opens_a_case():
+    """The disagreement `ingest` refuses to record is still a disagreement.
+
+    POL-002 keeps the pack label and drops the spreadsheet row - correctly, or
+    a portal upload could quietly beat approved artwork. But `ingest` returns
+    before `store.record`, so the losing value leaves no fact, and a case list
+    derived from facts alone could never see it. A supplier could contradict
+    the artwork and be told nothing at all.
+    """
+    base = baseline_mod.get()
+    entity, path = "VAR-02A", "food.fibre_g"
+    standing = base.attr_sources[(entity, path)].doc_id
+    loser = next(d.id for d in base.source_docs.values()
+                 if d.precedence < base.source_docs[standing].precedence)
+
+    # `append_live` ingests inline, under the same precedence rules a taped
+    # row goes through, so the contest has already been decided here.
+    _live_row(entity, path, 36.5, loser)
+
+    signals = nodes._signals_in_force(tape.sim_now())
+    conflict = next(s for s in signals if s["kind"] == "SOURCE_CONFLICT")
+
+    assert conflict["attribute_paths"] == [path]
+    # Both documents, because the pair is the argument. A case naming one of
+    # them would hide what is actually in dispute.
+    assert {standing, loser} <= set(conflict["entities"])
+    assert conflict["entities"][0] == entity, "the subject is read first"
+    assert nodes.case_of(conflict, base) == SNACK
+
+    # And it is a case, in the list, and therefore runnable.
+    assert SNACK in [c["case_id"] for c in nodes.open_cases(signals, base)]
+
+
+def test_a_conflict_the_record_came_round_to_stops_being_open():
+    """Derived, so it retires itself.
+
+    Nothing stores this signal, which is what makes the resolution rule
+    trustworthy: the contest is recomputed against what is in force *now*, so a
+    value the record later adopted simply stops being reported. A stored
+    conflict would need somebody to remember to close it.
+    """
+    base = baseline_mod.get()
+    entity, path = "VAR-02A", "food.fibre_g"
+    standing = base.attr_sources[(entity, path)].doc_id
+    loser = next(d.id for d in base.source_docs.values()
+                 if d.precedence < base.source_docs[standing].precedence)
+    held = base.attr_values[(entity, path)]
+
+    # The portal restates exactly what is already in force. It still loses the
+    # precedence contest; there is simply nothing left to argue about.
+    _live_row(entity, path, held, loser)
+
+    signals = nodes._signals_in_force(tape.sim_now())
+    assert not [s for s in signals if s["kind"] == "SOURCE_CONFLICT"]
+
+
+def test_a_required_value_submitted_empty_opens_a_case_as_a_gap():
+    """A mandatory field emptied is not a correction to what it used to say.
+
+    Classified by `ingest.is_gap` rather than by attribute path, so the queue
+    and the ingestion that recorded the row cannot disagree about what counts
+    as missing - and so the row reads as "this is now absent" rather than as
+    "this changed to nothing".
+    """
+    base = baseline_mod.get()
+    entity, path = "VAR-01A", "identifiers.gtin"
+    assert base.attr_defs[path].required_for, "the fixture attribute is mandatory"
+
+    _live_row(entity, path, None, base.attr_sources[(entity, path)].doc_id)
+
+    signals = nodes._signals_in_force(tape.sim_now())
+    gap = next(s for s in signals if s["kind"] == "DATA_GAP")
+
+    assert gap["attribute_paths"] == [path]
+    assert "empty" in gap["summary"]
+    assert "required on" in gap["summary"]
+    assert nodes.case_of(gap, base) == PURIFIER
+
+
+def test_withdrawing_a_revision_nothing_stands_on_opens_nothing():
+    """The tape's own withdrawal, and why the rule is scoped to the revision.
+
+    DOC-06 v2 was a provisional dimensional drawing retracted when the tooling
+    audit closed. v1 stands, every value on the kettle is exactly as supported
+    as it was, and reporting that as an open case would turn the one piece of
+    good news on the tape into a critical incident.
+    """
+    kettle_doc = baseline_mod.get().source_docs["DOC-06"]
+    assert kettle_doc.version == "v1", (
+        "the version the kettle's values actually stand on")
+
+    signals = nodes._signals_in_force(tape.sim_now())
+
+    assert not [s for s in signals if s["kind"] == "DOC_WITHDRAWN"], (
+        "a retracted revision nothing was recorded from is not an open case")
+
+
 def test_a_correction_that_names_no_product_is_not_dropped():
     """A correction the system could not attribute to a product is exactly the
     kind of thing that must stay on a reviewer's list."""

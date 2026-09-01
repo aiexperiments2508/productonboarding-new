@@ -383,6 +383,29 @@ def _signals_in_force(now: datetime) -> list[dict]:
     supplier sends the notice early. So the valid-time read is taken both at
     the replay clock and at the end of the horizon, and anything visible only
     in the second is reported with the date it becomes true.
+
+    **Five kinds of open thing, not two.** This used to report a moved value
+    and a refused feed, and nothing else - which meant the queue a reviewer
+    picks from, and the case ``monitor`` takes when the caller names none, were
+    blind to three sorts of correction the estate detects perfectly well:
+
+      DATA_GAP        a document asserted a required value and left it empty.
+                      Classified here rather than by path, using ingestion's
+                      own ``is_gap`` so the queue cannot disagree with the
+                      record that filled it.
+      DOC_WITHDRAWN   a document is no longer in force and values are still
+                      standing on it. ``overlay.doc_status`` has carried this
+                      the whole time and only ``summarise`` was reading it.
+      SOURCE_CONFLICT a feed row lost a precedence contest. ``ingest`` refuses
+                      to record the loser - correctly - so the disagreement
+                      leaves no fact behind, and it is recomputed here from the
+                      event that carried it against the value in force now.
+
+    All three are *derived*, like everything else here. Nothing is stored, so
+    nothing has to be retired: a conflict whose value later converges, a gap
+    later filled and a document later reinstated stop being reported because
+    the record stopped saying them, which is the only resolution rule that
+    cannot drift out of step with the facts.
     """
     base = baseline_mod.get()
     horizon_end = datetime.combine(
@@ -393,6 +416,22 @@ def _signals_in_force(now: datetime) -> list[dict]:
 
     signals: list[dict] = []
     seen: set[tuple[str, str]] = set()
+    # Which entities are standing on which document *version*, for the
+    # withdrawal pass below. Built here rather than in a second scan because
+    # the document a value came from is already being resolved on this line,
+    # and resolving it twice means two lineage walks over the same facts.
+    #
+    # Keyed by the pinned ``doc:version``, never by the document alone. A
+    # withdrawal retracts one revision, and ``_doc_ref`` is explicit that an
+    # unpinned fact merely *inherits* whatever version is in force - so keying
+    # by document would report every value the document ever asserted as
+    # unsupported the moment a later revision was retracted, which is the
+    # opposite of what a retraction means.
+    standing: dict[str, dict[str, set[str]]] = {}
+
+    # What every attribute holds now and who said so, assembled once. The
+    # conflict pass below asks this of every row on the tape.
+    held = _held_values(base, in_force)
 
     for ov in (in_force, announced):
         for key in sorted(ov.attr_values):
@@ -401,21 +440,45 @@ def _signals_in_force(now: datetime) -> list[dict]:
                 continue
             attr_state = ov.attr_values[key]
             was = base.attr_values.get(key)
+
+            head = _fact_head(attr_state)
+            source_id = (head.provenance.source_id or "") if head else ""
+            doc, _, pinned = source_id.partition(":")
+            if doc and pinned:
+                standing.setdefault(f"{doc}:{pinned}", {}) \
+                        .setdefault(entity_id, set()).add(path)
+
             # A feed that restates a value it already agrees with is not news.
+            # Checked after the document is resolved: an unchanged value is
+            # still standing on whatever asserted it, and the withdrawal of
+            # that document is news about the value even so.
             if attr_state.value == was:
                 continue
             seen.add(key)
 
-            head = _fact_head(attr_state)
-            doc, _, _ = ((head.provenance.source_id or "") if head else "").partition(":")
             definition = base.attr_defs.get(path)
             effective = head.valid_from.date() if head else None
             future = bool(effective and effective > now.date())
 
+            # A required value a document asserted as empty is a gap, not a
+            # correction to whatever it used to say. ``ingest.is_gap`` decides,
+            # so this and the ingestion that recorded the row cannot disagree
+            # about what counts as missing.
+            gap = ingest.is_gap(definition, attr_state.value)
             unit = f" {definition.unit}" if definition and definition.unit else ""
+            summary = (
+                f"{doc} {attr_state.version} sent {entity_id} {path} empty; "
+                f"it is required on "
+                f"{', '.join(sorted(definition.required_for))}"
+                if gap else
+                f"{doc} {attr_state.version} corrects {entity_id} "
+                f"{path}: {was} -> {attr_state.value}{unit}"
+                + (f", effective {effective}" if future else ""))
+
             signals.append({
                 "id": f"SIG-{entity_id}-{path}",
-                "kind": _kind_for_path(path),
+                "kind": (str(CorrectionKind.DATA_GAP) if gap
+                         else _kind_for_path(path)),
                 "detected_at": (head.recorded_at if head else now).isoformat(),
                 "entities": [entity_id],
                 "attribute_paths": [path],
@@ -423,9 +486,7 @@ def _signals_in_force(now: datetime) -> list[dict]:
                 "new_value": attr_state.value,
                 "unit": definition.unit if definition else None,
                 "window_start": effective.isoformat() if effective else None,
-                "summary": (f"{doc} {attr_state.version} corrects {entity_id} "
-                            f"{path}: {was} -> {attr_state.value}{unit}"
-                            + (f", effective {effective}" if future else "")),
+                "summary": summary,
                 "source": {"doc_id": doc, "version": attr_state.version},
                 "provisional": False,
                 "resolves_issue": False,
@@ -457,7 +518,175 @@ def _signals_in_force(now: datetime) -> list[dict]:
             "provenance": {"kind": str(ProvenanceKind.RECORDED)},
         })
 
+    signals += _withdrawn_doc_signals(now, in_force, base, standing)
+    signals += _conflict_signals(now, base, held)
+
     return signals
+
+
+def _held_values(base, in_force) -> dict[tuple[str, str], tuple[object, str]]:
+    """What every attribute holds now, and which document said so.
+
+    The same answer ``ingest._in_force`` gives, assembled once for the whole
+    record instead of one fact-store query per row. The conflict pass below
+    asks this question of every attribute row on the tape, and asking it a
+    query at a time turned a page load into several hundred round trips.
+
+    The overlay is a diff - only corrected values are in it - so the lineage
+    walk this needs runs over a handful of facts rather than over the estate.
+    """
+    values: dict[tuple[str, str], tuple[object, str]] = {}
+    for key, value in base.attr_values.items():
+        source = base.attr_sources.get(key)
+        values[key] = (value, source.doc_id if source else "")
+    for key, attr_state in in_force.attr_values.items():
+        head = _fact_head(attr_state)
+        doc, _, _ = ((head.provenance.source_id or "") if head else "").partition(":")
+        values[key] = (attr_state.value, doc)
+    return values
+
+
+def _withdrawn_doc_signals(now: datetime, in_force, base,
+                           standing: dict[str, dict[str, set[str]]]
+                           ) -> list[dict]:
+    """Retracted document revisions that values are still standing on.
+
+    A withdrawal changes no value - every number in the record is exactly what
+    it was a moment ago - which is precisely why it needs saying: the evidence
+    under those numbers has gone, and no amount of reading the values
+    themselves would ever reveal it.
+
+    **Scoped to the retracted revision, and that is the whole of the rule.**
+    Withdrawing a revision is usually the opposite of bad news: the tape's own
+    withdrawal retracts a provisional dimensional drawing after the tooling
+    audit closed, and what it means is that the *earlier* version stands and
+    nothing is wrong. ``state.merge_signals`` already treats that as a
+    resolver. So a case opens only where a fact in force pins the withdrawn
+    ``doc:version`` - a value that revision asserted and nothing has since
+    replaced. A fact that merely inherits the version, or one recorded from an
+    earlier revision, is still supported and is not reported.
+
+    One signal per entity, not per path: a revision withdrawn under six of a
+    variant's attributes is one piece of news about that variant, and six rows
+    would be six cases' worth of noise about one event.
+    """
+    out: list[dict] = []
+    for doc_id in sorted(in_force.doc_status):
+        status = str(in_force.doc_status[doc_id])
+        if status == "ACTIVE":
+            continue
+        version = in_force.doc_versions.get(doc_id, "")
+        if not version:
+            continue
+        ref = f"{doc_id}:{version}"
+        entities = standing.get(ref, {})
+
+        for entity_id in sorted(entities):
+            paths = sorted(entities[entity_id])
+            out.append({
+                "id": f"SIG-{entity_id}-{doc_id}-{status}",
+                "kind": str(CorrectionKind.DOC_WITHDRAWN),
+                "detected_at": now.isoformat(),
+                # The subject before the document, which is the order
+                # ``case_of`` reads entities in and the order every other
+                # signal here uses.
+                "entities": [entity_id, doc_id],
+                "attribute_paths": paths,
+                "old_value": None,
+                "new_value": None,
+                "summary": (f"{doc_id} {version} is {status}, and {entity_id} "
+                            f"is still standing on it for "
+                            f"{', '.join(paths)} - the values are unchanged "
+                            f"and the evidence under them has gone"),
+                "source": {"doc_id": doc_id, "version": version},
+                "provisional": False,
+                # Deliberately not a resolver. A retraction that *clears* an
+                # earlier notice is read out of the event by ``extract``, which
+                # sets this; a retraction that leaves values unsupported is the
+                # opposite, and must not retire the signals it stands beside.
+                "resolves_issue": False,
+                "provenance": {"kind": str(ProvenanceKind.RECORDED),
+                               "source_id": ref},
+            })
+    return out
+
+
+#: How far back the conflict pass reads the tape. A contest is settled at the
+#: instant the row arrives and stays settled, so what this bounds is how long a
+#: losing row keeps asking to be looked at - not whether it was refused.
+CONFLICT_SCAN = 400
+
+
+def _conflict_signals(now: datetime, base,
+                      held: dict[tuple[str, str], tuple[object, str]]
+                      ) -> list[dict]:
+    """Feed rows a precedence contest refused, recomputed from the tape.
+
+    ``ingest`` returns before ``store.record`` when an incoming row ranks below
+    the document in force, and it is right to: recording the loser would let a
+    portal spreadsheet quietly beat a pack label. But it also means the
+    disagreement leaves no fact behind, and a view derived from facts alone
+    cannot see it - which is why a source conflict has never opened a case,
+    though the graph has a whole leg, ``supplier_clarification``, for one.
+
+    Both halves survive even so. The losing value is in the event payload,
+    which is durable; the winning value is the fact in force. So the contest is
+    recomputed rather than remembered, and against what is in force *now*
+    rather than at the instant it arrived - which is what gives resolution for
+    free. A row the record later adopted, or whose document later outranked the
+    one that beat it, simply stops being reported.
+    """
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for event in tape.released(limit=CONFLICT_SCAN,
+                               event_type=str(EventType.SUPPLIER_FEED)):
+        for raw in ingest._raw_rows(event.payload or {}):
+            row = ingest._row(base, raw)
+            if row is None or not row.doc_id:
+                continue
+            key = (row.entity_id, row.path)
+            if key in seen:
+                continue
+            standing_value, standing_doc = held.get(key, (None, ""))
+            # The record came round to it: there is nothing left in dispute.
+            if standing_value == row.value:
+                continue
+            # This row won, or was never ranked below the value that stands.
+            if precedence(base, row.doc_id) >= precedence(base, standing_doc):
+                continue
+            if not ingest._material(base, row.path, standing_value, row.value):
+                continue
+            seen.add(key)
+
+            incoming = base.source_docs.get(row.doc_id)
+            standing_of = base.source_docs.get(standing_doc)
+            out.append({
+                "id": f"SIG-{row.entity_id}-{row.path}-CONFLICT",
+                "kind": str(CorrectionKind.SOURCE_CONFLICT),
+                "detected_at": event.ts.isoformat(),
+                # Entity first, then both documents. The pair is the whole
+                # point: a case naming one of them would hide the argument.
+                "entities": [row.entity_id, standing_doc, row.doc_id],
+                "attribute_paths": [row.path],
+                "old_value": standing_value,
+                "new_value": row.value,
+                "unit": row.unit,
+                "summary": (
+                    f"{row.ref} ({incoming.kind if incoming else 'unknown'}, "
+                    f"precedence {precedence(base, row.doc_id)}) says "
+                    f"{row.entity_id} {row.path} is {row.value}; "
+                    f"{standing_doc} "
+                    f"({standing_of.kind if standing_of else 'unknown'}, "
+                    f"precedence {precedence(base, standing_doc)}) has "
+                    f"{standing_value} - {ingest.PRECEDENCE_POLICY} keeps "
+                    f"{standing_doc}, so the feed value is not in force"),
+                "source": {"doc_id": row.doc_id, "version": row.version},
+                "provisional": False,
+                "resolves_issue": False,
+                "provenance": {"kind": str(ProvenanceKind.RECORDED),
+                               "source_id": row.ref},
+            })
+    return out
 
 
 def case_of(signal: dict, base) -> str | None:

@@ -1,6 +1,6 @@
 import type { Facets, MapView } from "../api";
 import { IconSearch } from "../icons";
-import { Badge, Button, Menu, MenuItem, SegmentedControl, cn } from "../ui";
+import { Badge, Button, Menu, MenuItem, SegmentedControl, Tooltip, cn } from "../ui";
 
 /* Search and filters for the Ingest Fabric.
  *
@@ -17,6 +17,11 @@ import { Badge, Button, Menu, MenuItem, SegmentedControl, cn } from "../ui";
  * The count line is not decoration. "10 of 150" is the difference between a
  * reviewer understanding they are looking at a sample and believing they are
  * looking at the estate.
+ *
+ * Eight rather than ten by default. The map draws every channel whatever the
+ * page size, so the number of products is also the number of rows of listings
+ * crossing the frame, and eight is where the picture still reads at a
+ * projector's width.
  */
 
 export const PAGE_SIZES = ["8", "10", "25", "50"] as const;
@@ -31,17 +36,22 @@ export interface MapFilters {
 }
 
 export const DEFAULT_MAP_FILTERS: MapFilters = {
-  q: "", limit: 10, offset: 0, suppliers: [], categories: [],
+  q: "", limit: 8, offset: 0, suppliers: [], categories: [],
 };
 
 export function MapControls({
-  filters, onChange, facets, page, busy,
+  filters, onChange, facets, page, busy, systems, onToggleSystems,
 }: {
   filters: MapFilters;
   onChange: (next: MapFilters) => void;
   facets?: Facets | null;
   page?: MapView["page"] | null;
   busy?: boolean;
+  /** Whether the estate tier is drawn. Not a filter - it changes what kind of
+   *  thing the picture is about - so it is not in `MapFilters` and does not
+   *  reset the page. */
+  systems?: boolean;
+  onToggleSystems?: () => void;
 }) {
   // Any change to what is selected resets the page. Staying on page four of a
   // filter that now has one page shows an empty map and looks like a fault.
@@ -93,6 +103,25 @@ export function MapControls({
         options={PAGE_SIZES.map((n) => ({ value: n, label: n }))}
         ariaLabel="How many products the map draws"
       />
+
+      {onToggleSystems && (
+        <Tooltip
+          content={
+            systems
+              ? "Hide the systems that delivered this data. They are the estate rather than the catalog, and System Control is the section about them."
+              : "Show which system delivered each source. Off by default: it is the estate rather than the catalog."
+          }
+        >
+          <Button
+            size="xs"
+            tone={systems ? "subtle" : "default"}
+            aria-pressed={systems}
+            onClick={onToggleSystems}
+          >
+            systems
+          </Button>
+        </Tooltip>
+      )}
 
       <div className="ml-auto flex items-center gap-1.5">
         <span className="font-mono text-2xs text-faint">

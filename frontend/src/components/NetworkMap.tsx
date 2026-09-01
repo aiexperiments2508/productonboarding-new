@@ -33,6 +33,7 @@ import { cn } from "../ui";
  *
  *   flow           this listing is publishing. Speed is scaled by the channel's
  *                  freeze window, so the print catalogue visibly lags the web.
+ *                  Only on a listing *in focus* - see below.
  *   gate           the listing is WITHHELD. The flow stops dead at a bar across
  *                  the line: someone chose to hold this, it is not broken.
  *   break          the listing is REJECTED. The line itself is broken - the
@@ -45,6 +46,20 @@ import { cn } from "../ui";
  *
  * Every one of those maps to something in the data. Nothing here animates
  * because motion is nice.
+ *
+ * **Detail where the reader is looking, and structure everywhere else.**
+ * Ten products against six channels is sixty listings, and sixty animated
+ * lines is a hairball whatever the labels say - the motion that means "this is
+ * publishing" stops meaning anything when everything has it. So a listing is
+ * drawn at full fidelity only when it is in focus: traced, in the blast
+ * radius, being worked by the onboarding pass, or stopped. Everything else is
+ * a hairline, and the count of them rides on the variant as a chip that traces
+ * the variant when clicked. Nothing is hidden; the picture stops shouting.
+ *
+ * The Systems tier is off unless asked for. It is the estate rather than the
+ * catalog - who delivered, over what transport, still answering or not - and
+ * System Control is the section about that. Drawing it here put ten long
+ * kebab-case names in the leftmost column of every screenshot of the graph.
  */
 
 const W = 1000;
@@ -160,7 +175,9 @@ interface Edge {
  *  never trimmed, because that is the half a reviewer searches by. */
 const trim = (s: string, n = 24) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
+export function NetworkMap({
+  catalog, affected, selected, onSelect, live, showSystems = false,
+}: {
   catalog: CatalogState;
   /** The blast radius: catalog nodes, and the listings that carry it. */
   affected?: { nodes: Set<string>; listings: Set<string> };
@@ -168,6 +185,8 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
   onSelect?: (id: string | null) => void;
   /** Decaying highlights driven by the live event stream. */
   live?: LiveImpact;
+  /** Draw the estate tier. Off by default - see the note at the top. */
+  showSystems?: boolean;
 }) {
   const [hover, setHover] = useState<Placed | null>(null);
 
@@ -248,6 +267,7 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
      * look like the map it always was rather than like one with a gap. */
     const membership = new Map<CatalogNodeKind, string[]>();
     for (const n of catalog.nodes) {
+      if (n.kind === "SYSTEM" && !showSystems) continue;
       const list = membership.get(n.kind) ?? [];
       list.push(n.id);
       membership.set(n.kind, list);
@@ -313,7 +333,7 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
     // system fed which source is a fact about what has actually arrived, and
     // the client has no way to know it.
     for (const e of catalog.edges ?? []) {
-      if (e.relation !== "feeds") continue;
+      if (e.relation !== "feeds" || !showSystems) continue;
       const a = byId.get(e.from);
       const b = byId.get(e.to);
       if (a && b) {
@@ -361,10 +381,46 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
     }).filter((t) => t.n > 0);
 
     return { placed, edges, tiers, H, overflow };
-  }, [catalog]);
+  }, [catalog, showSystems]);
 
   const hitNodes = affected?.nodes ?? new Set<string>();
   const hitListings = affected?.listings ?? new Set<string>();
+
+  /* Which listings get drawn as pipes rather than as structure.
+   *
+   * Four ways in, and each is a reader having asked: they traced this node,
+   * the run put it in the blast radius, the onboarding pass is on it, or the
+   * channel has stopped it. The last one is not a request but it is not
+   * optional either - a held or rejected listing is the one thing on this
+   * diagram that must never be quiet. */
+  const inFocus = (e: Edge): boolean => {
+    if (e.status === "WITHHELD" || e.status === "REJECTED") return true;
+    if (e.listing && hitListings.has(e.listing.id)) return true;
+    if (selected === e.a.id || selected === e.b.id) return true;
+    if (hitNodes.has(e.a.id) || hitNodes.has(e.b.id)) return true;
+    return live?.working.has(e.a.id) ?? false;
+  };
+
+  /* How many channels each variant publishes to, and whether the reader can
+   * already see them. The chip is the count *and* the way in: clicking it
+   * traces the variant, which is what lights its pipes. */
+  const chips = useMemo(() => {
+    const total = new Map<string, Placed>();
+    const counts = new Map<string, number>();
+    const lit = new Set<string>();
+    for (const e of edges) {
+      if (e.relation !== "lists_on") continue;
+      total.set(e.a.id, e.a);
+      counts.set(e.a.id, (counts.get(e.a.id) ?? 0) + 1);
+      if (inFocus(e)) lit.add(e.a.id);
+    }
+    return [...total.entries()]
+      .filter(([id]) => !lit.has(id))
+      .map(([id, node]) => ({ node, n: counts.get(id) ?? 0 }));
+    // `inFocus` closes over the highlight state, which is exactly what has to
+    // re-run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edges, selected, affected, live?.working]);
 
   return (
     /* The frame keeps the drawing's own ratio at every width.
@@ -472,6 +528,29 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
           const held = e.status === "WITHHELD";
           const rejected = e.status === "REJECTED";
           const isHit = hitListings.has(listing.id);
+
+          /* Out of focus: the structure, and nothing else. The line still
+             says this variant publishes to this channel - dropping it would
+             be a lie about the catalog - but it carries no flow, no tracer
+             and no weight, so sixty of them read as a background rather than
+             as sixty things happening at once. */
+          if (!inFocus(e)) {
+            return (
+              <path
+                key={listing.id}
+                d={curve(e)}
+                fill="none"
+                strokeWidth={0.7}
+                className="stroke-viz-edge opacity-25"
+              >
+                <title>
+                  {`${listing.id}  ${e.a.name} → ${e.b.name}`}
+                  {`\npublished ${listing.published_version} · ${statusWords(e.status)}`}
+                  {"\nTrace the variant to see this listing in full"}
+                </title>
+              </path>
+            );
+          }
           // Pulses are keyed by node, so an event travelled this listing only
           // when it lit both of its ends.
           const pulse = live
@@ -565,6 +644,45 @@ export function NetworkMap({ catalog, affected, selected, onSelect, live }: {
             </g>
           );
         })}
+
+        {/* --- channel counts on variants nothing has lit ------------------- */}
+        {chips.map(({ node, n }) => (
+          <g
+            key={`chip-${node.id}`}
+            className="cursor-pointer"
+            role="button"
+            tabIndex={0}
+            aria-label={`${node.name} publishes to ${n} ${n === 1 ? "channel" : "channels"}. Trace it.`}
+            onClick={() => onSelect?.(node.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect?.(node.id);
+              }
+            }}
+          >
+            <rect
+              x={node.x + NODE_R + 5}
+              y={node.y - 7}
+              width={n > 9 ? 22 : 17}
+              height={14}
+              rx={7}
+              className="fill-raised stroke-subtle transition-colors hover:fill-hover"
+              strokeWidth={1}
+            />
+            <text
+              x={node.x + NODE_R + 5 + (n > 9 ? 11 : 8.5)}
+              y={node.y + 3.6}
+              textAnchor="middle"
+              className="pointer-events-none fill-faint font-mono text-[9px]"
+            >
+              {n}
+            </text>
+            <title>
+              {`${n} ${n === 1 ? "listing" : "listings"} — click to trace them`}
+            </title>
+          </g>
+        ))}
 
         {/* --- nodes -------------------------------------------------------- */}
         {placed.map((n) => {
@@ -881,11 +999,19 @@ export function MapLegend({ live }: { live?: boolean }) {
         <NodeSwatch className="fill-raised stroke-strong" strokeWidth={1.5}
                     dash="3 2" />
       </LegendItem>
-      <LegendItem label="listing">
+      <LegendItem label="listing, publishing">
         <line x1="1" y1="9" x2="17" y2="9" className="stroke-viz-edge"
               strokeWidth="1.4" />
         <line x1="1" y1="9" x2="17" y2="9"
               className="sc-flow stroke-viz-flow opacity-60" strokeWidth="1.4" />
+      </LegendItem>
+      <LegendItem label="listing, not in focus">
+        <line x1="1" y1="9" x2="17" y2="9" className="stroke-viz-edge"
+              strokeWidth="0.7" opacity="0.25" />
+      </LegendItem>
+      <LegendItem label="channels — click to trace">
+        <rect x="2" y="4" width="14" height="10" rx="5"
+              className="fill-raised stroke-subtle" strokeWidth="1" />
       </LegendItem>
       <LegendItem label="held for review">
         <line x1="1" y1="9" x2="17" y2="9" className="stroke-warn"

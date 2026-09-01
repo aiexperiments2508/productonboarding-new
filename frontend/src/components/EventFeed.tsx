@@ -13,10 +13,22 @@ import type { Vocab } from "./vocab";
  * What arrived, as a sentence rather than a payload. The ids stay on the row
  * because a reviewer searches by them.
  *
- * It sits beside the replay transport rather than on the Ingest Fabric, which
- * is where it used to be. The tape is what releases these rows and the tape is
- * what a reader reaches for when one of them needs explaining, so the feed and
- * the controls that drive it are one thing; the fabric is the graph.
+ * **It sits on the Ingest Fabric, beside the graph the arrivals reach.** It
+ * spent a while next to the replay transport instead, on the argument that the
+ * tape releases these rows and the tape is what you reach for when one needs
+ * explaining. That was true and it was the smaller half. The question a person
+ * actually has on reading a row is *what does this touch* - and the answer is
+ * the picture next to it, not the transport that let it through. The transport
+ * is in the status strip on every screen anyway, so nothing was lost by
+ * moving.
+ *
+ * Which is also what makes the feed a working surface rather than a ticker.
+ * Two controls, and they are different questions:
+ *
+ *   the row      trace this event's subject on the map. "What does this
+ *                reach?", answered by the API's own lineage walk.
+ *   the jump     land the tape on this event. "Show me that moment again",
+ *                answered by rewinding the clock to it.
  */
 
 /** What each kind of event on the tape actually is, in a word. The raw enum
@@ -30,13 +42,22 @@ const EVENT_LABEL: Record<string, string> = {
   COMMS: "email",
 };
 
-export function EventFeed({ events, catalog, busy, onReplay }: {
+export function EventFeed({
+  events, catalog, busy, onReplay, onTrace, selected, maxHeight = "420px",
+}: {
   events: SCEvent[];
   catalog: CatalogState | null;
   busy: boolean;
   /** Drive the tape. The feed uses it to land the clock on a named event. */
   onReplay: (body: { action: string; steps?: number; speed?: number;
                      to_seq?: number }) => void;
+  /** Trace this event's subject on the map beside the feed. */
+  onTrace?: (entityId: string) => void;
+  /** What the map is tracing now, so the row that put it there says so. */
+  selected?: string | null;
+  /** The feed shares a rail with the queue above it, and a rail is a different
+   *  shape from a tab. */
+  maxHeight?: string;
 }) {
   const vocab = useMemo(() => buildVocab(catalog), [catalog]);
 
@@ -48,15 +69,17 @@ export function EventFeed({ events, catalog, busy, onReplay }: {
     >
       {events.length === 0 ? (
         <EmptyState art={<ArtQuietFeed />} title="Nothing has arrived yet">
-          Start or step the replay from the transport above — the tape releases
-          one supplier document at a time, which is how the correction gets
-          narrated.
+          Start or step the replay from the transport in the status bar below —
+          the tape releases one supplier document at a time, which is how the
+          correction gets narrated. Whatever a supplier sends through a portal
+          lands here too, the moment it is sent.
         </EmptyState>
       ) : (
-        <div className="max-h-[420px] overflow-y-auto">
+        <div className="overflow-y-auto" style={{ maxHeight }}>
           {events.map((e, i) => {
             const sentence = describe(e, vocab);
             const subject = subjectId(e);
+            const tracing = !!subject && selected === subject;
             return (
               <div
                 key={e.id}
@@ -65,6 +88,7 @@ export function EventFeed({ events, catalog, busy, onReplay }: {
                 className={cn(
                   "flex items-baseline gap-2 border-b border-subtle px-3 py-1.5",
                   "transition-colors hover:bg-hover",
+                  tracing && "bg-accent-soft",
                   i < 3 && "animate-slide-in"
                 )}
               >
@@ -78,15 +102,36 @@ export function EventFeed({ events, catalog, busy, onReplay }: {
                   content={
                     <span className="block">
                       <span className="block">{sentence}</span>
+                      {onTrace && subject && (
+                        <span className="mt-1 block text-2xs text-accent-text">
+                          Click to trace {subject} on the map
+                        </span>
+                      )}
                       <span className="mt-1 block font-mono text-2xs text-faint">
                         {idLine(e)}
                       </span>
                     </span>
                   }
                 >
-                  <span className="min-w-0 flex-1 truncate text-sm">
-                    {sentence}
-                  </span>
+                  {/* The sentence is the trace control, not the whole row: the
+                      row already ends in a button, and one cannot nest. */}
+                  {onTrace && subject ? (
+                    <button
+                      type="button"
+                      onClick={() => onTrace(subject)}
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-left text-sm",
+                        "hover:text-accent-text focus-visible:text-accent-text",
+                        tracing && "text-accent-text"
+                      )}
+                    >
+                      {sentence}
+                    </button>
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {sentence}
+                    </span>
+                  )}
                 </Tooltip>
                 {subject && (
                   <span className="shrink-0 font-mono text-2xs text-faint">
@@ -118,10 +163,15 @@ export function EventFeed({ events, catalog, busy, onReplay }: {
       )}
       {events.length > 0 && (
         <p className="border-t border-subtle px-3 py-2 text-xs leading-relaxed text-faint">
-          The control at the end of a row lands the tape on that document rather
-          than on the generic inject — the clock returns to that instant, and
-          everything after it goes back to unreleased. It is how the same beat
-          gets narrated twice off exactly the same evidence.
+          {onTrace
+            ? "Click a row to trace what that event reaches. The control at "
+              + "the end of it lands the tape on that document instead — the "
+              + "clock returns to that instant and everything after it goes "
+              + "back to unreleased, which is how the same beat gets narrated "
+              + "twice off exactly the same evidence."
+            : "The control at the end of a row lands the tape on that document "
+              + "rather than on the generic inject — the clock returns to that "
+              + "instant, and everything after it goes back to unreleased."}
         </p>
       )}
     </Panel>

@@ -11,6 +11,17 @@
       "port": 8000
     },
     {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "frontend"
+      ],
+      "port": 5173
+    },
+    {
       "name": "vendor-portal",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": [

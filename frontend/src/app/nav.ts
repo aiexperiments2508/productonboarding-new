@@ -31,7 +31,7 @@ export const SECTIONS: Section[] = [
     id: "fabric",
     label: "Ingest Fabric",
     description:
-      "The catalog as a graph — every product, variant and channel, what a correction there would reach, and the tape arriving over it. What is in force opens from the rail.",
+      "What suppliers have sent and what the tape has released, the catalog as a graph beside it, and what is in force in the rail. Process a bundle and the graph lights one product at a time.",
     Icon: IconTower,
   },
   {
@@ -104,7 +104,7 @@ export const SECTIONS: Section[] = [
     id: "system",
     label: "System Control",
     description:
-      "The machinery under the factory: the replay transport and its feed, the systems delivering into it, the model gateway, and the retrieval index behind the loop.",
+      "The machinery under the factory: the replay transport that releases the recording, the systems delivering into it, the model gateway, and the retrieval index behind the loop. What it releases reads on the Ingest Fabric.",
     Icon: IconSystem,
   },
 ];

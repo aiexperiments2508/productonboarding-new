@@ -1272,9 +1272,11 @@ function QueueRow({ batch, index, state, walking, disabled, onProcess, onOpen }:
         <span className="text-xs text-muted">
           {n} {n === 1 ? "row" : "rows"}
         </span>
-        <span className="ml-auto font-mono text-2xs text-faint">
-          {fmt.stamp(batch.submitted_at)}
-        </span>
+        <Tooltip content={`Real time this platform received the bundle. On the replay clock the submission is stamped ${fmt.stamp(batch.submitted_at)}, which is the instant its facts were recorded at.`}>
+          <span className="ml-auto font-mono text-2xs text-faint">
+            {fmt.stamp(batch.wall_at)}
+          </span>
+        </Tooltip>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">

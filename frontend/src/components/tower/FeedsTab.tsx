@@ -63,7 +63,11 @@ export function FeedsTab({ data, detail, onOpenFeed, onCloseFeed }: {
           <thead>
             <Tr>
               <Th>Feed</Th>
-              <Th>Arrived</Th>
+              <Th>
+                <Tooltip content="When this process actually received the submission, on the real clock. The date window above runs on the replay clock, so a feed can arrive today and sit in a July window.">
+                  <span>Arrived</span>
+                </Tooltip>
+              </Th>
               <Th>Supplier</Th>
               <Th>Carried by</Th>
               <Th>Kind</Th>
@@ -88,7 +92,9 @@ export function FeedsTab({ data, detail, onOpenFeed, onCloseFeed }: {
                     ? () => onOpenFeed(feed.feed_id) : undefined}>
                 <Td className="font-mono text-sm">{feed.feed_id.slice(0, 12)}</Td>
                 <Td className="font-mono text-sm text-muted">
-                  {fmt.date(feed.submitted_at)}
+                  <Tooltip content={`Real time this platform received the submission. The date window filters on the replay clock, where this feed is stamped ${fmt.stamp(feed.submitted_at)}.`}>
+                    <span>{fmt.stamp(feed.wall_at)}</span>
+                  </Tooltip>
                 </Td>
                 <Td>{feed.supplier}</Td>
                 <Td className="font-mono text-sm">{feed.system}</Td>

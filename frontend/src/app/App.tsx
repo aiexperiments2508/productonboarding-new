@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, subscribe } from "../api";
 import type {
-  CatalogState, Citation, Health, ReplayState, RunSnapshot, SCEvent,
-  TraceStep,
+  CatalogState, Citation, Health, PendingApproval, ReplayState, RunSnapshot,
+  SCEvent, TraceStep,
 } from "../api";
 import { Approvals } from "../components/Approvals";
 import { ControlTower } from "../components/ControlTower";
@@ -67,7 +67,11 @@ function Shell() {
   const [events, setEvents] = useState<SCEvent[]>([]);
   const [replay, setReplay] = useState<ReplayState | null>(null);
   const [run, setRun] = useState<RunSnapshot | null>(null);
-  const [pendingCount, setPendingCount] = useState(0);
+  // The shared approval queue, read from the server rather than assembled from
+  // what this browser happens to have run. One array, two consumers: the rail
+  // badge counts it and Review & Audit lists it, so a badge reading two can no
+  // longer sit beside a screen saying there is nothing to decide.
+  const [pending, setPending] = useState<PendingApproval[]>([]);
   const [busy, setBusy] = useState(false);
   const [replanning, setReplanning] = useState(false);
   // The node the graph is on right now, streamed from the run itself, and the
@@ -204,13 +208,47 @@ function Shell() {
     api.run(saved).then(setRun).catch(() => localStorage.removeItem("thread_id"));
   }, []);
 
-  // Corrections waiting on a reviewer drive the rail badge. Re-read whenever
-  // the run's status moves, which is the only thing that can change the count.
-  useEffect(() => {
-    api.pending()
-      .then((r) => setPendingCount(r.pending.length))
-      .catch(() => setPendingCount(run?.awaiting_approval ? 1 : 0));
-  }, [run?.status, run?.awaiting_approval]);
+  /* Corrections waiting on a reviewer. Re-read whenever the run's status moves,
+   * which is the only thing that can change the queue from inside this browser -
+   * and handed to Review & Audit so it can be worked rather than only counted.
+   *
+   * The fallback is deliberately narrow. When the endpoint cannot be read, the
+   * queue is unknown, and the one thing this client still knows for certain is
+   * whether its own loaded run is suspended at the gate. That row is shown and
+   * nothing else is invented. */
+  const refreshPending = useCallback(async () => {
+    try {
+      setPending((await api.pending()).pending);
+    } catch {
+      setPending(
+        run?.awaiting_approval
+          ? [{
+              id: run.values.incident_id ?? run.thread_id,
+              thread_id: run.thread_id,
+              severity: run.values.severity ?? "MEDIUM",
+              title: run.values.case?.title ?? "Correction run",
+              opened_at: run.values.as_of ?? "",
+              interrupt: null,
+            }]
+          : []
+      );
+    }
+  }, [run]);
+
+  useEffect(() => { void refreshPending(); }, [refreshPending]);
+
+  /* Open a case somebody else raised.
+   *
+   * The thread is the unit of work, so taking one on means adopting it here as
+   * well: `threadRef` is what Re-plan and the run refresh act on, and the stored
+   * id is what a reload comes back to. Without both, a reviewer who picked a
+   * case out of the queue would find the revision button pointed at whichever
+   * run their own browser last started. */
+  const openThread = useCallback((snapshot: RunSnapshot) => {
+    threadRef.current = snapshot.thread_id;
+    localStorage.setItem("thread_id", snapshot.thread_id);
+    setRun(snapshot);
+  }, []);
 
   // Cmd/Ctrl-K from anywhere. Guarded so it does not fire while the reviewer is
   // mid-word in the approval comment box.
@@ -367,7 +405,7 @@ function Shell() {
         onSelect={setSection}
         collapsed={navCollapsed}
         onToggleCollapsed={toggleNav}
-        pendingCount={pendingCount}
+        pendingCount={pending.length}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -433,6 +471,8 @@ function Shell() {
               run={run} onDecided={setRun}
               onReplan={doReplan} replanning={replanning}
               catalog={catalog} onOpenCitation={setPeek}
+              pending={pending} onOpenThread={openThread}
+              onRefreshPending={refreshPending}
             />
           )}
           {section === "system" && (

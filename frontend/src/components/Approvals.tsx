@@ -2,19 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { api, fmt } from "../api";
 import type {
   Action, AttributeDef, AuditEntry, CatalogState, ChangeSummaryLine, Citation,
-  ProvenanceKind, RunSnapshot, SetAttributeAction, SourceRef,
+  PendingApproval, ProvenanceKind, RunSnapshot, SetAttributeAction, SourceRef,
   WithholdChannelAction,
 } from "../api";
 import { ArtNoDecision } from "../art/illustrations";
 import { PageHeader } from "../app/shell/PageHeader";
-import { IconAlert, IconCheck, IconClose, IconRefresh } from "../icons";
+import {
+  IconAlert, IconCheck, IconChevronRight, IconClose, IconRefresh,
+} from "../icons";
 import {
   Badge, Button, Code, Divider, EmptyState, Field, Panel, Section, Select,
   Skeleton, Table, Td, Th, Tooltip, cn, useToast,
 } from "../ui";
 import {
   ChannelChip, CitationCard, ImpactedOutputs, KpiStrip, ProvBadge,
-  RegulatedTag, SafetyFlag, SourceCite, ValueDiff, Violations, describeAction,
+  RegulatedTag, SafetyFlag, Severity, SourceCite, ValueDiff, Violations,
+  describeAction,
 } from "./common";
 import type { ChannelState, NameLookup } from "./common";
 import { GraphView } from "./GraphView";
@@ -92,6 +95,7 @@ const isWithhold = (a: Action): a is WithholdChannelAction =>
 
 export function Approvals({
   run, onDecided, onReplan, replanning, catalog, onOpenCitation,
+  pending = [], onOpenThread, onRefreshPending,
 }: {
   run: RunSnapshot | null;
   onDecided: (snapshot: RunSnapshot) => void;
@@ -102,6 +106,14 @@ export function Approvals({
    *  bare identifiers is not reviewable. */
   catalog?: CatalogState | null;
   onOpenCitation?: (citation: Citation) => void;
+  /** Everything suspended at the gate, from the server. The same array the rail
+   *  badge counts - this screen exists to action it, so it has to be able to
+   *  see all of it and not only what this browser raised. */
+  pending?: PendingApproval[];
+  /** Adopt a case from the queue: load its checkpoint and make it the run this
+   *  screen is deciding. */
+  onOpenThread?: (snapshot: RunSnapshot) => void;
+  onRefreshPending?: () => void;
 }) {
   const toast = useToast();
   const [comment, setComment] = useState("");
@@ -364,6 +376,20 @@ export function Approvals({
 
       <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)]">
         <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
+          {/* The queue first, because on this screen the first question is
+              which decision, and only then what it says. It is drawn whenever
+              anything is waiting - including when the case on screen is the
+              only one, so a reviewer can always see whether it is. */}
+          {pending.length > 0 && onOpenThread && (
+            <PendingQueue
+              queue={pending}
+              openThreadId={run?.thread_id ?? null}
+              onOpen={onOpenThread}
+              onRefresh={onRefreshPending}
+              name={name}
+            />
+          )}
+
           {run?.awaiting_approval && rec ? (
             <Panel
               title="Decision required"
@@ -720,6 +746,23 @@ export function Approvals({
                 )}
               </div>
             </Panel>
+          ) : pending.length > 0 ? (
+            /* The queue is not empty, so this screen must not say it is. What
+               is missing is a selection, not work. */
+            <Panel>
+              <EmptyState
+                art={<ArtNoDecision />}
+                title={
+                  pending.length === 1
+                    ? "One correction is waiting on a decision"
+                    : `${pending.length} corrections are waiting on a decision`
+                }
+              >
+                None of them is open on this screen yet. Choose one from the
+                queue above to see the fields it corrects, what would republish
+                and what would be held, and to approve or reject it.
+              </EmptyState>
+            </Panel>
           ) : (
             <Panel>
               <EmptyState
@@ -801,6 +844,144 @@ export function Approvals({
 }
 
 /* --- the parts ------------------------------------------------------------ */
+
+/* The shared work queue.
+ *
+ * An approval gate is a queue or it is nothing. The count has always been
+ * server-backed - `/api/approvals/pending` reads the checkpoint behind every
+ * suspended thread - but the only case this screen could ever show was the one
+ * the current browser had started, held in a `thread_id` in local storage. So a
+ * correction raised at the end of one shift was counted on the rail at the
+ * start of the next and could not be opened by the person who came in to work
+ * it, and a second reviewer could not see the first one's cases at all. The
+ * decision existed, the route to take it existed, and no interface reached it.
+ *
+ * This is that list. Selecting a row loads that thread's checkpoint and makes
+ * it the run the screen is deciding, which is the whole of the missing step:
+ * everything below already works on whatever run it is handed.
+ *
+ * Rows carry the reason to pick one over another - severity, whether review is
+ * mandatory, how many fields move - so a reviewer with two waiting decisions
+ * chooses on the facts rather than by opening both.
+ */
+function PendingQueue({ queue, openThreadId, onOpen, onRefresh, name }: {
+  queue: PendingApproval[];
+  /** The case already on screen, marked rather than hidden - a queue that drops
+   *  the row you are working reads as though it lost it. */
+  openThreadId: string | null;
+  onOpen: (snapshot: RunSnapshot) => void;
+  onRefresh?: () => void;
+  name: NameLookup;
+}) {
+  const toast = useToast();
+  const [opening, setOpening] = useState<string | null>(null);
+
+  async function open(row: PendingApproval) {
+    if (row.thread_id === openThreadId || opening) return;
+    setOpening(row.thread_id);
+    try {
+      // The checkpoint is the authority on what this decision says. Nothing is
+      // reconstructed from the queue row, which carries only enough to choose.
+      onOpen(await api.run(row.thread_id));
+    } catch (e) {
+      toast.error("That decision could not be opened", String(e));
+    } finally {
+      setOpening(null);
+    }
+  }
+
+  return (
+    <Panel
+      tone="warn"
+      title="Waiting on a decision"
+      subtitle={
+        queue.length === 1
+          ? "1 correction, suspended at the approval gate"
+          : `${queue.length} corrections, suspended at the approval gate`
+      }
+      actions={
+        onRefresh && (
+          <Tooltip content="Re-read the queue. Another reviewer may have taken one of these since the page loaded.">
+            <span>
+              <Button
+                size="xs"
+                tone="ghost"
+                iconOnly
+                aria-label="Re-read the approval queue"
+                icon={<IconRefresh size={14} />}
+                onClick={onRefresh}
+              />
+            </span>
+          </Tooltip>
+        )
+      }
+      flush
+    >
+      <ul className="flex flex-col">
+        {queue.map((row) => {
+          const isOpen = row.thread_id === openThreadId;
+          const changes = row.interrupt?.changes ?? [];
+          const mandatory = row.interrupt?.requires_review ?? false;
+          const subject = changes[0]?.entity_id;
+          return (
+            <li key={row.thread_id} className="border-b border-subtle last:border-b-0">
+              <button
+                type="button"
+                onClick={() => void open(row)}
+                aria-current={isOpen ? "true" : undefined}
+                /* aria-disabled rather than disabled: the row a reviewer is
+                   working is the one they are most likely to tab back to, and
+                   a disabled button leaves the tab order entirely. It is
+                   inert either way - `open` returns early on it. */
+                aria-disabled={isOpen || opening != null ? "true" : undefined}
+                className={cn(
+                  "flex w-full items-start gap-2.5 px-3 py-2.5 text-left",
+                  "focus-visible:outline focus-visible:-outline-offset-2",
+                  isOpen
+                    ? "bg-accent-soft"
+                    : "hover:bg-hover active:bg-active"
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Severity level={row.severity} />
+                    {mandatory && (
+                      <Badge tone="danger" dot>review mandatory</Badge>
+                    )}
+                    <span className="min-w-0 truncate text-sm font-medium">
+                      {row.title}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-2xs text-faint">
+                    <span>{row.id}</span>
+                    {row.opened_at && <span>{fmt.stamp(row.opened_at)}</span>}
+                    <span>
+                      {changes.length === 1
+                        ? "1 field"
+                        : `${changes.length} fields`}
+                    </span>
+                    {subject && (
+                      <span className="truncate">{name(subject) ?? subject}</span>
+                    )}
+                  </div>
+                </div>
+                {isOpen ? (
+                  <Badge tone="accent" className="mt-0.5 shrink-0">open below</Badge>
+                ) : (
+                  <span className="mt-0.5 flex shrink-0 items-center gap-1 text-xs font-medium text-accent-text">
+                    {opening === row.thread_id ? "opening…" : "Open"}
+                    <IconChevronRight size={13} />
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </Panel>
+  );
+}
+
 
 /** Approval is not optional here, and the UI says so in words.
  *

@@ -684,6 +684,30 @@ export interface RunSnapshot {
   usage_total?: NodeUsage & { nodes: number };
 }
 
+/** One correction parked at the approval gate, as the server holds it.
+ *
+ *  The queue is a property of the server, not of a browser: `interrupt` is read
+ *  back out of the checkpoint, so a case raised at the end of one shift is the
+ *  same row at the start of the next. */
+export interface PendingApproval {
+  id: string;
+  thread_id: string;
+  severity: string;
+  title: string;
+  opened_at: string;
+  /** The `APPROVAL_REQUIRED` payload the graph suspended on. Enough to choose
+   *  between two waiting decisions without opening either. */
+  interrupt: {
+    kind?: string;
+    incident_id?: string;
+    recommendation?: Recommendation;
+    changes?: ChangeSummaryLine[];
+    requires_review?: boolean;
+    review_grounds?: string[];
+    severity?: string;
+  } | null;
+}
+
 /* --- system ------------------------------------------------------------- */
 
 export interface GraphTopology {
@@ -1853,10 +1877,11 @@ export const api = {
     post<KgInsightResult>("/api/kg/query", { id, params }),
 
   kgStatus: () => get<KgStatus>("/api/kg/status"),
-  pending: () =>
-    get<{ pending: { id: string; thread_id: string; severity: string;
-                     title: string; opened_at: string; interrupt: unknown }[] }>(
-      "/api/approvals/pending"),
+  /** Every correction waiting on a reviewer, not just this browser's own.
+   *
+   *  The rail badge has always read this. Review & Audit now reads it too, so
+   *  the count and the list are the same fact rather than two. */
+  pending: () => get<{ pending: PendingApproval[] }>("/api/approvals/pending"),
   decide: (threadId: string, body: { decision: string; actor: string;
                                      comment?: string; scenario_id?: string }) =>
     post<RunSnapshot>(`/api/approvals/${threadId}`, body),

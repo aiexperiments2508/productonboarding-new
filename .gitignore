@@ -66,6 +66,17 @@ data/eval/
 # things the repository describes.
 data/inbox/
 
+# One uploadable bundle per supplier, built by scripts/generate_supplier_packs.py
+# from the catalog and from what each variant's record actually holds. Derived
+# output like the pack above, and rewritten wholesale on every run - and the
+# scratch database it reads the estate through, which must never be the one the
+# app is serving.
+data/supplier-packs/
+data/supplier_packs.db
+data/supplier_packs.db-*
+data/supplier_packs.live.json
+data/supplier_packs.env
+
 # The supplier data pack. Built by scripts/build_datapack.py from the catalog
 # and the retailer profile, so it is derived twice over and belongs in the
 # repository no more than the seed pack it is derived from. A committed pack

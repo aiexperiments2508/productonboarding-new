@@ -298,18 +298,21 @@ discarded to punish one typo is how a portal stops being used, and the value
 that would not parse is then reported as missing by the same check that would
 have reported it blank, which is the truth about it.
 
-**A sequential pass, and a report.** A quick action on the Ingest Fabric's
-incoming stream walks the batch one product at a time, in the order the
-supplier listed them, lighting the catalog map as it goes. It is not a graph
-run and deliberately so: the correction graph answers *a published value
+**A gate, then a sequential pass.** Every product is checked against
+regulation and against the retailer's own policy *before* anything looks at
+whether its record is complete; one that fails goes back to its supplier and
+nothing downstream is spent on it. What clears the gate is walked one product at
+a time, in the order the supplier listed them. It is not a graph run and
+deliberately so: the correction graph answers *a published value
 changed, what does it reach*, and is built round a case and an approval
 interrupt — forty products through it would be forty suspended threads in a
 queue that exists to hold one. Onboarding asks *is this record fit to launch*,
 which `sc/readiness` already answers in milliseconds, and the pass is
 `submissions._verdict`'s own loop turned into a generator.
 
-The outcome is a new section, **Supplier Intake**, reachable from a button on
-the fabric: how many went through clean, how many went back to the source, how
+The outcome is **Supplier Intake**, staged the way the product moves —
+compliance gate, onboarding, suggestions, decisions: how many were stopped
+before onboarding and on whose authority, how many went through clean, how
 many are blocked, and — counted apart from all three — how many rows were
 proposed new lines that nobody has decided on yet. A bundle of eleven rows of
 which five are lines we do not have is a report about six products, and saying
@@ -389,9 +392,11 @@ product whose copy needs improving.
 1. **The status strip** — the replay transport lives at the bottom of every
    screen, so "Jump to inject" and single-stepping are available while you are
    looking at the map rather than two tabs away.
-2. **Ingest Fabric** — sources, products, variants and channels, with the live
-   feed. Click any node to trace what depends on it. Most of what arrives is
-   routine and the system correctly ignores it.
+2. **Ingest Fabric** — sources, products, variants and channels, as one
+   graph. Click any node to trace what depends on it; the tape pulses over it
+   as events land. What is in force opens from the rail on the right, and the
+   live feed itself is in System Control beside the transport that releases it.
+   Most of what arrives is routine and the system correctly ignores it.
 3. **Day 13 — a warm-up.** A supplier flags kettle dimensions as provisional,
    then withdraws the notice three days later. The withdrawal *retires* the
    signal rather than stacking a second one on top, which is the whole reason

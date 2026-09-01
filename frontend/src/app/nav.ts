@@ -31,7 +31,7 @@ export const SECTIONS: Section[] = [
     id: "tower",
     label: "Ingest Fabric",
     description:
-      "The external systems feeding the catalog, what each one is delivering right now, and which corrections are in force.",
+      "The catalog as a graph — every product, variant and channel, what a correction there would reach, and the tape arriving over it. What is in force opens from the rail.",
     Icon: IconTower,
   },
   {
@@ -91,7 +91,7 @@ export const SECTIONS: Section[] = [
     id: "system",
     label: "System Control",
     description:
-      "The replay transport, the model gateway, and the retrieval index behind the loop.",
+      "The machinery under the factory: the replay transport and its feed, the systems delivering into it, the model gateway, and the retrieval index behind the loop.",
     Icon: IconSystem,
   },
 ];

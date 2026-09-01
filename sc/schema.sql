@@ -404,3 +404,54 @@ CREATE TABLE IF NOT EXISTS releases (
 
 CREATE INDEX IF NOT EXISTS idx_releases_incident
   ON releases (incident_id, scenario_id, decided_at);
+
+-- ---------------------------------------------------------------------------
+-- Onboarding suggestions - a proposal for a missing value, and its decision
+-- ---------------------------------------------------------------------------
+-- Almost nothing in this schema stores a judgement; verdicts, stages and
+-- readiness are all recomputed on read so they cannot drift from the record.
+-- This one is stored, and the reason is narrow: a category manager approves
+-- *the exact value they were shown*. The proposal comes from a model reading
+-- retrieved passages, so recomputing it on the next read can legitimately
+-- produce a different number - and a queue that re-derived its rows would let
+-- somebody approve 65 W and write 68 W. What is stored is therefore the
+-- proposal, not a conclusion about the product: the verdict beside it is still
+-- computed from the facts every time.
+--
+-- `reasons` is the evidence that produced `confidence` - the cited passage,
+-- the sibling and category values that agreed, the past decisions that agreed.
+-- It is what the manager reads, and it is why the score is composed from named
+-- parts rather than taken from a model's self-report.
+
+CREATE TABLE IF NOT EXISTS onboarding_suggestions (
+  id              TEXT PRIMARY KEY,       -- SUG-<hex12>
+  submission_id   TEXT NOT NULL,
+  entity_id       TEXT NOT NULL,
+  attribute_path  TEXT NOT NULL,
+  proposed        TEXT NOT NULL,          -- JSON: the value itself
+  confidence      REAL NOT NULL,
+  reasons         TEXT NOT NULL DEFAULT '[]',   -- JSON evidence rows
+  safety_class    INTEGER NOT NULL DEFAULT 0,
+  citation        TEXT NOT NULL DEFAULT '{}',   -- JSON, when a passage was read
+  created_at      TEXT NOT NULL,          -- simulated clock, like every fact
+  route           TEXT NOT NULL,          -- AUTONOMOUS | HUMAN
+  threshold       REAL NOT NULL,          -- what it was judged against
+  decision        TEXT,                   -- APPROVE | REJECT | RECTIFY
+  decided_by      TEXT,
+  decided_at      TEXT,
+  decided_value   TEXT,                   -- JSON, set on RECTIFY
+  comment         TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_suggestions_submission
+  ON onboarding_suggestions (submission_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_suggestions_open
+  ON onboarding_suggestions (decision, route);
+-- What `history` reads back as a prior: the values a person has settled on for
+-- this attribute before.
+CREATE INDEX IF NOT EXISTS idx_suggestions_path
+  ON onboarding_suggestions (attribute_path, decision);
+-- One live proposal per field per bundle. A second assessment of the same
+-- batch must refresh the row rather than stack a second decision beside it.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_suggestion_open
+  ON onboarding_suggestions (submission_id, entity_id, attribute_path);

@@ -1,5 +1,13 @@
 """The sequential pass over a batch: one product at a time, in file order.
 
+**Two stages, and the order is the point.** Every product goes through the
+compliance gate first - ``sc.onboarding.gate``, over the regulation and policy
+checks ``readiness`` already ran - and a product the gate refuses does not get
+onboarded. Its gaps are not collected, no source is retrieved for it and no
+value is proposed, because proposing a wattage for a product that is going back
+to its supplier is work somebody then has to read. The gate is the reason the
+expensive half of this pass is conditional rather than universal.
+
 Not a graph run, and the distinction is the whole design. The correction graph
 answers *a published value changed - what does it reach*, and it is built round
 a case, a blast radius and an approval interrupt. Onboarding asks *is this
@@ -40,6 +48,10 @@ def run(submission_id: str, *, use_model: bool = False,
     Yields ``batch_started``, then ``product`` per entity in the order the
     supplier's file listed them, then ``batch_finished`` carrying the whole
     report - so a caller that watched the stream never needs to fetch it.
+
+    Every ``product`` message carries a ``gate``: whether it may be onboarded
+    at all, on whose authority it was refused, and the findings that refused
+    it.
     """
     from sc.onboarding import batch as batch_mod
 
@@ -79,6 +91,7 @@ def _walk(found: dict, *, use_model: bool) -> Iterator[dict]:
     """One product at a time, then the tally."""
     import sc.readiness as readiness
     from sc.onboarding import fixable as fixable_mod
+    from sc.onboarding import gate as gate_mod
     from sc.readiness import record as record_mod
     from sc.readiness import rollup as rollup_mod
     from sc.state import baseline as baseline_mod
@@ -112,11 +125,23 @@ def _walk(found: dict, *, use_model: bool) -> Iterator[dict]:
             continue
 
         findings = summary.get("findings") or []
-        gaps = fixable_mod.gaps_for(entity_id, findings, base)
+
+        # The gate, before anything else looks at the record. A partition of the
+        # findings already in hand rather than a second pass - see `gate`.
+        checked = gate_mod.evaluate(summary)
+
+        # And the reason the gate is worth having: a product it refused
+        # collects no gaps, so nothing below retrieves a source for it or
+        # proposes a value. `gaps_for` would drop the gate findings anyway -
+        # they are not gap checks - but handing it the data findings says which
+        # half of the assessment onboarding is about.
+        gaps = (fixable_mod.gaps_for(entity_id, checked["data_findings"], base)
+                if checked["passed"] else [])
         gap_rows.extend(gaps)
 
         row = {"product_id": product.id, "entity_id": entity_id,
-               "supplier": product.supplier, "category": product.category}
+               "supplier": product.supplier, "category": product.category,
+               "gate_passed": checked["passed"]}
         assessments.append((row, summary))
 
         one = {
@@ -129,6 +154,7 @@ def _walk(found: dict, *, use_model: bool) -> Iterator[dict]:
             "name": product.name,
             "category": product.category,
             "verdict": summary.get("verdict", ""),
+            "gate": checked,
             "open": len(findings),
             "blocking": sum(1 for f in findings
                             if f.get("severity") == "BLOCKING"),

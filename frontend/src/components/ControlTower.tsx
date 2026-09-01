@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { UNSCOPED_CASE, api, fmt, streamBatchAssess } from "../api";
+import { UNSCOPED_CASE, api, fmt } from "../api";
 import type {
-  AffectedScope, AttributeDef, BatchReport, BatchRow, CatalogState,
-  CorrectionKind, KPIs, MapView, OpenCase, RunSnapshot, SCEvent,
+  AffectedScope, CatalogState, CorrectionKind, KPIs, MapView, OpenCase,
+  RunSnapshot, SCEvent,
 } from "../api";
-import {
-  applyEvents, clearSweep, emptyImpact, impactFrom, prunePulses, withWorking,
-} from "../liveImpact";
+import { applyEvents, emptyImpact, impactFrom, prunePulses } from "../liveImpact";
 import type { LiveImpact } from "../liveImpact";
-import { ArtAllClear, ArtNoRun, ArtQuietFeed } from "../art/illustrations";
+import { ArtAllClear, ArtNoRun } from "../art/illustrations";
 import {
-  IconAlert, IconCorrection, IconDoc, IconJump, IconSpark, IconTrace,
+  IconAlert, IconChevronLeft, IconChevronRight, IconCorrection, IconDoc,
+  IconSpark, IconTrace,
 } from "../icons";
 import { PageHeader } from "../app/shell/PageHeader";
 import {
@@ -22,30 +21,33 @@ import {
   ValueDiff, listingChannelState,
 } from "./common";
 import type { ChannelState } from "./common";
-import { EstatePanel } from "./EstatePanel";
 import { DEFAULT_MAP_FILTERS, MapControls } from "./MapControls";
 import type { MapFilters } from "./MapControls";
 import { MapLegend, NetworkMap, listingStatusMap } from "./NetworkMap";
+import { buildVocab } from "./vocab";
+import type { Vocab } from "./vocab";
 
 /* The ingest fabric.
  *
- * The standing view: what the catalog is, what is moving through it, and what
- * the system currently believes on whose authority. Everything a reviewer needs
- * before deciding whether anything should republish.
- *
- * Four claims are made here and each has one owner:
+ * The graph, and what it is standing on. One claim, one owner:
  *
  *   the map          structure and reach. Click a node and the API walks the
  *                    lineage; the highlight is the answer it gave, not one the
- *                    component worked out.
- *   the feed         what arrived, as a sentence rather than a payload. The
- *                    ids stay on the row because a reviewer searches by them.
- *   corrections      what is in force. The lines come from the overlay itself,
- *                    each already reading "document version supersedes version:
- *                    entity path old -> new".
- *   open cases       what there is to decide, one row per product, in the order
- *                    /api/cases returned - which is the order the loop itself
- *                    picks in. Each row starts a run scoped to that product.
+ *                    component worked out. The tape's arrivals pulse over it
+ *                    live, so the picture moves while the clock runs.
+ *
+ * Everything else this screen used to carry has gone to the section that owns
+ * it. The estate and the live feed are System Control's - they are the
+ * machinery under the map rather than the map - and the supplier bundle is
+ * Supplier Intake's, which is the screen about a bundle. What is left is the
+ * thing the section is named for, at the size a room can read.
+ *
+ * What is *in force* stays here, because it is a property of the picture rather
+ * than of the plumbing: which corrections are live, which products have
+ * something open, and the run working one of them. It sits in a rail that is
+ * shut by default. A rail closed is not a rail hidden - the handle carries the
+ * open-case count and takes the severity of the worst one, so a reader watching
+ * only the graph still knows there is something to open.
  *
  * No figure below is computed here beyond counting rows the API returned.
  */
@@ -72,96 +74,38 @@ const CORRECTION_TONE: Record<CorrectionKind, BadgeTone> = {
   DATA_GAP: "neutral",
 };
 
-/** What each kind of event on the tape actually is, in a word. The raw enum
- *  stays in the row's tooltip - it is what the engine logs and filters on. */
-const EVENT_LABEL: Record<string, string> = {
-  SUPPLIER_FEED: "feed",
-  SPEC_DOC: "document",
-  CHANNEL_STATUS: "channel",
-  CATALOG_UPDATE: "catalog",
-  PUBLISH_TELEMETRY: "published",
-  COMMS: "email",
-};
-
 /** Tied to the client rather than restated, so a change to the trace endpoint
  *  shows up here as a type error instead of as a quietly empty highlight. */
 type TraceResult = Awaited<ReturnType<typeof api.trace>>;
 
-/** Names an event and a value in one place, so a sentence anywhere in this
- *  file reads the same way. */
-interface Vocab {
-  /** The display name for an id, falling back to the id itself. */
-  name: (id: unknown) => string;
-  /** An attribute path as a label that reads mid-sentence. */
-  attr: (path: unknown) => string;
-  def: (path: string) => AttributeDef | undefined;
-}
+/** Whether the rail is open. Shut on a first visit, and remembered after -
+ *  the same treatment the nav rail gets, for the same reason: it is a working
+ *  preference and re-collapsing it on every load would be a small daily tax. */
+const RAIL_KEY = "sc.towerRail";
 
 export function ControlTower({
-  catalog, events, run, onStartRun, onReplay, busy, onOpenReport,
+  catalog, events, run, onStartRun, busy,
 }: {
   catalog: CatalogState | null;
   events: SCEvent[];
   run: RunSnapshot | null;
   /** Work one case. Without an id the loop takes the worst one open. */
   onStartRun: (caseId?: string) => void;
-  /** Drive the tape. The feed uses it to land the clock on a named event. */
-  onReplay: (body: { action: string; steps?: number; speed?: number;
-                     to_seq?: number }) => void;
   busy: boolean;
-  /** Hand the newest supplier batch to the report section. */
-  onOpenReport?: (batchId: string) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [live, setLive] = useState<LiveImpact>(emptyImpact);
   const seenRef = useRef<string>("");
 
-  // The newest supplier bundle, and the sweep over it. Re-read when a bundle
-  // closes on the feed rather than polled: a batch arrives at most a few times
-  // an hour and a poll would be a request a minute to learn nothing.
-  const [batch, setBatch] = useState<BatchRow | null>(null);
-  const [sweep, setSweep] = useState<SweepState | null>(null);
-  const [sweeping, setSweeping] = useState(false);
-
-  const loadBatch = useCallback(() => {
-    api.batches(1)
-      .then((r) => setBatch(r.batches[0] ?? null))
-      .catch(() => undefined);
+  const [railOpen, setRailOpen] = useState(
+    () => localStorage.getItem(RAIL_KEY) === "1"
+  );
+  const toggleRail = useCallback(() => {
+    setRailOpen((open) => {
+      localStorage.setItem(RAIL_KEY, open ? "0" : "1");
+      return !open;
+    });
   }, []);
-
-  useEffect(() => { loadBatch(); }, [loadBatch]);
-
-  const closedStamp = events.find(
-    (e) => (e.payload as Record<string, unknown>)?.feed_stage
-           === "DATA_PACK_CLOSED")?.id ?? "";
-  useEffect(() => {
-    if (closedStamp) loadBatch();
-  }, [closedStamp, loadBatch]);
-
-  const assessBatch = useCallback(() => {
-    if (!batch || sweeping) return;
-    setSweeping(true);
-    setSweep(null);
-    setLive((prev) => clearSweep(prev));
-    let previous: { id: string; verdict: string } | undefined;
-    streamBatchAssess(batch.batch_id, (event) => {
-      if (event.kind === "product") {
-        setSweep({ ordinal: event.ordinal, total: event.total,
-                   sku: event.sku, name: event.name, finished: null });
-        // The product just decided keeps its verdict ring; this one lights.
-        setLive((prev) => withWorking(prev, event.entities, previous));
-        previous = { id: event.entity_id, verdict: event.verdict };
-      } else if (event.kind === "batch_finished") {
-        setSweep((prev) => prev
-          ? { ...prev, finished: event as BatchReport }
-          : { ordinal: 0, total: 0, sku: "", name: "",
-              finished: event as BatchReport });
-        setLive((prev) => withWorking(prev, [], previous));
-      }
-    }, { paceMs: 320 })
-      .catch(() => setLive((prev) => clearSweep(prev)))
-      .finally(() => setSweeping(false));
-  }, [batch, sweeping]);
 
   /* The map draws a page of the catalog rather than all of it.
    *
@@ -201,10 +145,17 @@ export function ControlTower({
     return () => clearTimeout(timer);
   }, [catalogStamp, loadMap]);
 
-  // Fold newly-arrived events into the decaying highlight state. The feed is
-  // prepend-ordered, so the newest event id is enough to tell whether anything
-  // actually arrived - re-applying the whole list on every render would keep
-  // every node permanently lit.
+  /* Fold newly-arrived events into the decaying highlight state.
+   *
+   * The feed itself moved to System Control; this did not, and the distinction
+   * matters. The list of arrivals is a thing to read, and it belongs beside the
+   * transport that releases it. The *pulse* is a property of the map - it is
+   * how a reader sees the tape reaching the catalog - and it rides the same
+   * `events` prop the shell already holds, so nothing had to be re-subscribed.
+   *
+   * The feed is prepend-ordered, so the newest event id is enough to tell
+   * whether anything actually arrived - re-applying the whole list on every
+   * render would keep every node permanently lit. */
   useEffect(() => {
     if (!catalog || events.length === 0) return;
     const newest = events[0].id;
@@ -251,30 +202,7 @@ export function ControlTower({
 
   /* --- lookups ---------------------------------------------------------- */
 
-  const vocab = useMemo<Vocab>(() => {
-    const names = new Map<string, string>();
-    for (const n of catalog?.nodes ?? []) names.set(n.id, n.name);
-    for (const p of catalog?.products ?? []) names.set(p.id, p.name);
-    for (const v of catalog?.variants ?? []) names.set(v.id, v.name);
-    for (const c of catalog?.channels ?? []) names.set(c.id, c.name);
-    const defs = new Map<string, AttributeDef>();
-    for (const a of catalog?.attributes ?? []) defs.set(a.path, a);
-    return {
-      name: (id) => (typeof id === "string" && id ? names.get(id) ?? id : ""),
-      attr: (path) => {
-        if (typeof path !== "string" || !path) return "";
-        const label = defs.get(path)?.label;
-        // "Rated power" reads badly after a verb; "GTIN" must not become
-        // "gTIN", so only a sentence-cased label is lowered.
-        return label
-          ? /^[A-Z][a-z]/.test(label)
-            ? label[0].toLowerCase() + label.slice(1)
-            : label
-          : path;
-      },
-      def: (path) => defs.get(path),
-    };
-  }, [catalog]);
+  const vocab = useMemo<Vocab>(() => buildVocab(catalog), [catalog]);
 
   /* --- what there is to decide ------------------------------------------- */
 
@@ -433,7 +361,7 @@ export function ControlTower({
             <Tooltip
               content={
                 worstOpen
-                  ? `Works one case: ${worstOpen.title}. Pick any other row in Open corrections to work that product instead.`
+                  ? `Works one case: ${worstOpen.title}. Open the rail and pick any other row to work that product instead.`
                   : "Nothing is open. The loop would find no case to work."
               }
             >
@@ -457,179 +385,88 @@ export function ControlTower({
         }
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
-        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
-          <Panel
-            title="Product catalog"
-            flush
-            actions={
-              <div className="flex items-center gap-2 text-sm">
-                {catalog && (
-                  <span className="font-mono text-xs text-faint">
-                    as of {fmt.stamp(catalog.as_of)}
-                  </span>
-                )}
-                {selected && (
-                  <Button size="xs" onClick={() => setSelected(null)}>
-                    clear trace
-                  </Button>
-                )}
-              </div>
-            }
-          >
-            {catalog && mapCatalog ? (
-              <>
-                <MapControls
-                  filters={mapFilters}
-                  onChange={setMapFilters}
-                  facets={mapView?.facets}
-                  page={mapView?.page}
-                  busy={mapBusy}
+      <div className="flex min-h-0 flex-1 gap-3">
+        <Panel
+          className="min-h-0 min-w-0 flex-1"
+          bodyClassName="flex min-h-0 flex-col"
+          title="Product catalog"
+          flush
+          actions={
+            <div className="flex items-center gap-2 text-sm">
+              {catalog && (
+                <span className="font-mono text-xs text-faint">
+                  as of {fmt.stamp(catalog.as_of)}
+                </span>
+              )}
+              {selected && (
+                <Button size="xs" onClick={() => setSelected(null)}>
+                  clear trace
+                </Button>
+              )}
+            </div>
+          }
+        >
+          {catalog && mapCatalog ? (
+            <>
+              <MapControls
+                filters={mapFilters}
+                onChange={setMapFilters}
+                facets={mapView?.facets}
+                page={mapView?.page}
+                busy={mapBusy}
+              />
+              {/* The scroller the map's own min-width scrolls against, and now
+                  the tallest thing on the screen rather than half of it. Both
+                  axes: sideways below the width its labels survive, downwards
+                  when a dense estate outgrows the section. */}
+              <div className="min-h-0 flex-1 overflow-auto">
+                <NetworkMap
+                  catalog={mapCatalog}
+                  affected={traced}
+                  live={live}
+                  selected={selected}
+                  onSelect={setSelected}
                 />
-                {/* The scroller the map's own min-width scrolls against.
-                    Both axes: sideways below the width its labels survive,
-                    downwards when a dense estate outgrows half the viewport. */}
-                <div className="max-h-[52vh] overflow-auto">
-                  <NetworkMap
-                    catalog={mapCatalog}
-                    affected={traced}
-                    live={live}
-                    selected={selected}
-                    onSelect={setSelected}
-                  />
-                </div>
-                <div className="border-t border-subtle px-3 py-2.5">
-                  <MapLegend live={live.pulses.size > 0} />
-                  <div className="mt-2 flex items-start gap-2 text-sm text-muted">
-                    <IconTrace size={14} className="mt-0.5 shrink-0 text-accent-text" />
-                    {selected ? (
-                      <span>
-                        Everything built on <Code>{selected}</Code> is
-                        highlighted — the fields that carry its value, the copy
-                        derived from them and the channels those listings feed.
-                        {traceTotals && (
-                          <span className="ml-1 font-mono text-xs text-faint">
-                            {traceLine(traceTotals)}
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <span>
-                        Click any product, variant or channel to trace what a
-                        correction there would reach.
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="p-3">
-                <Skeleton className="h-[320px] w-full" rounded="md" />
               </div>
-            )}
-          </Panel>
-
-          {/* Who is feeding the catalog, above what they fed it. The map shows
-              the shape of the estate; this shows it moving. */}
-          <EstatePanel />
-
-          <BundleStrip
-            batch={batch}
-            sweep={sweep}
-            busy={sweeping}
-            onAssess={assessBatch}
-            onOpenReport={() => batch && onOpenReport?.(batch.batch_id)}
-          />
-
-          <Panel
-            title="Live event feed"
-            flush
-            subtitle={events.length ? `${events.length} released` : undefined}
-          >
-            {events.length === 0 ? (
-              <EmptyState art={<ArtQuietFeed />} title="Nothing has arrived yet">
-                Start or step the replay from the transport in the status bar
-                below — the tape releases one supplier document at a time, which
-                is how the correction gets narrated.
-              </EmptyState>
-            ) : (
-              <div className="max-h-[280px] overflow-y-auto">
-                {events.map((e, i) => {
-                  const sentence = describe(e, vocab);
-                  const subject = subjectId(e);
-                  return (
-                    <div
-                      key={e.id}
-                      // Only the newest few animate in. Animating all 200 on
-                      // every arrival would restart the whole list.
-                      className={cn(
-                        "flex items-baseline gap-2 border-b border-subtle px-3 py-1.5",
-                        "transition-colors hover:bg-hover",
-                        i < 3 && "animate-slide-in"
-                      )}
-                    >
-                      <span className="shrink-0 font-mono text-xs text-faint tabular-nums">
-                        {fmt.stamp(e.ts)}
-                      </span>
-                      <Badge tone={eventTone(e)}>
-                        {EVENT_LABEL[e.type] ?? e.type}
-                      </Badge>
-                      <Tooltip
-                        content={
-                          <span className="block">
-                            <span className="block">{sentence}</span>
-                            <span className="mt-1 block font-mono text-2xs text-faint">
-                              {idLine(e)}
-                            </span>
-                          </span>
-                        }
-                      >
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {sentence}
-                        </span>
-                      </Tooltip>
-                      {subject && (
-                        <span className="shrink-0 font-mono text-2xs text-faint">
-                          {subject}
+              <div className="shrink-0 border-t border-subtle px-3 py-2.5">
+                <MapLegend live={live.pulses.size > 0} />
+                <div className="mt-2 flex items-start gap-2 text-sm text-muted">
+                  <IconTrace size={14} className="mt-0.5 shrink-0 text-accent-text" />
+                  {selected ? (
+                    <span>
+                      Everything built on <Code>{selected}</Code> is
+                      highlighted — the fields that carry its value, the copy
+                      derived from them and the channels those listings feed.
+                      {traceTotals && (
+                        <span className="ml-1 font-mono text-xs text-faint">
+                          {traceLine(traceTotals)}
                         </span>
                       )}
-                      {/* The tape's only precise control. JUMP with a target
-                          seq rewinds the cursor, so the clock, the catalog and
-                          this feed all return to the instant that document
-                          landed - the same beat, twice, identically. */}
-                      <Tooltip
-                        content={`Land the tape on this event (seq ${e.seq}). The clock returns to this instant and everything after it goes back to unreleased.`}
-                      >
-                        <Button
-                          tone="ghost"
-                          size="xs"
-                          iconOnly
-                          disabled={busy}
-                          aria-label={`Land the tape on ${e.id}`}
-                          onClick={() => onReplay({ action: "JUMP", to_seq: e.seq })}
-                          icon={<IconJump size={12} />}
-                          className="shrink-0 self-center text-faint hover:text-accent-text"
-                        />
-                      </Tooltip>
-                    </div>
-                  );
-                })}
+                    </span>
+                  ) : (
+                    <span>
+                      Click any product, variant or channel to trace what a
+                      correction there would reach.
+                    </span>
+                  )}
+                </div>
               </div>
-            )}
-            {events.length > 0 && (
-              <p className="border-t border-subtle px-3 py-2 text-xs leading-relaxed text-faint">
-                The control at the end of a row lands the tape on that document
-                rather than on the generic inject — the clock returns to that
-                instant, and everything after it goes back to unreleased. It is
-                how the same beat gets narrated twice off exactly the same
-                evidence.
-              </p>
-            )}
-          </Panel>
-        </div>
+            </>
+          ) : (
+            <div className="p-3">
+              <Skeleton className="h-[320px] w-full" rounded="md" />
+            </div>
+          )}
+        </Panel>
 
-        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
-          {/* The four figures a reviewer opens this page for. */}
+        <IssuesRail
+          open={railOpen}
+          onToggle={toggleRail}
+          count={cases?.length ?? 0}
+          safety={!!cases?.some((c) => c.safety)}
+          awaiting={run?.awaiting_approval ?? false}
+        >
+          {/* The four figures a reviewer opens the rail for. */}
           <div className="grid grid-cols-2 gap-2">
             <Kpi
               label="Fields affected"
@@ -821,9 +658,87 @@ export function ControlTower({
               </EmptyState>
             )}
           </Panel>
-        </div>
+        </IssuesRail>
       </div>
     </>
+  );
+}
+
+/* --- the rail --------------------------------------------------------------- */
+
+/** What is in force, beside the graph rather than instead of it.
+ *
+ * Shut by default. The handle is the whole argument for that being acceptable:
+ * it carries the number of open cases and takes the colour of the worst one, so
+ * the state a reader is missing is legible from the state they can see. A
+ * collapsed panel that showed nothing would be a way of losing the queue.
+ */
+function IssuesRail({ open, onToggle, count, safety, awaiting, children }: {
+  open: boolean;
+  onToggle: () => void;
+  count: number;
+  safety: boolean;
+  awaiting: boolean;
+  children: React.ReactNode;
+}) {
+  const tone: BadgeTone = safety ? "danger" : count ? "warn" : "neutral";
+  const label = count
+    ? `${count} open ${count === 1 ? "case" : "cases"}`
+    : "nothing open";
+
+  return (
+    <aside
+      aria-label="What is in force"
+      style={{ width: open ? "clamp(320px, 27vw, 420px)" : "40px" }}
+      className={cn(
+        "flex shrink-0 flex-col gap-2 overflow-hidden",
+        "transition-[width] duration-[var(--dur-base)] ease-standard"
+      )}
+    >
+      <Tooltip content={open ? "Hide what is in force" : `Show what is in force — ${label}`}>
+        <Button
+          size="xs"
+          tone="ghost"
+          aria-expanded={open}
+          onClick={onToggle}
+          icon={open ? <IconChevronRight size={14} /> : <IconChevronLeft size={14} />}
+          className={cn("shrink-0", open ? "self-end" : "self-center")}
+        >
+          {open ? "hide" : undefined}
+        </Button>
+      </Tooltip>
+
+      {open ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
+          {children}
+        </div>
+      ) : (
+        /* The shut state, and the reason shutting it is honest. Vertical so it
+           fits 40px, and the badge sits above the words because the number is
+           what a glance is for. */
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={`Show what is in force — ${label}`}
+          className={cn(
+            "flex min-h-0 flex-1 flex-col items-center gap-2 rounded-md py-2",
+            "border border-subtle bg-raised transition-colors hover:bg-hover"
+          )}
+        >
+          {(count > 0 || awaiting) && (
+            <Badge tone={tone} dot={safety || awaiting}>
+              {count || "!"}
+            </Badge>
+          )}
+          <span
+            className="text-2xs uppercase tracking-caps text-faint"
+            style={{ writingMode: "vertical-rl" }}
+          >
+            in force
+          </span>
+        </button>
+      )}
+    </aside>
   );
 }
 
@@ -838,123 +753,6 @@ const STATE_RANK: Record<ChannelState, number> = {
 
 /** A product on six channels is presented by the worst thing true of it: one
  *  rejection must not be averaged away by five healthy listings. */
-
-interface SweepState {
-  ordinal: number;
-  total: number;
-  sku: string;
-  name: string;
-  finished: BatchReport | null;
-}
-
-/* --- supplier bundles ----------------------------------------------------- */
-
-/** The quick action on the incoming stream.
- *
- *  A bundle lands on the live feed as a run of rows, which proves it arrived
- *  and says nothing about whether any of it can be sold. This is the button
- *  that asks - and it is here rather than on the report because the answer is
- *  worth watching: the map lights one product at a time while the pass walks
- *  the batch, and the sweep is the only place in this product where the
- *  catalog is seen being read rather than having been read.
- */
-function BundleStrip({ batch, onAssess, onOpenReport, sweep, busy }: {
-  batch: BatchRow | null;
-  onAssess: () => void;
-  onOpenReport: () => void;
-  sweep: SweepState | null;
-  busy: boolean;
-}) {
-  if (!batch) return null;
-  const done = sweep?.finished ?? null;
-  return (
-    <Panel
-      tone="accent"
-      title={`${batch.supplier} sent ${batch.entities.length} products`}
-      subtitle={batch.file
-        ? `${batch.file.filename} · ${Math.round(batch.file.bytes / 1024)} KB`
-        : batch.batch_id}
-      actions={
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={onAssess}
-            disabled={busy}
-            icon={<IconSpark size={14} />}
-          >
-            {busy ? "Assessing…" : "Assess this batch"}
-          </Button>
-          {done && (
-            <Button tone="ghost" onClick={onOpenReport}>
-              Open the report
-            </Button>
-          )}
-        </div>
-      }
-    >
-      {sweep && !sweep.finished ? (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-baseline gap-2 text-sm">
-            <span className="font-mono text-xs text-faint tabular-nums">
-              {sweep.ordinal}/{sweep.total}
-            </span>
-            <Code>{sweep.sku}</Code>
-            <span className="min-w-0 truncate text-muted">{sweep.name}</span>
-          </div>
-          <div className="h-1 w-full overflow-hidden rounded-full bg-sunken">
-            <div
-              className="h-full bg-accent transition-[width] duration-[var(--dur-base)]"
-              style={{ width: `${(sweep.ordinal / Math.max(1, sweep.total)) * 100}%` }}
-            />
-          </div>
-          <p className="text-sm text-muted">
-            One product at a time, in the order the supplier listed them. The
-            map lights the one being read.
-          </p>
-        </div>
-      ) : done ? (
-        /* Only `blocked` keeps its hue. The other two figures have their
-           sentence printed beside them, so the colour restates the words - and
-           green on a count of things that merely passed is celebration rather
-           than signal. A non-zero blocked count is the one figure here that
-           changes what somebody does next, so it stays red. */
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-          <span>
-            <strong className="text-fg">{done.totals.cleared}</strong> went
-            through clean
-          </span>
-          <span>
-            <strong className="text-fg">{done.totals.returned}</strong> back
-            to the source
-          </span>
-          {done.totals.blocked > 0 && (
-            <span>
-              <strong className="text-danger-text">{done.totals.blocked}</strong> blocked
-            </span>
-          )}
-          <span className="text-muted">
-            {done.fixable.candidates} gap
-            {done.fixable.candidates === 1 ? "" : "s"} could be read from a
-            document we already hold
-          </span>
-          {done.proposals.length > 0 && (
-            <span className="text-muted">
-              {done.proposals.length} proposed new line
-              {done.proposals.length === 1 ? "" : "s"} awaiting a reviewer
-            </span>
-          )}
-        </div>
-      ) : (
-        <p className="text-sm text-muted">
-          The rows are on the feed and the facts are recorded. Nothing has been
-          judged yet — assessing walks the batch one product at a time and says
-          how much of it is fit to sell.
-        </p>
-      )}
-    </Panel>
-  );
-}
-
-
 function worseOf(a?: ChannelState, b?: ChannelState): ChannelState | undefined {
   if (!a) return b;
   if (!b) return a;
@@ -1148,208 +946,6 @@ function UnscopedCase({ c, busy, onWork }: {
       </div>
     </div>
   );
-}
-
-/* --- the feed, in sentences ------------------------------------------------ */
-
-/** "45 W", "peanuts", "38". */
-function withUnit(value: unknown, unit: unknown): string {
-  const text = fmt.value(value);
-  return typeof unit === "string" && unit ? `${text} ${unit}` : text;
-}
-
-/** "rated power 45 → 65 W" out of a change row or a flat payload. */
-function changeClause(row: Record<string, unknown>, v: Vocab): string {
-  const label = v.attr(row.attribute_path ?? row.path) || "the value";
-  const to = withUnit(row.new_value, row.unit);
-  if (row.old_value === undefined || row.old_value === null) {
-    return `${label} now ${to}`;
-  }
-  return `${label} ${withUnit(row.old_value, row.unit)} → ${to}`;
-}
-
-/** Who the document says it is about - and, in the case that drives the whole
- *  demo, that it does not say. */
-function scopeClause(p: Record<string, unknown>, v: Vocab): string {
-  const entities = (Array.isArray(p.entities) ? p.entities : [])
-    .filter((x): x is string => typeof x === "string")
-    .map((id) => v.name(id));
-  const product = v.name(p.product);
-  switch (String(p.applies_to ?? "")) {
-    case "UNCLEAR":
-      return product
-        ? `on ${product}, without saying which variant`
-        : "without saying which variant";
-    case "VARIANT":
-      return entities.length ? `for ${entities.join(" and ")}` : "for one variant";
-    case "PRODUCT":
-      return product ? `at product level on ${product}` : "at product level";
-    case "ALL":
-      return product ? `for every variant of ${product}` : "for every variant";
-    default:
-      return entities.length ? `on ${entities.join(" and ")}` : "";
-  }
-}
-
-const join = (head: string, parts: string[]) => {
-  const tail = parts.filter(Boolean).join(", ");
-  return tail ? `${head} — ${tail}.` : `${head}.`;
-};
-
-/** One line of the feed, as a sentence a person would say.
- *
- * The tape carries six kinds of event and each is a different sort of news: a
- * routine price row and a spec sheet that moves an allergen must not read the
- * same way, and neither should read as a dumped payload.
- */
-function describe(e: SCEvent, v: Vocab): string {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
-  const str = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : "");
-
-  switch (e.type) {
-    case "SUPPLIER_FEED": {
-      const who = v.name(p.supplier) || "A supplier";
-      const what = v.name(p.entity_id) || "the catalog";
-      switch (str("kind")) {
-        case "STOCK":
-          return `${who} reported ${fmt.count(Number(p.on_hand ?? 0))} in stock for ${what}.`;
-        case "PRICE":
-          return `${who} repriced ${what} at ${fmt.value(p.price)} ${str("currency")}`.trim() + ".";
-        case "ATTRIBUTE_CONFIRM":
-          return `${who} ${p.certified ? "certified" : "confirmed"} ${
-            v.attr(p.path)} unchanged on ${what} — ${withUnit(p.value, p.unit)}.`;
-        case "ATTRIBUTE":
-          return p.is_correction
-            ? `${who} corrected ${v.attr(p.path)} on ${what} to ${withUnit(p.value, p.unit)}.`
-            : `${who} sent ${v.attr(p.path)} for ${what} — ${withUnit(p.value, p.unit)}.`;
-        default:
-          return `${who} sent a feed row for ${what}.`;
-      }
-    }
-
-    case "SPEC_DOC": {
-      const who = v.name(p.supplier) || "A supplier";
-      const version = str("doc_version");
-      const head = `${who} sent ${version ? `revision ${version} of ` : ""}${
-        str("doc_id") || "a document"}`;
-      const changes = (Array.isArray(p.changes) ? p.changes : [])
-        .filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === "object");
-      const parts: string[] = [];
-      if (changes.length === 1) parts.push(changeClause(changes[0], v));
-      else if (changes.length > 1) parts.push(`${changes.length} values move`);
-      else if (p.new_value !== undefined) parts.push(changeClause(p, v));
-      else if (p.zero_delta) parts.push("republished with nothing changed");
-      if (str("summary")) parts.push(str("summary"));
-      if (p.provisional) parts.push("treat as provisional");
-      parts.push(scopeClause(p, v));
-      return join(head, parts);
-    }
-
-    case "CHANNEL_STATUS": {
-      const channel = v.name(p.channel_id) || "A channel";
-      const what = v.name(p.variant_id) || v.name(p.product) || "a listing";
-      const code = str("code");
-      switch (str("status")) {
-        case "REJECTED":
-          return join(
-            `${channel} rejected the ${what} feed${code ? ` (${code})` : ""}`,
-            [str("detail")]
-          );
-        case "ACCEPTED":
-          return `${channel} accepted the ${what} feed.`;
-        default:
-          return join(
-            `${channel} reported ${str("status").toLowerCase()} on ${what}`,
-            [code, str("detail")]
-          );
-      }
-    }
-
-    case "PUBLISH_TELEMETRY": {
-      const channel = v.name(p.channel_id) || "A channel";
-      const what = v.name(p.variant_id) || "a listing";
-      if (str("status") && str("status") !== "OK") {
-        return `${channel} reported ${str("status").toLowerCase()} serving ${what}.`;
-      }
-      return `${channel} served ${fmt.count(Number(p.impressions ?? 0))} views of ${what}.`;
-    }
-
-    case "CATALOG_UPDATE": {
-      const doc = `${str("doc_id")}${str("doc_version") ? ` ${str("doc_version")}` : ""}`;
-      const status = str("status").toLowerCase();
-      const reason = str("reason").replace(/_/g, " ");
-      return join(`${doc || "A document"} is now ${status || "changed"}`, [reason]);
-    }
-
-    case "COMMS": {
-      const who = v.name(p.supplier) || str("from") || "Someone";
-      const parts: string[] = [];
-      if (p.resolves_issue) parts.push("this clears the earlier notice");
-      else if (p.provisional) parts.push("treat as provisional");
-      else if (str("summary")) parts.push(str("summary"));
-      return join(`${who} wrote: “${str("subject") || "no subject"}”`, parts);
-    }
-
-    default:
-      return JSON.stringify(p).slice(0, 140);
-  }
-}
-
-/** The tone of the news, not the tone of the type. A rejection is red whatever
- *  carried it; a stock row is grey whatever it says. */
-function eventTone(e: SCEvent): BadgeTone {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
-  switch (e.type) {
-    case "CHANNEL_STATUS":
-      return p.status === "REJECTED" ? "danger" : "neutral";
-    case "SPEC_DOC":
-      return p.is_correction ? "warn" : "info";
-    case "CATALOG_UPDATE":
-      return "warn";
-    case "COMMS":
-      return p.material_hint ? "info" : "neutral";
-    case "SUPPLIER_FEED":
-      return p.is_correction ? "warn" : "neutral";
-    default:
-      return "neutral";
-  }
-}
-
-const SUBJECT_KEYS = [
-  "listing_id", "entity_id", "variant_id", "product", "doc_id", "channel_id",
-];
-
-/** The one id worth keeping on the row. A reviewer searching for LST-11 has to
- *  be able to find it without opening anything. */
-function subjectId(e: SCEvent): string {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
-  for (const key of SUBJECT_KEYS) {
-    const value = p[key];
-    if (typeof value === "string" && value) return value;
-  }
-  const entities = Array.isArray(p.entities) ? p.entities : [];
-  const first = entities.find((x) => typeof x === "string");
-  return typeof first === "string" ? first : "";
-}
-
-const ID_KEYS = [
-  "doc_id", "doc_version", "supplier", "product", "entity_id", "variant_id",
-  "listing_id", "channel_id", "path", "attribute_path", "code", "field",
-];
-
-/** Every identifier on the event, for the tooltip. The sentence is for reading;
- *  this is for looking something up afterwards. */
-function idLine(e: SCEvent): string {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
-  const bits = [e.type, e.id];
-  for (const key of ID_KEYS) {
-    const value = p[key];
-    if (typeof value === "string" && value) bits.push(value);
-  }
-  for (const entity of Array.isArray(p.entities) ? p.entities : []) {
-    if (typeof entity === "string") bits.push(entity);
-  }
-  return Array.from(new Set(bits)).join(" · ");
 }
 
 /** The trace totals, as the API counted them. */

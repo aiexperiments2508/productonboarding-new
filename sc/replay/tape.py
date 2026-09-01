@@ -87,6 +87,18 @@ LIVE_BASE = 1_000_000
 #: explicitly, which is what actually keeps reference rows out of the feed.
 REF_BASE = 2_000_000
 
+#: The newest instant a live submission has been stamped with, kept in config
+#: so it survives the rows that produced it.
+#:
+#: ``_live_instant`` nudges strictly past the newest live event, because the
+#: fact store breaks a ``recorded_at`` tie by id - so two submissions sharing an
+#: instant means one of them silently never becomes the value in force.
+#: ``clear`` deletes the events that carried that baseline while deliberately
+#: leaving the facts they wrote, so the anchor has to outlive them: without this
+#: watermark the very first submission after a clear ties with a fact already on
+#: file, and loses or wins by id.
+LIVE_INSTANT_KEY = "replay_live_instant"
+
 #: Called with (events, signals) once a submission has been ingested, so it
 #: reaches the live feed the way a released event does. Mirrors
 #: ``run_clock(on_events)`` deliberately: it is the seam that keeps the estate
@@ -98,6 +110,41 @@ def set_live_sink(sink) -> None:
     """Register what to tell when a submission lands. See ``_live_sink``."""
     global _live_sink
     _live_sink = sink
+
+
+#: Parsed tapes, keyed by the file and what it looked like when it was read.
+#:
+#: The recording is 5,225 events and a megabyte and a half of JSON, and the test
+#: suite reloads it once per *test* - twenty-two modules do it in an autouse
+#: fixture. Parsing is a quarter of what that costs and the file does not
+#: change between two reads in one process, so it is read once. Keyed on
+#: mtime and size rather than the path alone, because a regenerated pack has
+#: to be re-read and "the file did not change" is what that key means.
+_parsed: dict[tuple[str, int, int], list[tuple]] = {}
+
+
+def _tape_rows(tape: Path) -> list[tuple]:
+    """The recording as insertable rows, parsed at most once per process."""
+    stat = tape.stat()
+    key = (str(tape.resolve()), stat.st_mtime_ns, stat.st_size)
+    held = _parsed.get(key)
+    if held is not None:
+        return held
+
+    rows = []
+    with tape.open(encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            e = json.loads(line)
+            rows.append((e["id"], e["seq"], e["ts"], e["type"], e["source"],
+                         db.dumps(e["payload"]), e.get("body")))
+    # One tape at a time. A process that reads two is reseeding, and holding
+    # the superseded one would be caching a file that no longer exists.
+    _parsed.clear()
+    _parsed[key] = rows
+    return rows
 
 
 def load_tape(path: Path | None = None, reset: bool = False) -> dict:
@@ -118,15 +165,7 @@ def load_tape(path: Path | None = None, reset: bool = False) -> dict:
     if existing and not reset:
         return {"loaded": 0, "total": existing, "skipped": True}
 
-    rows = []
-    with tape.open(encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            e = json.loads(line)
-            rows.append((e["id"], e["seq"], e["ts"], e["type"], e["source"],
-                         db.dumps(e["payload"]), e.get("body")))
+    rows = _tape_rows(tape)
 
     with db.transaction() as c:
         c.executemany(
@@ -317,7 +356,7 @@ def _record_arrivals(events: list[Event]) -> None:
     Imported here rather than at module scope: the estate reads the tape to
     work out who owns what, and a module-level import would close the circle.
 
-    Never fatal. Arrivals are how the Ingest Fabric explains a delivery; the
+    Never fatal. Arrivals are how the estate panel explains a delivery; the
     record is written by ingestion and does not depend on any of this. Losing
     the explanation is a worse panel, not a worse run.
     """
@@ -396,6 +435,92 @@ def reset() -> None:
     conn.commit()
 
 
+def clear() -> dict:
+    """Rewind the recording and remove what the portals pushed.
+
+    ``reset`` is careful to be *only* a rewind: it unreleases the tape and
+    leaves the live lane alone, because retracting a supplier's submission
+    because somebody moved the clock would be a lie about history. That is the
+    right default and it is why this is a separate verb rather than a flag.
+
+    This one is the deliberate act. A rehearsal accumulates every previous
+    run's portal traffic, and starting the next one on top of it means the feed
+    opens on somebody else's submissions. So: the recording goes back to the
+    start, and everything that arrived through a vendor intake while the
+    process was running - the events, the arrivals that carried them, the
+    submission records - is removed.
+
+    **Both ingest watermarks are cleared, and the live one is not optional.**
+    ``ingest`` keeps one integer per lane (see ``ingest.CONSUMERS``). Live
+    sequence numbers restart at ``LIVE_BASE`` once the rows are gone, so a
+    watermark left at the old high-water mark would silently drop every
+    subsequent submission as already-seen - ingestion would stop and report
+    success, which is the exact failure the lane column exists to prevent.
+
+    **Open questions go with the submission; records of decisions do not.** A
+    proposal waiting on a category manager is a question about a bundle, and a
+    question about a bundle that no longer exists is a queue item nobody can
+    act on - so it goes. Two kinds of row stay. One is a proposal somebody
+    *answered*, for the same reason the audit ledger stays: it is a record of
+    what a person decided, and ``onboarding.history`` reads it back as a prior,
+    so a reviewer's own past decisions survive a rewind. The other is a
+    proposal that was written *autonomously*, which was never a question - and
+    the value it produced survives this too, so removing its row would leave a
+    fact in force with no account of why it was trusted.
+
+    **What this does not touch, and the edge that leaves.** ``facts``, the
+    audit ledger, ``connections``, the accepted-lines file and the ``REF`` lane
+    all survive. So a value a portal submission already recorded stays in force
+    after the event that carried it is gone. That is a real inconsistency and it
+    is chosen rather than overlooked: clearing the tape and retracting a fact
+    are different acts, the second needs the supersession machinery in
+    ``sc.state``, and a control that quietly did both would be a control nobody
+    could reason about. The UI says so where the button is.
+    """
+    from sc.replay import ingest
+
+    reset()
+
+    conn = db.connect()
+    live_ids = {row["id"] for row in conn.execute(
+        "SELECT id FROM events WHERE lane = ?", (LANE_LIVE,))}
+
+    # By intersection rather than by a blanket DELETE. Every submission arrives
+    # through the live lane today; saying "the ones whose events these were"
+    # keeps the statement true if one ever arrives another way.
+    doomed = [row["id"] for row in conn.execute("SELECT id, event_ids FROM submissions")
+              if live_ids & set(db.loads(row["event_ids"]) or [])]
+
+    with db.transaction(conn) as c:
+        arrivals = 0
+        questions = 0
+        if live_ids:
+            marks = ",".join("?" * len(live_ids))
+            arrivals = c.execute(
+                f"DELETE FROM arrivals WHERE event_id IN ({marks})",
+                tuple(sorted(live_ids))).rowcount
+        for batch in (doomed[i:i + 400] for i in range(0, len(doomed), 400)):
+            marks = ",".join("?" * len(batch))
+            c.execute(f"DELETE FROM submissions WHERE id IN ({marks})",
+                      tuple(batch))
+            # The queue only, and `route` is doing as much work here as
+            # `decision`. See the docstring: an unanswered question about a
+            # bundle that is gone is unanswerable, while an answered one and an
+            # autonomous one are both records of something that happened - and
+            # the second still has a fact in force behind it.
+            questions += c.execute(
+                f"DELETE FROM onboarding_suggestions"
+                f" WHERE submission_id IN ({marks}) AND decision IS NULL"
+                f" AND route = 'HUMAN'",
+                tuple(batch)).rowcount
+        c.execute("DELETE FROM events WHERE lane = ?", (LANE_LIVE,))
+        c.execute("DELETE FROM event_cursors WHERE consumer IN (?, ?)",
+                  (ingest.CONSUMERS[LANE_TAPE], ingest.CONSUMERS[LANE_LIVE]))
+
+    return {"live_events": len(live_ids), "arrivals": max(arrivals, 0),
+            "submissions": len(doomed), "open_questions": max(questions, 0)}
+
+
 # ---------------------------------------------------------------------------
 # The live lane
 # ---------------------------------------------------------------------------
@@ -425,11 +550,27 @@ def _live_instant(conn, proposed: datetime | None) -> datetime:
     instant = proposed or sim_now()
     row = conn.execute("SELECT MAX(ts) AS t FROM events WHERE lane = ?",
                        (LANE_LIVE,)).fetchone()
-    if row and row["t"]:
-        newest = datetime.fromisoformat(row["t"])
+    for mark in ((row["t"] if row else None), db.get_config(LIVE_INSTANT_KEY)):
+        if not mark:
+            continue
+        newest = datetime.fromisoformat(mark)
         if instant <= newest:
             instant = newest + timedelta(microseconds=1)
     return instant
+
+
+def _remember_instant(conn, instant: datetime) -> None:
+    """Record the high-water mark inside the caller's transaction.
+
+    Not ``db.set_config``, which commits - and committing here would end the
+    transaction the submission is being written in, so a failure after this
+    point would leave the watermark ahead of an event that never landed.
+    """
+    conn.execute(
+        "INSERT INTO runtime_config (key, value, updated_at) VALUES (?,?,?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+        " updated_at = excluded.updated_at",
+        (LIVE_INSTANT_KEY, instant.isoformat(), datetime.now().isoformat()))
 
 
 def append_live(event_type: str, source: str, payload: dict, *,
@@ -458,6 +599,7 @@ def append_live(event_type: str, source: str, payload: dict, *,
             " released_at, lane) VALUES (?,?,?,?,?,?,?,?,?)",
             (identifier, seq, instant.isoformat(), str(event_type), source,
              db.dumps(payload), body, datetime.now().isoformat(), LANE_LIVE))
+        _remember_instant(conn, instant)
 
     event = Event(id=identifier, seq=seq, ts=instant, type=event_type,
                   source=source, payload=payload, body=body, lane=LANE_LIVE)
@@ -527,6 +669,8 @@ def append_live_many(prepared: list[tuple[str, str, dict, str | None]], *,
             events.append(Event(
                 id=identifier, seq=seq + offset, ts=moment, type=event_type,
                 source=source, payload=payload, body=body, lane=LANE_LIVE))
+        if events:
+            _remember_instant(conn, events[-1].ts)
 
     try:
         from sc.estate import delivery
@@ -550,7 +694,7 @@ def append_live_many(prepared: list[tuple[str, str, dict, str | None]], *,
 
 
 def live_events(limit: int = 100) -> list[Event]:
-    """Submissions, newest first. The Ingest Fabric's live half."""
+    """Submissions, newest first. The live half of the event feed."""
     return [_row_to_event(r) for r in db.query(
         "SELECT * FROM events WHERE lane = ? ORDER BY seq DESC LIMIT ?",
         (LANE_LIVE, limit))]

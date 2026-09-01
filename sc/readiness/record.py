@@ -3,7 +3,7 @@
 Nine checks need the same picture: what is in force, which document asserted it,
 which system carried it, what lost a precedence contest, what imagery is held,
 and which listings the product sits on. Built once and handed to all of them, so
-that nine checks make one pass over the fact store and cannot disagree about
+that eleven checks make one pass over the fact store and cannot disagree about
 what is currently true.
 
 The superseded half is the part that would be easy to leave out and should not
@@ -111,7 +111,7 @@ def build(entity_id: str, as_of: str | None = None, *,
         # version, fact id, provenance, confidence - because every gate
         # downstream is a question about where the number came from. The
         # readiness checks ask about the number itself, so the value is
-        # unwrapped here rather than at nine call sites.
+        # unwrapped here rather than at eleven call sites.
         record.values[path] = getattr(state, "value", state)
         version = getattr(state, "version", "")
         if version:

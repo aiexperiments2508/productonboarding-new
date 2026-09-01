@@ -2,15 +2,16 @@
 
     record    one product as the estate has left it, assembled once
     checks    the six decided by rules
-    reading   the three that need prose read, where a model finds and cites
+    reading   the four that need prose read, where a model finds and cites
     verdict   counting findings into one of three words
 
 The split between `checks` and `reading` is the whole architecture of this
 surface, and it is the same split the rest of the system already makes: a model
-interprets, deterministic code decides. Six of the nine questions have a correct
-answer a rule can compute. Three require reading a regulation, a piece of
-internal documentation or a sentence, and on those a model produces a *candidate
-with a citation* which a rule then admits or drops.
+interprets, deterministic code decides. Seven of the eleven questions have a
+correct answer a rule can compute. Four require reading a regulation, the
+retailer's own policy, a piece of internal documentation or a sentence, and on
+those a model produces a *candidate with a citation* which a rule then admits or
+drops.
 
 Nothing here produces a score. See the note in `checks`.
 """
@@ -75,16 +76,16 @@ def assess(entity_id: str, as_of: str | None = None, *,
 
 
 def _read(record, base, run_id: str) -> tuple[list[Finding], bool]:
-    """The three reading checks, run at the same time rather than in turn.
+    """The four reading checks, run at the same time rather than in turn.
 
     They are independent: each retrieves its own passages and asks its own
-    question. Run in series they were three network round trips a reviewer
+    question. Run in series they were four network round trips a reviewer
     waited through one after another, for no reason other than a for loop.
 
     The fold is unchanged and is the point: one check failing to reach a model
     makes the *whole* assessment narrow. Reporting per-check would let a reader
-    conclude the other two were exhaustive, which they were not - they were
-    merely reachable.
+    conclude the others were exhaustive, which they were not - they were merely
+    reachable.
 
     Order comes from ``verdict.summarise``, which sorts, so which check happens
     to finish first cannot change what a reviewer reads.

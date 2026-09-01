@@ -9,8 +9,8 @@ person watching", and both hold at once:
 *   **What each system sends, in what batch, after what pause** is drawn here
     from the configured seed. Two rehearsals are identical.
 *   **When those batches actually land** is a race between ten concurrent
-    deliveries and is genuinely not predictable. The Ingest Fabric shows real
-    interleaving because it is real.
+    deliveries and is genuinely not predictable. The arrivals pulse shows
+    real interleaving because it is real.
 *   **What the retailer believes afterwards** is decided by ingestion, which
     sorts by sequence. So the race is visible and cannot change the outcome.
 

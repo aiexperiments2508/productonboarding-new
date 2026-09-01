@@ -723,6 +723,16 @@ def test_feasibility_is_exactly_the_absence_of_hard_violations(base):
 
 
 def test_validation_is_fast_enough_to_fan_out(base):
-    """A slow validator turns the Resolutions tab into a spinner."""
-    assert simulate(base, ChangeSet(id="D", actions=[power()])).runtime_ms < 250
-    assert baseline_readiness(base).runtime_ms < 250
+    """A slow validator turns the Resolutions tab into a spinner.
+
+    Best of three, and the threshold is untouched. The question is whether the
+    validator is fast, and a single wall-clock reading answers a different one -
+    whether it was fast *on a busy machine*. The suite now runs one worker per
+    core, so every reading is taken under load, and a budget that fails when
+    seven other processes are mid-test is measuring the scheduler.
+    """
+    def best(run) -> float:
+        return min(run().runtime_ms for _ in range(3))
+
+    assert best(lambda: simulate(base, ChangeSet(id="D", actions=[power()]))) < 250
+    assert best(lambda: baseline_readiness(base)) < 250

@@ -34,11 +34,12 @@ def fresh():
 
 
 def _submit(path: str = "specs.power_w", value: object = 65,
-            entity_id: str = "VAR-01B", system_id: str = "supplier-portal"):
+            entity_id: str = "VAR-01B", system_id: str = "supplier-portal",
+            doc_version: str = "v9"):
     """One submission, shaped the way the intake server shapes them."""
     return tape.append_live(
         EventType.SPEC_DOC, "VENDOR_PORTAL",
-        {"doc_id": "DOC-01", "doc_version": "v9", "supplier": "SUP-01",
+        {"doc_id": "DOC-01", "doc_version": doc_version, "supplier": "SUP-01",
          "entities": [entity_id], "applies_to": "VARIANT",
          "attribute_path": path, "new_value": value, "is_correction": True,
          "changes": [{"path": path, "value": value}]},
@@ -253,3 +254,166 @@ def test_a_failing_sink_does_not_fail_the_submission():
         tape.set_live_sink(None)
 
     assert db.one("SELECT id FROM events WHERE id = ?", (event.id,)) is not None
+
+
+# ---------------------------------------------------------------------------
+# Clearing
+# ---------------------------------------------------------------------------
+
+
+def test_clearing_removes_the_portal_traffic_and_rewinds_the_tape():
+    """The deliberate act ``reset`` refuses to be.
+
+    A rehearsal that starts on top of the last one's submissions opens its feed
+    on somebody else's work. ``clear`` is the verb that fixes that, and the
+    counts it returns are what the operator is shown - so they are asserted
+    here rather than inferred from a later query.
+    """
+    ingest.ingest(tape.jump_to(200))
+    event = _submit()
+
+    counts = tape.clear()
+
+    assert counts["live_events"] == 1
+    assert db.one("SELECT id FROM events WHERE id = ?", (event.id,)) is None
+    assert db.one("SELECT COUNT(*) AS n FROM events WHERE lane = ?",
+                  (tape.LANE_LIVE,))["n"] == 0
+    assert tape.cursor() == 0
+    assert db.one("SELECT COUNT(*) AS n FROM events WHERE lane = ?"
+                  " AND released_at IS NOT NULL", (tape.LANE_TAPE,))["n"] == 0
+    # The recording itself survives. Clearing is about what arrived, not about
+    # the tape being reloaded.
+    assert db.one("SELECT COUNT(*) AS n FROM events WHERE lane = ?",
+                  (tape.LANE_TAPE,))["n"] > 0
+
+
+def test_clearing_leaves_the_facts_a_submission_recorded():
+    """The chosen scope, pinned so nobody widens it by accident.
+
+    Clearing the tape and retracting a fact are different acts. This one is
+    only the first, and the control says so where it is pressed - a test that
+    let the fact disappear would make that sentence a lie.
+    """
+    _submit(path="specs.power_w", value=65, entity_id="VAR-01B")
+    before = db.one("SELECT COUNT(*) AS n FROM facts")["n"]
+    assert before > 0
+
+    tape.clear()
+
+    assert db.one("SELECT COUNT(*) AS n FROM facts")["n"] == before
+
+
+def test_a_submission_after_a_clear_is_still_ingested():
+    """The silent failure this feature could have introduced.
+
+    Live sequence numbers restart at ``LIVE_BASE`` once the rows are gone. A
+    watermark left behind at the old high-water mark would drop every
+    subsequent submission as already-seen - ingestion would stop and keep
+    reporting success, which is the exact failure the lane column exists to
+    prevent.
+
+    Asserted on what ingestion actually does with a specification document: it
+    records which version is in force and declines to guess at what the
+    document says. So a second submission being taken in is a second version
+    being in force, and nothing else would prove it.
+    """
+    _submit(doc_version="v9")
+    tape.clear()
+
+    assert ingest.cursor(tape.LANE_LIVE) == 0
+
+    event = _submit(doc_version="v10")
+    assert event.seq == tape.LIVE_BASE
+    assert ingest.cursor(tape.LANE_LIVE) >= event.seq
+
+    held = db.one(
+        "SELECT value FROM facts WHERE entity_type = 'source_doc'"
+        " AND entity_id = ? AND attr = 'version'"
+        " ORDER BY recorded_at DESC LIMIT 1", ("DOC-01",))
+    assert held is not None and "v10" in held["value"]
+
+
+def test_a_clear_does_not_let_a_later_submission_tie_with_a_surviving_fact():
+    """The silent failure the clear itself could have introduced.
+
+    ``_live_instant`` nudges each submission strictly past the newest live
+    event, because the fact store breaks a ``recorded_at`` tie by id - so a tie
+    means one of the two silently never becomes the value in force. Clearing
+    deletes those events and deliberately keeps the facts they wrote, so the
+    anchor has to outlive the rows. It does, in ``runtime_config``.
+    """
+    first = _submit(doc_version="v9")
+    tape.clear()
+    second = _submit(doc_version="v10")
+
+    assert second.ts > first.ts, "the instant went backwards across a clear"
+
+    versions = [r["value"] for r in db.query(
+        "SELECT value FROM facts WHERE entity_type = 'source_doc'"
+        " AND entity_id = 'DOC-01' AND attr = 'version'"
+        " ORDER BY recorded_at")]
+    assert versions == ['"v9"', '"v10"']
+
+
+def _submission_for(event) -> str:
+    """The submissions row an intake would have written for this event.
+
+    ``append_live`` is the transport and does not record a submission -
+    ``sc.estate.intake`` does, and pulling a whole bundle upload in here to get
+    one row would test the datapack writers rather than the clear. The columns
+    that matter are the two ``clear`` reads: the id, and the events it carried.
+    """
+    identifier = "SUB-testclear01"
+    db.connect().execute(
+        "INSERT INTO submissions (id, supplier_id, system_id, kind,"
+        " submitted_at, wall_at, event_ids, entity_ids)"
+        " VALUES (?,?,?,?,?,?,?,?)",
+        (identifier, "SUP-01", "supplier-portal", "DATA_PACK",
+         event.ts.isoformat(), event.ts.isoformat(),
+         db.dumps([event.id]), db.dumps(["VAR-01B"])))
+    db.connect().commit()
+    return identifier
+
+
+def test_clearing_takes_the_open_questions_and_leaves_the_answered_ones():
+    """A question about a bundle that no longer exists is unanswerable.
+
+    An *answered* proposal is a different thing entirely: it is a record of
+    what a person decided, ``onboarding.history`` reads it back as a prior on
+    the next batch, and a reviewer's own past decisions surviving a rewind is
+    the point of keeping them at all.
+    """
+    from sc.onboarding import decide as decide_mod
+    from sc.onboarding import suggest as suggest_mod
+
+    event = _submit()
+    submission_id = _submission_for(event)
+
+    def proposal(path):
+        return suggest_mod.Suggestion(
+            entity_id="VAR-01B", attribute_path=path, label=path, dtype="int",
+            unit="W", safety_class=False, value=65, confidence=0.4,
+            supporters=1, reasons=[])
+
+    open_id = decide_mod.record(submission_id, proposal("specs.power_w"),
+                                routed=decide_mod.HUMAN, limit=0.95)
+    answered_id = decide_mod.record(submission_id, proposal("specs.mass_g"),
+                                    routed=decide_mod.HUMAN, limit=0.95)
+    decide_mod.decide(answered_id, actor="gr25", decision=decide_mod.APPROVE)
+    # Never a question: written without review, with a fact in force behind it.
+    written_id = decide_mod.record(submission_id, proposal("specs.width_mm"),
+                                   routed=decide_mod.AUTONOMOUS, limit=0.95)
+
+    counts = tape.clear()
+
+    assert counts["submissions"] == 1
+    assert counts["open_questions"] == 1
+    assert decide_mod.get(open_id) is None
+
+    held = decide_mod.get(answered_id)
+    assert held is not None and held["decision"] == decide_mod.APPROVE
+
+    autonomous = decide_mod.get(written_id)
+    assert autonomous is not None, ("an autonomous proposal is a record of a "
+                                    "value that was written, not a question")
+    assert event.id not in {e.id for e in tape.released(limit=50)}

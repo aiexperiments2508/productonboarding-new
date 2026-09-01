@@ -43,3 +43,5 @@ numpy>=2.0,<3
 
 # --- Dev -------------------------------------------------------------------
 pytest>=8.0,<9
+# Not optional: pytest.ini passes -n auto, so the suite does not run without it.
+pytest-xdist>=3.5,<4

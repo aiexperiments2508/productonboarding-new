@@ -449,8 +449,7 @@ function Shell() {
           {section === "tower" && (
             <ControlTower
               catalog={catalog} events={events} run={run}
-              onStartRun={startRun} onReplay={doReplay} busy={busy}
-              onOpenReport={(id) => { setBatchId(id); setSection("intake"); }}
+              onStartRun={startRun} busy={busy}
             />
           )}
           {section === "intake" && (
@@ -478,6 +477,7 @@ function Shell() {
           {section === "system" && (
             <SystemControl
               health={health} replay={replay} onReplay={doReplay}
+              events={events} catalog={catalog}
               busy={busy} onRefresh={refreshCore}
             />
           )}

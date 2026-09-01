@@ -13,7 +13,7 @@ seconds of real time to "arrive" would make the replay transport lie: an
 operator who jumps to the inject expects to be at the inject, not two minutes
 of pretend network away from it. What is faithful here is the *grouping* -
 which system sent what, in what batch, with what stamped on it - and that is
-what the Ingest Fabric renders and what the answer key is built from.
+what the estate panel renders and what the answer key is built from.
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ def backfill() -> list[dict]:
 
     A database seeded before the estate existed, or one where the clock was
     jumped past the inject by a script, has released events and no arrivals.
-    Rather than leaving the Ingest Fabric empty on a system that has plainly
+    Rather than leaving the estate panel empty on a system that has plainly
     been running, this deals out what is already visible.
 
     The recorded flight only. A submission's arrival is written by

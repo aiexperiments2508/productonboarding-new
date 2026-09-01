@@ -1380,6 +1380,13 @@ class LlmUsage(BaseModel):
     total_tokens: int = 0
     cost_usd: float = 0.0
     cached: bool = False
+    #: Did anything actually put a price on this call? Cost comes from the
+    #: gateway's own `response_cost`, and a model the gateway's price map does
+    #: not recognise returns no cost at all - which arrives here as 0.0 and is
+    #: indistinguishable from a call that was genuinely free. The token counts
+    #: are correct either way, so the flag is what lets a spend figure say
+    #: "nothing priced this" instead of confidently reporting $0.0000.
+    priced: bool = False
 
 
 class LlmConfig(BaseModel):
@@ -1402,6 +1409,10 @@ class ReplayAction(StrEnum):
     SPEED = "SPEED"
     JUMP = "JUMP"
     RESET = "RESET"
+    # Rewind the recording *and* remove what the portals pushed. Distinct from
+    # RESET, which only unreleases the tape: a rewind is a statement about the
+    # clock, a clear is a statement about what arrived.
+    CLEAR = "CLEAR"
 
 
 class ReplayCommand(BaseModel):

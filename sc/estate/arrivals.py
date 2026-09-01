@@ -4,7 +4,7 @@ This is the seam between two things that must not be confused.
 
 **Arrival is concurrent.** Ten systems deliver at once, in batches, at
 intervals none of them coordinates. Batches interleave and a later sequence can
-land before an earlier one. That is real and the Ingest Fabric shows it.
+land before an earlier one. That is real and the estate panel shows it.
 
 **Ingestion is sequenced.** The consumer cursor in ``event_cursors`` is a
 single watermark and ``ingest()`` drops anything at or behind it. Feed it a
@@ -107,7 +107,7 @@ def system_for(event_id: str) -> str | None:
 
 
 def recent(limit: int = RECENT_LIMIT) -> list[dict]:
-    """The newest arrivals, newest first, for the Ingest Fabric."""
+    """The newest arrivals, newest first, for the estate panel."""
     rows = db.query(
         "SELECT * FROM arrivals ORDER BY arrived_at DESC, seq DESC LIMIT ?",
         (limit,))

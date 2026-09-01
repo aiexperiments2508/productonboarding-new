@@ -839,16 +839,19 @@ export interface ProductRollup {
   cleared: number;
   returned: number;
   blocked: number;
+  /** Stopped at the compliance gate. Overlaps the three above - see the note
+   *  on `BatchTotals.stopped`. */
+  stopped: number;
   untouched: number;
   checks_complete: boolean;
   caveat?: string | null;
   by_supplier: {
     supplier: string; name: string; assessed: number;
-    cleared: number; returned: number; blocked: number;
+    cleared: number; returned: number; blocked: number; stopped: number;
   }[];
   by_category: {
     prefix: string; label: string; assessed: number;
-    cleared: number; returned: number; blocked: number;
+    cleared: number; returned: number; blocked: number; stopped: number;
   }[];
   by_system: {
     system: string; owner?: string | null; products: number; findings: number;
@@ -1590,8 +1593,17 @@ export const api = {
     get<{ replay: ReplayState; inject_seq: number; ingest_cursor: number }>(
       "/api/control/state"),
   replay: (body: { action: string; steps?: number; speed?: number; to_seq?: number }) =>
-    post<{ replay: ReplayState; released: number; inject_seq: number }>(
-      "/api/control/replay", body),
+    post<{
+      replay: ReplayState; released: number; inject_seq: number;
+      /** Only on CLEAR: what was removed, counted by the server rather than
+       *  guessed from the request. */
+      cleared?: {
+        live_events: number; arrivals: number; submissions: number;
+        /** Proposals nobody had answered. An answered one is a record of a
+         *  decision and survives, like the audit ledger. */
+        open_questions: number;
+      };
+    }>("/api/control/replay", body),
 
   /** The open correction cases at the replay clock, worst first.
    *
@@ -1800,12 +1812,48 @@ export const api = {
       `/api/intake/batches/${encodeURIComponent(batchId)}/report` +
       (useModel ? "?use_model=true" : "")),
 
-  /** Fill the gaps a model can cite. Writes facts; publishes nothing. */
+  /** Propose a value for every gap, write what clears the threshold, and queue
+   *  the rest for a category manager. Writes facts; publishes nothing. */
   batchFix: (batchId: string, body: {
     actor: string; entity_ids?: string[]; include_safety_class?: boolean;
   }) =>
     post<BatchFixResult>(
       `/api/intake/batches/${encodeURIComponent(batchId)}/fix`, body),
+
+  /** The confidence a proposal has to clear to be written unattended. */
+  autonomyThreshold: () =>
+    get<AutonomyThreshold>("/api/onboarding/threshold"),
+
+  /** Move it. Needs a name: it is a policy decision, and one nobody can date
+   *  is one nobody can audit. */
+  setAutonomyThreshold: (body: { threshold: number; actor: string }) =>
+    post<{ threshold: number; previous: number; actor: string }>(
+      "/api/onboarding/threshold", body),
+
+  /** Proposed values and their evidence. `pending` narrows to the ones still
+   *  waiting on somebody. */
+  suggestions: (options: { submissionId?: string; pending?: boolean } = {}) => {
+    const query = new URLSearchParams();
+    if (options.submissionId) query.set("submission_id", options.submissionId);
+    if (options.pending) query.set("pending", "true");
+    const tail = query.toString();
+    return get<{ suggestions: Suggestion[]; threshold: number }>(
+      `/api/onboarding/suggestions${tail ? `?${tail}` : ""}`);
+  },
+
+  /** Approve, reject or rectify one proposal. `value` is required on RECTIFY
+   *  and ignored otherwise - approving means taking what was shown. */
+  decideSuggestion: (suggestionId: string, body: {
+    actor: string;
+    decision: "APPROVE" | "REJECT" | "RECTIFY";
+    value?: unknown;
+    comment?: string;
+  }) =>
+    post<{
+      decided: boolean; suggestion_id: string; decision: string;
+      actor: string; value: unknown; fact_id: string | null; note: string;
+    }>(`/api/onboarding/suggestions/${encodeURIComponent(suggestionId)}/decide`,
+       body),
 
   /** Where to download a template. A plain link, because this is the
    *  platform's own UI talking to the platform - the vendor portal reaches the
@@ -2100,14 +2148,91 @@ export interface BatchProduct {
   name: string;
   category: string;
   verdict: string;
+  /** Whether this product may be onboarded at all, and on whose authority it
+   *  was refused. A partition of `findings` the server made, not a second
+   *  assessment - so `gate.findings` and `gate.data_findings` together are
+   *  exactly `findings`. */
+  gate: GateResult;
   open: number;
   blocking: number;
+  /** Always 0 for a product the gate stopped: nothing collects gaps for a
+   *  record that is going back to its supplier. */
   gaps: number;
   findings: ReadinessFinding[];
   /** The nodes the map lights while this product is being assessed. Resolved
    *  server-side, so the client does not rediscover that a variant belongs to
    *  a product which belongs to a supplier. */
   entities: string[];
+}
+
+/** The compliance and policy check that runs before onboarding, and stops it.
+ *
+ *  `authority` says who refused: a regulation is not something a supplier can
+ *  argue with by sending more data, and a policy is this organisation's own
+ *  choice. A screen that showed only "returned" would leave them guessing
+ *  which. */
+export interface GateResult {
+  passed: boolean;
+  outcome: "PASSED" | "STOPPED";
+  authority: "REGULATION" | "POLICY" | null;
+  findings: ReadinessFinding[];
+  data_findings: ReadinessFinding[];
+  checks_complete: boolean;
+  why: string;
+}
+
+/** One thing a suggestion's score was composed from, in the order it was
+ *  weighed.
+ *
+ *  This is what a category manager reads before deciding, and it is the reason
+ *  the confidence is composed from named parts rather than taken from a
+ *  model's own number. `weight` is signed: a prior holding a different value
+ *  subtracts. */
+export interface SuggestionReason {
+  kind: "PASSAGE" | "SIBLING" | "APPROVAL" | "CATEGORY" | "SAFETY";
+  agrees: boolean;
+  support: number;
+  weight: number;
+  detail: string;
+  value?: unknown;
+  reference?: string;
+}
+
+/** A proposed value for a field nobody sent, and its decision.
+ *
+ *  Stored rather than recomputed, unlike almost everything else here: a
+ *  reviewer approves *the exact value they were shown*, and a queue that
+ *  re-derived its rows would let somebody approve 65 and write 68. */
+export interface Suggestion {
+  id: string;
+  submission_id: string;
+  entity_id: string;
+  attribute_path: string;
+  value: unknown;
+  confidence: number;
+  reasons: SuggestionReason[];
+  safety_class: boolean;
+  citation: Citation | null;
+  created_at: string;
+  route: "AUTONOMOUS" | "HUMAN";
+  /** What it was judged against, kept on the row so a decision read back a
+   *  month later can be understood against the policy in force at the time. */
+  threshold: number;
+  decision: "APPROVE" | "REJECT" | "RECTIFY" | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  decided_value: unknown;
+  comment: string;
+}
+
+export interface AutonomyThreshold {
+  threshold: number;
+  default: number;
+  /** How many sources have to agree before anything is written unattended.
+   *  Not a tunable, and stated here so the screen can say the threshold is not
+   *  the only thing standing in the way. */
+  min_sources: number;
+  note: string;
 }
 
 /** A gap, and whether anything could close it without asking the supplier. */
@@ -2138,15 +2263,20 @@ export interface BatchTotals {
   cleared: number;
   returned: number;
   blocked: number;
+  /** How many never reached onboarding. Overlaps `blocked` and `returned` by
+   *  construction - a product stopped by a withdrawal notice is both stopped
+   *  and blocked - so these four do not sum to `assessed`, and making them sum
+   *  would mean one of the other three being wrong. */
+  stopped: number;
   checks_complete: boolean;
   caveat?: string | null;
   by_supplier: {
     supplier: string; name: string; assessed: number;
-    cleared: number; returned: number; blocked: number;
+    cleared: number; returned: number; blocked: number; stopped: number;
   }[];
   by_category: {
     prefix: string; label: string; assessed: number;
-    cleared: number; returned: number; blocked: number;
+    cleared: number; returned: number; blocked: number; stopped: number;
   }[];
   by_system: {
     system: string; owner?: string | null; products: number; findings: number;
@@ -2208,18 +2338,41 @@ export interface BatchRow {
   proposals: BatchProposal[];
 }
 
+/** A proposal as `fix.apply` returns it, before it has been read back from the
+ *  queue. The id is what a decision is made against. */
+export interface ProposedFill {
+  entity_id: string;
+  attribute_path: string;
+  label: string;
+  unit: string | null;
+  safety_class: boolean;
+  value: unknown;
+  confidence: number;
+  supporters: number;
+  reasons: SuggestionReason[];
+  citation: Citation | null;
+  source: "PASSAGE" | "PRIOR";
+  status: string;
+  suggestion_id: string;
+  why?: string;
+  fact_id?: string;
+  doc_id?: string;
+  heading?: string;
+}
+
 export interface BatchFixResult {
   batch_id: string;
   actor: string;
-  filled: {
-    entity_id: string; attribute_path: string; value: unknown;
-    chunk_id: string; quote: string; confidence: number;
-    doc_id: string; heading: string;
-  }[];
+  /** What cleared the threshold and was recorded without a reviewer. */
+  filled: ProposedFill[];
+  /** What did not, and is now waiting on a category manager. */
+  queued: ProposedFill[];
   requested: { entity_id: string; attribute_path: string; why: string }[];
   held_safety: FixableGap[];
-  counts: { filled: number; requested: number; held_safety: number };
-  gateway: { reachable: boolean; detail: string };
+  threshold: number;
+  counts: {
+    filled: number; queued: number; requested: number; held_safety: number;
+  };
   totals: BatchTotals;
   products: BatchProduct[];
   note: string;

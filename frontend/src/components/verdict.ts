@@ -5,17 +5,17 @@ import type { BadgeTone } from "../ui";
  * There is one rule in this file and it is the reason the file exists: **the
  * word "ready" is reserved for a complete assessment.**
  *
- * Seven of the ten checks are rules and run on every page load. The other three
- * read a regulation, a piece of internal documentation and the meaning of a
- * sentence, and they need a model - so they now run when somebody asks for
- * them rather than on every click, which is what makes this screen open
- * instantly.
+ * Seven of the eleven checks are rules and run on every page load. The other
+ * four read a regulation, the retailer's own policy, a piece of internal
+ * documentation and the meaning of a sentence, and they need a model - so they
+ * now run when somebody asks for them rather than on every click, which is what
+ * makes this screen open instantly.
  *
  * That trade is only honest if the screen never launders the difference. A
  * product with no rule findings has not been found ready; it has been found
- * *not yet unready*, by seven checks out of ten, and the three that did not run
- * are precisely the ones that catch a mandate the record breaches and a
- * sentence that has quietly become untrue. Rendering that as a green "ready to
+ * *not yet unready*, by seven checks out of eleven, and the four that did not
+ * run are precisely the ones that catch a mandate the record breaches, a policy
+ * it conflicts with, and a sentence that has quietly become untrue. Rendering that as a green "ready to
  * launch" would be the single most dangerous thing this interface could do,
  * and it is the thing `checks_complete` exists to prevent.
  *
@@ -69,7 +69,7 @@ export function verdictBadge(
  *  true and reads as a failure. They have not been *asked* to run, and the
  *  button to do it is right there - so the client says that instead. */
 export const NARROW_NOTE =
-  "The seven rule checks ran. The three that read regulation, internal "
+  "The seven rule checks ran. The four that read regulation, policy, internal "
   + "documentation and copy meaning have not been run for this product yet.";
 
 /** The tally line above a product list, in the same vocabulary.

@@ -14,7 +14,8 @@ dashboard would be the one people quoted.
 **The narrow-assessment rule survives aggregation, and that is the whole care
 in this file.** ``checks_complete`` is false for the summary if it is false for
 *any* product in it. Seventy-one products reported as clear, when they were
-cleared by six checks of nine and the summary did not say so, is the same lie
+cleared by seven checks of eleven and the summary did not say so, is the same
+lie
 as one product reported that way - and it is a more dangerous one, because a
 number on a dashboard gets repeated by people who never saw the product.
 """
@@ -30,22 +31,41 @@ BUCKETS = {READY: "cleared", RETURN: "returned", BLOCKED: "blocked"}
 
 
 def _blank() -> dict:
-    return {"assessed": 0, "cleared": 0, "returned": 0, "blocked": 0}
+    return {"assessed": 0, "cleared": 0, "returned": 0, "blocked": 0,
+            "stopped": 0}
 
 
-def _add(bucket: dict, verdict: str) -> None:
+def _add(bucket: dict, verdict: str, stopped: bool = False) -> None:
+    """Count one product.
+
+    ``stopped`` says the compliance gate refused it, and it **overlaps** the
+    three verdict buckets rather than replacing them. That is deliberate and it
+    costs a tidy sum. A withdrawal notice makes a product both stopped and
+    blocked; a policy breach makes it stopped and returned. Filing each product
+    under exactly one heading would mean either zeroing ``blocked`` - since
+    every blocking finding is also a gate finding - or hiding the policy
+    breaches inside it. Four numbers that add up, at the cost of two of them
+    being wrong, is not a trade this surface makes anywhere else.
+    """
     bucket["assessed"] += 1
     name = BUCKETS.get(verdict)
     if name:
         bucket[name] += 1
+    if stopped:
+        bucket["stopped"] += 1
 
 
 def tally(assessments: list[tuple[dict, dict]], base) -> dict:
     """Count assessments into totals, and into who is responsible.
 
     ``assessments`` is a list of ``(row, summary)`` where ``row`` carries the
-    product's supplier and category and ``summary`` is what ``assess``
-    returned. Pure: no queries, no model, no clock.
+    product's supplier and category - and, when the caller ran one, whether the
+    compliance gate passed it. ``summary`` is what ``assess`` returned. Pure: no
+    queries, no model, no clock.
+
+    A caller that never ran the gate leaves ``gate_passed`` off the row and gets
+    ``stopped: 0``, which is the truthful answer to "how many were refused" when
+    nobody asked.
     """
     totals = _blank()
     by_supplier: dict[str, dict] = {}
@@ -56,15 +76,17 @@ def tally(assessments: list[tuple[dict, dict]], base) -> dict:
 
     for row, summary in assessments:
         verdict = summary.get("verdict", "")
-        _add(totals, verdict)
+        stopped = row.get("gate_passed") is False
+        _add(totals, verdict, stopped)
         complete = complete and bool(summary.get("checks_complete"))
 
         supplier = row.get("supplier") or "unattributed"
-        _add(by_supplier.setdefault(supplier, _blank()), verdict)
+        _add(by_supplier.setdefault(supplier, _blank()), verdict, stopped)
 
         # Two levels of the taxonomy - the granularity a person filters at.
         branch = ".".join(str(row.get("category") or "").split(".")[:2])
-        _add(by_category.setdefault(branch or "uncategorised", _blank()), verdict)
+        _add(by_category.setdefault(branch or "uncategorised", _blank()),
+             verdict, stopped)
 
         # Who has to fix it. The estate's whole argument is that this question
         # has an answer, and this is where it pays off at population scale.

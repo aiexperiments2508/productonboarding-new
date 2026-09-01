@@ -275,11 +275,6 @@ def llm_usage(run_id: str | None = None) -> dict:
     return gateway.usage_summary(run_id)
 
 
-# ---------------------------------------------------------------------------
-# Catalog
-# ---------------------------------------------------------------------------
-
-
 @app.get("/api/network")
 def get_network(as_of: str | None = None,
                 as_of_recorded: str | None = None) -> dict:
@@ -430,6 +425,7 @@ def control_replay(command: ReplayCommand) -> dict:
     """Drive the tape: start, pause, step, speed, jump, reset."""
     action = command.action
     released = []
+    cleared: dict | None = None
 
     if action == ReplayAction.START:
         tape.set_running(True)
@@ -451,13 +447,27 @@ def control_replay(command: ReplayCommand) -> dict:
         db.connect().execute("DELETE FROM event_cursors WHERE consumer = ?",
                              (ingest.CONSUMER,))
         db.connect().commit()
+    elif action == ReplayAction.CLEAR:
+        # Rewind, and take the portals' traffic with it. `tape.clear` owns what
+        # that means and what it deliberately leaves behind; this route reports
+        # the counts rather than recomputing them, so the sentence the operator
+        # is shown is the one the delete actually produced.
+        cleared = tape.clear()
 
     if released:
         _on_events(released)
 
+    if cleared is not None:
+        # The feed has to empty on every open tab, not only the one that asked.
+        # `topology` is the message the client already answers by re-reading
+        # rather than by trusting a payload, which is exactly right here: what
+        # changed is most of the record.
+        bus.publish("topology", {"change": "tape_cleared", **cleared})
+
     return {"replay": tape.state().model_dump(mode="json"),
             "released": len(released),
-            "inject_seq": tape.inject_seq()}
+            "inject_seq": tape.inject_seq(),
+            **({"cleared": cleared} if cleared is not None else {})}
 
 
 @app.get("/api/control/state")
@@ -1645,7 +1655,7 @@ def intake_servers() -> dict:
 
 @app.get("/api/intake/submissions")
 def intake_submissions(supplier: str = "", limit: int = 50) -> dict:
-    """What suppliers have sent, newest first. The Ingest Fabric's live half."""
+    """What suppliers have sent, newest first. The feed's live half."""
     from sc.estate import submissions as submissions_mod
 
     if supplier:
@@ -2035,6 +2045,96 @@ def intake_batch_fix(submission_id: str, body: dict | None = None) -> dict:
         include_safety_class=bool(options.get("include_safety_class", False)))
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Onboarding decisions
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/onboarding/threshold")
+def onboarding_threshold() -> dict:
+    """The confidence a proposal has to clear to be written unattended."""
+    from sc.onboarding import decide as decide_mod
+
+    return {
+        "threshold": decide_mod.threshold(),
+        "default": decide_mod.DEFAULT_THRESHOLD,
+        "min_sources": decide_mod.MIN_SOURCES,
+        "note": ("a proposal at or above this is recorded without a reviewer. "
+                 "Two rules sit in front of it and neither moves with this "
+                 "number: a safety-class attribute is always decided by a "
+                 "person, and so is any value only one source supports"),
+    }
+
+
+@app.post("/api/onboarding/threshold")
+def set_onboarding_threshold(body: dict) -> dict:
+    """Move it, and record who did.
+
+    Needs a name for the same reason a fill does. There is no identity provider
+    anywhere in this system, so the name is taken at its word and written to the
+    ledger - which is what makes "why was this written without anybody
+    approving it" answerable a month later.
+    """
+    from sc.onboarding import decide as decide_mod
+
+    actor = str((body or {}).get("actor") or "").strip()
+    if not actor:
+        raise HTTPException(
+            status_code=400,
+            detail=("moving the autonomy threshold is a policy decision and has "
+                    "to be attributable to somebody"))
+    try:
+        value = float((body or {}).get("threshold"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400,
+                            detail="threshold must be a number between 0 and 1")
+    return decide_mod.set_threshold(value, actor=actor)
+
+
+@app.get("/api/onboarding/suggestions")
+def onboarding_suggestions(submission_id: str | None = None,
+                           pending: bool = False) -> dict:
+    """Proposed values, with the evidence each score was composed from.
+
+    ``pending`` narrows to the ones a category manager still has to answer.
+    Without it the whole history of a bundle comes back, decided rows included,
+    because "what did we decide about this batch" is the other question this
+    endpoint exists for.
+    """
+    from sc.onboarding import decide as decide_mod
+
+    if pending:
+        rows = decide_mod.pending(submission_id)
+    elif submission_id:
+        rows = decide_mod.for_submission(submission_id)
+    else:
+        rows = decide_mod.pending(None)
+    return {"suggestions": rows, "threshold": decide_mod.threshold()}
+
+
+@app.post("/api/onboarding/suggestions/{suggestion_id}/decide")
+def decide_onboarding_suggestion(suggestion_id: str, body: dict) -> dict:
+    """Approve, reject or rectify one proposal.
+
+    A refusal here is a 409 rather than a 500: "somebody already answered this"
+    and "the value you sent is not a value" are both things the caller can act
+    on, and a stack trace is not.
+    """
+    from sc.onboarding import decide as decide_mod
+
+    options = body or {}
+    result = decide_mod.decide(
+        suggestion_id,
+        actor=str(options.get("actor") or ""),
+        decision=str(options.get("decision") or ""),
+        value=options.get("value"),
+        comment=str(options.get("comment") or ""))
+    if not result.get("decided"):
+        raise HTTPException(status_code=409, detail=result.get("error", ""))
+    bus.publish("approval", {"stage": "onboarding", **result})
     return result
 
 

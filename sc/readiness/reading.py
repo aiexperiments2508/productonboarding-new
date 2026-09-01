@@ -1,6 +1,7 @@
 """The three checks that need somebody to read something.
 
-Six of the nine checks are rules over the record. These three are not, and it is
+Seven of the eleven checks are rules over the record. These four are not, and
+it is
 worth being precise about why, because "we used AI here" is the kind of claim
 that gets waved at problems it does not fit.
 
@@ -13,8 +14,12 @@ that gets waved at problems it does not fit.
     figure, so no literal check fires and no claim predicate binds.
 *   **Internal contradiction.** Our own documentation says things about
     categories that no attribute captures.
+*   **Policy conformance.** The retailer's own handling policy is prose too,
+    and it binds differently from a regulation: it says what this organisation
+    will not put on a shelf, not what the law forbids. Which is why a finding
+    here is ``OPEN`` and never ``BLOCKING`` - see the note on the function.
 
-The bounds are the same in all three, and they are what make this safe:
+The bounds are the same in all four, and they are what make this safe:
 
 **A model produces a candidate finding with a citation. A rule decides.** A
 candidate that cites nothing retrievable is dropped - not softened, not flagged
@@ -66,6 +71,19 @@ CONTRADICTION_SYSTEM = (
     "documentation covers.\n"
     "Every finding must quote the passage id it rests on and name the "
     "attribute or asset it concerns.\n"
+    'Reply as JSON: {"findings": [{"subject": str, "why": str, '
+    '"citation": str}]}'
+)
+
+POLICY_SYSTEM = (
+    "You are checking a product record against the retailer's own published "
+    "policy.\n"
+    "Report only policies the record BREACHES. A policy the record simply says "
+    "nothing about is not a breach, and reporting it as one would hold every "
+    "product the policy has an opinion on.\n"
+    "Every finding must quote the passage id it rests on and name the "
+    "attribute, asset or product property it concerns. A finding you cannot "
+    "cite must be omitted.\n"
     'Reply as JSON: {"findings": [{"subject": str, "why": str, '
     '"citation": str}]}'
 )
@@ -226,6 +244,54 @@ def internal_contradiction(record: Record, base,
     return findings, True
 
 
+def policy_conformance(record: Record, base,
+                       run_id: str = "") -> tuple[list[Finding], bool]:
+    """Does the record breach the retailer's own policy?
+
+    The fourth reading check, and the one that made the onboarding gate
+    possible. ``saleability`` asks whether a market authority forbids selling
+    this; this asks whether *we* have said we will not sell it like this -
+    allergen handling, how a correction must be treated, when something is
+    escalated, what a withdrawal notice obliges. Both are prose, both need
+    reading, and they are not the same question.
+
+    **A finding here is ``OPEN`` and never ``BLOCKING``, deliberately.**
+    ``checks.py`` reserves BLOCKING for a regulation saying a thing may not be
+    sold, and quietly widening it to cover internal policy would make every
+    statement of preference a statement about legality. The onboarding gate in
+    ``sc.onboarding.gate`` stops a product on a policy breach anyway - stopping
+    onboarding and declaring something unlawful are different acts, and keeping
+    them different is the whole reason the gate reads a set of check names
+    rather than a severity.
+    """
+    passages = _passages(
+        f"policy for handling {record.category} product information",
+        record, ["POLICY"])
+    if not passages:
+        return [], True
+
+    try:
+        reply, _ = gateway.complete_json(
+            [{"role": "system", "content": POLICY_SYSTEM},
+             {"role": "user",
+              "content": ("Policy:\n" + _render(passages)
+                          + "\n\nRecord:\n" + _record_lines(record, base))}],
+            model=_model(), agent="readiness.policy", run_id=run_id)
+    except GatewayError:
+        return [], False
+
+    findings = []
+    for candidate, chunk in _cited(_findings_of(reply), passages):
+        subject = str(candidate.get("subject") or chunk.doc_id)[:120]
+        findings.append(Finding(
+            check="policy_conformance",
+            subject=subject,
+            detail=str(candidate.get("why") or "")[:300],
+            system=record.system_for(subject),
+            basis=chunk.doc_id, citation=chunk.id))
+    return findings, True
+
+
 def semantic_copy(record: Record, base,
                   run_id: str = "") -> tuple[list[Finding], bool]:
     """Has a sentence become untrue without any rule noticing?
@@ -274,8 +340,9 @@ def semantic_copy(record: Record, base,
     return findings, True
 
 
-#: The three, each returning its findings and whether it actually ran. The flag
+#: The four, each returning its findings and whether it actually ran. The flag
 #: is not decoration: an assessment that could not reach a model has found fewer
 #: things, and the caller has to be able to say so rather than report a narrower
 #: result as a clean one.
-READING = (saleability, internal_contradiction, semantic_copy)
+READING = (saleability, internal_contradiction, policy_conformance,
+           semantic_copy)

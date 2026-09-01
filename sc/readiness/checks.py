@@ -6,15 +6,16 @@ live and asks what one correction does to it. Nothing asked whether a record was
 complete enough to go live in the first place, which is the question a category
 manager actually has.
 
-Ten checks. Seven are decided here, by rules, over the same tables the
+Eleven checks. Seven are decided here, by rules, over the same tables the
 publish-time validator reads - a product that passed readiness and then failed
 publication on the same fact would mean two implementations of one rule, and the
 rules-as-data design exists to prevent exactly that.
 
-Three need reading and live in ``reading.py``: whether a mandate covers this
-product, whether a sentence has become semantically wrong, and whether the
-record contradicts internal documentation. On those a model finds and cites; a
-rule decides, and a candidate with no citation is dropped.
+Four need reading and live in ``reading.py``: whether a mandate covers this
+product, whether the retailer's own policy is breached, whether a sentence has
+become semantically wrong, and whether the record contradicts internal
+documentation. On those a model finds and cites; a rule decides, and a candidate
+with no citation is dropped.
 
 **There is no score.** A product with three open findings is not seventy per
 cent ready. It is not ready, and the three findings are the thing somebody acts
@@ -121,8 +122,9 @@ class Finding:
 class Record:
     """One product, as the estate has left it.
 
-    Assembled once and handed to every check, so ten checks do not make ten
-    passes over the fact store and cannot disagree about what is in force.
+    Assembled once and handed to every check, so eleven checks do not make
+    eleven passes over the fact store and cannot disagree about what is in
+    force.
     """
 
     entity_id: str

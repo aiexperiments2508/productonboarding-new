@@ -32,11 +32,43 @@ def db_path() -> Path:
     return Path(os.environ.get("DB_PATH", "data/factory.db"))
 
 
+#: Trade durability for speed on a database whose whole life is one process.
+#:
+#: Off by default and deliberately: every real database this opens is one
+#: somebody expects to survive a crash. The test suite is the exception - each
+#: module drops and reseeds its file for every test, so there is nothing in
+#: there a crash could lose that the next line would not rewrite anyway.
+#:
+#: It is set because the suite is disk-bound rather than CPU-bound. Eight
+#: hundred tests each recreate a database and insert five thousand events, and
+#: WAL journalling plus an fsync per commit is most of what that costs - which
+#: is why running the suite on more cores barely helped and running it on fewer
+#: helped less.
+FAST_KEY = "SQLITE_UNSAFE_FAST"
+
+
+def _fast() -> bool:
+    return os.environ.get(FAST_KEY, "").strip().lower() in {"1", "true", "yes"}
+
+
 def _configure(conn: sqlite3.Connection) -> None:
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
+    # WAL in both modes, and that is not negotiable rather than a default.
+    # Connections here are thread-local and the graph fans simulations across a
+    # threadpool; WAL is what lets those read and write at once. `journal_mode
+    # = MEMORY` was tried and is what "database is locked" in `_configure`
+    # looks like - switching journal mode wants an exclusive lock, and this
+    # process is never holding only one connection.
+    conn.execute("PRAGMA journal_mode = WAL")
+    if _fast():
+        # The fsync is the part worth dropping, and under WAL dropping it costs
+        # only durability across a machine crash - not integrity, and not
+        # concurrency. A test database does not outlive the test.
+        conn.execute("PRAGMA synchronous = OFF")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        return
     # NORMAL is the right durability/speed trade for a demo workload: still
     # crash-safe under WAL, without fsync on every commit.
     conn.execute("PRAGMA synchronous = NORMAL")

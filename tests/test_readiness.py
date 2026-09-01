@@ -1,7 +1,7 @@
 """Is this product's information fit to publish?
 
 These run with the gateway unreachable, like everything else here, which means
-the six deterministic checks are what executes and the three reading checks
+the seven deterministic checks are what executes and the four reading checks
 report that they did not run. That is the right shape for this file: the
 deterministic half is where the verdict comes from, and the reading half is
 tested for the property that matters most about it - that its absence is
@@ -385,3 +385,54 @@ def test_findings_are_not_weakened_by_the_assessment_being_narrow():
 
     assert narrow["verdict"] == verdict_mod.RETURN
     assert narrow["findings"], "the rule checks found nothing to return for"
+
+
+# ---------------------------------------------------------------------------
+# The fourth reading check
+# ---------------------------------------------------------------------------
+
+
+def test_a_policy_breach_is_open_and_never_blocking():
+    """Blocking is a statement about legality.
+
+    ``policy_conformance`` says this organisation would not put the record on a
+    shelf like that, which stops onboarding without being a claim about the
+    law. Widening BLOCKING to cover it would make every statement of preference
+    a statement about legality - and the onboarding gate stops the product
+    anyway, by naming the check rather than by reading the severity.
+    """
+    from sc.onboarding import gate as gate_mod
+
+    breach = [Finding(check="policy_conformance", subject="allergens",
+                      detail="POL-001 requires a declaration", basis="POL-001")]
+
+    assert verdict_mod.decide(breach) == verdict_mod.RETURN
+    assert gate_mod.evaluate(verdict_mod.summarise("VAR-X", breach))["passed"] \
+        is False
+
+
+def test_the_policy_check_drops_a_candidate_it_cannot_cite():
+    """The same gate the other three reading checks use, for the same reason:
+    a finding a reviewer cannot open is a finding they cannot check."""
+    from sc.readiness import reading
+
+    class _Chunk:
+        id, doc_id, text = "POL-001#03", "POL-001", "a passage"
+
+    class _Hit:
+        chunk = _Chunk()
+
+    kept = reading._cited(
+        [{"subject": "real", "citation": "POL-001#03"},
+         {"subject": "invented", "citation": "POL-404#01"},
+         {"subject": "unsourced"}],
+        [_Hit()])
+
+    assert [c["subject"] for c, _ in kept] == ["real"]
+
+
+def test_the_policy_check_is_one_of_the_reading_four():
+    from sc.readiness import reading
+
+    assert reading.policy_conformance in reading.READING
+    assert len(reading.READING) == 4

@@ -1,43 +1,67 @@
 import { useEffect, useState } from "react";
 import { api, fmt } from "../api";
-import type { Health, IndexStatus, ModelListing, ReplayState } from "../api";
+import type {
+  CatalogState, Health, IndexStatus, ModelListing, ReplayState, SCEvent,
+} from "../api";
 import { PageHeader } from "../app/shell/PageHeader";
 import {
-  IconJump, IconPause, IconPlay, IconRefresh, IconReset, IconStep,
+  IconAlert, IconJump, IconPause, IconPlay, IconRefresh, IconReset, IconStep,
 } from "../icons";
 import {
   Badge, Button, Code, Divider, Dot, Field, Panel, ProgressBar, Section,
-  SegmentedControl, Select, Skeleton, Stat, Tooltip, cn, useToast,
+  SegmentedControl, Select, Skeleton, Stat, Tab, TabList, TabPanel, Tabs,
+  Tooltip, cn, useToast,
 } from "../ui";
 import { ProvenanceLegend } from "./Approvals";
 import { EvidenceAllowlist } from "./EvidenceLog";
 import { A2APanel } from "./A2APanel";
+import { AutonomyPanel } from "./AutonomyPanel";
 import { CapabilityBoard } from "./CapabilityBoard";
+import { EstatePanel } from "./EstatePanel";
+import { EventFeed } from "./EventFeed";
 import { FactLineage } from "./FactLineage";
 import { MCPConsole } from "./MCPConsole";
 
 /* System control.
  *
  * The machinery under the factory: the replay transport that releases supplier
- * documents, the model the graph reads them with, and the response cache that
- * makes a rehearsal deterministic and survivable when the venue's network is
- * not.
+ * documents, the systems that carry them, the model the graph reads them with,
+ * and the response cache that makes a rehearsal deterministic and survivable
+ * when the venue's network is not.
+ *
+ * It is tabbed rather than piled into two columns, and that is not tidying. The
+ * Ingest Fabric is the graph now, so everything that used to sit under the map -
+ * the estate, the arrivals pulse, the live feed - arrived here at once, and a
+ * single column of a dozen panels is a list nobody reads to the end of. Five
+ * groups, each answering one question: what is the tape doing, what is plugged
+ * in, what is it reading with, what may it decide on its own, and is any of it
+ * healthy.
  *
  * The transport is also in the status strip, deliberately duplicated. This is
- * the full panel - speed, progress, the reset - and the strip is the subset
- * you need while watching the catalog. Neither is the other's shortcut.
+ * the full panel - speed, progress, the reset, the clear - and the strip is the
+ * subset you need while watching the catalog. Neither is the other's shortcut.
  */
 
 const SPEEDS = [1, 5, 10, 50];
 
-export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
+type TabId = "replay" | "estate" | "model" | "policy" | "health";
+
+export function SystemControl({
+  health, replay, events, catalog, onReplay, busy, onRefresh,
+}: {
   health: Health | null;
   replay: ReplayState | null;
+  /** The released tape, for the feed. Held by the shell so one subscription
+   *  serves every section that reads it. */
+  events: SCEvent[];
+  /** Names the ids the feed turns into sentences. */
+  catalog: CatalogState | null;
   onReplay: (body: { action: string; steps?: number; speed?: number; to_seq?: number }) => void;
   busy: boolean;
   onRefresh: () => Promise<void>;
 }) {
   const toast = useToast();
+  const [tab, setTab] = useState<TabId>("replay");
   const [models, setModels] = useState<ModelListing | null>(null);
   const [index, setIndex] = useState<IndexStatus | null>(null);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.usage>> | null>(null);
@@ -73,7 +97,7 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
   const running = !!replay?.running;
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         section="system"
         actions={
@@ -86,8 +110,16 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
         }
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-2">
-        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
+      <Tabs fill value={tab} onValueChange={(v) => setTab(v as TabId)}>
+        <TabList ariaLabel="Parts of the machinery">
+          <Tab value="replay">Replay &amp; feed</Tab>
+          <Tab value="estate">Estate &amp; connectors</Tab>
+          <Tab value="model">Model &amp; retrieval</Tab>
+          <Tab value="policy">Onboarding policy</Tab>
+          <Tab value="health">Health &amp; provenance</Tab>
+        </TabList>
+
+        <TabPanel value="replay" scroll>
           <Panel
             title="Replay transport"
             actions={
@@ -173,6 +205,29 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
             </div>
           </Panel>
 
+          <ClearPanel busy={busy} onDone={onRefresh} />
+
+          <EventFeed
+            events={events} catalog={catalog} busy={busy} onReplay={onReplay}
+          />
+        </TabPanel>
+
+        <TabPanel value="estate" scroll>
+          {/* Who is feeding the catalog. The Ingest Fabric draws the shape of
+              the estate; this is the estate itself - which systems are
+              delivering, how badly each behaves, and what is plugged in. */}
+          <EstatePanel />
+
+          {/* The directory first: it is the answer to "what can this do", and
+              the two panels below it are the detail of how. */}
+          <CapabilityBoard />
+
+          <A2APanel />
+
+          <MCPConsole />
+        </TabPanel>
+
+        <TabPanel value="model" scroll>
           <Panel
             title="Model gateway"
             actions={
@@ -326,47 +381,6 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
               </div>
             )}
           </Panel>
-        </div>
-
-        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
-          <Panel title="Service health">
-            {!health ? (
-              <div className="flex flex-col gap-2">
-                {Array.from({ length: 4 }, (_, i) => (
-                  <Skeleton key={i} className="h-4 w-full" />
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <HealthRow label="API" ok={health.ok}
-                           detail="one process, no containers" />
-                <HealthRow
-                  label="Gateway"
-                  ok={health.gateway.ok}
-                  detail={health.gateway.circuit?.open
-                    ? `circuit open — retrying in ${health.gateway.circuit.retry_in_seconds}s`
-                    : health.gateway.url}
-                />
-                <HealthRow
-                  label="Event tape"
-                  ok={health.data.events > 0}
-                  detail={`${health.data.events} events, ingested to ${health.ingest_cursor}`}
-                />
-                <HealthRow
-                  label="Catalog"
-                  ok={health.data.nodes > 0}
-                  detail={`${health.data.nodes} catalog nodes, ${health.data.listings} listings, ${health.data.assets} content assets`}
-                />
-                {!health.gateway.ok && (
-                  <p className="text-sm leading-relaxed text-muted">
-                    The gateway is unreachable. Every model step falls back to a
-                    deterministic path, so the loop still runs — narrative
-                    quality degrades, the decision does not.
-                  </p>
-                )}
-              </div>
-            )}
-          </Panel>
 
           <Panel
             title="Retrieval index"
@@ -429,23 +443,15 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
                 )}
                 <p className="text-sm leading-relaxed text-muted">
                   The reference library behind the loop: content standards,
-                  channel specifications, policy and postmortems. Retrieval
-                  fuses BM25 with dense search, and BM25 alone still answers a
-                  query naming a product or an attribute path, so a missing
-                  matrix degrades quality rather than breaking search. Press{" "}
-                  <Code>⌘K</Code> to search it directly.
+                  channel specifications, regulation, policy and postmortems.
+                  Retrieval fuses BM25 with dense search, and BM25 alone still
+                  answers a query naming a product or an attribute path, so a
+                  missing matrix degrades quality rather than breaking search.
+                  Press <Code>⌘K</Code> to search it directly.
                 </p>
               </div>
             )}
           </Panel>
-
-          {/* The directory first: it is the answer to "what can this do",
-              and the two panels below it are the detail of how. */}
-          <CapabilityBoard />
-
-          <A2APanel />
-
-          <MCPConsole />
 
           <Panel title="Investigator tool allowlist">
             {allowlist ? (
@@ -462,6 +468,51 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
               </div>
             )}
           </Panel>
+        </TabPanel>
+
+        <TabPanel value="policy" scroll>
+          <AutonomyPanel />
+        </TabPanel>
+
+        <TabPanel value="health" scroll>
+          <Panel title="Service health">
+            {!health ? (
+              <div className="flex flex-col gap-2">
+                {Array.from({ length: 4 }, (_, i) => (
+                  <Skeleton key={i} className="h-4 w-full" />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <HealthRow label="API" ok={health.ok}
+                           detail="one process, no containers" />
+                <HealthRow
+                  label="Gateway"
+                  ok={health.gateway.ok}
+                  detail={health.gateway.circuit?.open
+                    ? `circuit open — retrying in ${health.gateway.circuit.retry_in_seconds}s`
+                    : health.gateway.url}
+                />
+                <HealthRow
+                  label="Event tape"
+                  ok={health.data.events > 0}
+                  detail={`${health.data.events} events, ingested to ${health.ingest_cursor}`}
+                />
+                <HealthRow
+                  label="Catalog"
+                  ok={health.data.nodes > 0}
+                  detail={`${health.data.nodes} catalog nodes, ${health.data.listings} listings, ${health.data.assets} content assets`}
+                />
+                {!health.gateway.ok && (
+                  <p className="text-sm leading-relaxed text-muted">
+                    The gateway is unreachable. Every model step falls back to a
+                    deterministic path, so the loop still runs — narrative
+                    quality degrades, the decision does not.
+                  </p>
+                )}
+              </div>
+            )}
+          </Panel>
 
           <FactLineage />
 
@@ -470,9 +521,104 @@ export function SystemControl({ health, replay, onReplay, busy, onRefresh }: {
               <ProvenanceLegend />
             </Section>
           </Panel>
+        </TabPanel>
+      </Tabs>
+    </div>
+  );
+}
+
+/* --- clearing the tape ----------------------------------------------------- */
+
+/** Rewind the recording and remove what the portals pushed.
+ *
+ * Two-step rather than a dialog, because there is no dialog primitive in the
+ * kit and a confirm that lives in the button is one the reader cannot miss:
+ * the first click replaces the label with what is about to happen, the second
+ * does it, and clicking anything else abandons it.
+ *
+ * The sentence it arms with is the important part. This scope deliberately
+ * stops short of the fact store, so a value a portal submission already
+ * recorded survives the removal of the event that carried it. Saying that out
+ * loud is the difference between a control an operator can trust and one that
+ * quietly implies a clean slate.
+ */
+function ClearPanel({ busy, onDone }: {
+  busy: boolean;
+  onDone: () => Promise<void>;
+}) {
+  const toast = useToast();
+  const [armed, setArmed] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  // Disarm on any keypress, so an armed button never sits waiting across a
+  // context switch.
+  useEffect(() => {
+    if (!armed) return;
+    const off = () => setArmed(false);
+    window.addEventListener("keydown", off);
+    return () => window.removeEventListener("keydown", off);
+  }, [armed]);
+
+  const clear = async () => {
+    setClearing(true);
+    try {
+      const r = await api.replay({ action: "CLEAR" });
+      const c = r.cleared;
+      toast.push({
+        tone: "ok",
+        title: "The tape is back at the start",
+        detail: c
+          ? `${c.live_events} portal event(s), ${c.submissions} submission(s), `
+            + `${c.arrivals} arrival(s) and ${c.open_questions} unanswered `
+            + "proposal(s) removed"
+          : undefined,
+      });
+      await onDone();
+    } catch (e) {
+      toast.error("Could not clear the tape", String(e));
+    } finally {
+      setClearing(false);
+      setArmed(false);
+    }
+  };
+
+  return (
+    <Panel
+      title="Clear the tape"
+      tone={armed ? "warn" : undefined}
+      actions={
+        <div className="flex items-center gap-1.5">
+          {armed && (
+            <Button size="xs" tone="ghost" onClick={() => setArmed(false)}>
+              cancel
+            </Button>
+          )}
+          <Button
+            tone="danger"
+            size="sm"
+            disabled={busy}
+            loading={clearing}
+            icon={<IconAlert size={14} />}
+            onClick={() => (armed ? clear() : setArmed(true))}
+          >
+            {armed ? "Yes — clear it" : "Clear"}
+          </Button>
         </div>
-      </div>
-    </>
+      }
+    >
+      <p className="text-sm leading-relaxed text-muted">
+        Rewinds the recording to the start and removes everything the Vendor and
+        Supplier portals pushed while the process was running — the live events,
+        the arrivals they were carried in, the submission records, and any
+        onboarding proposal nobody had answered.{" "}
+        <strong className="text-default">
+          Values those submissions already recorded stay in the catalog.
+        </strong>{" "}
+        Clearing the tape and retracting a fact are different acts, and this is
+        only the first: the audit ledger, the fact store, the decisions people
+        made and anything connected through the estate are untouched.
+      </p>
+    </Panel>
   );
 }
 

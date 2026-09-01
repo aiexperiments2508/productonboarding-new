@@ -262,6 +262,30 @@ def precedence(base: Baseline, doc_id: str) -> int:
 EXTENSION = "catalog.live.json"
 
 
+def extension_path(directory: Path | None = None) -> Path:
+    """Where the accepted lines live.
+
+    Overridable by ``CATALOG_EXTENSION`` for the same reason ``DB_PATH`` and
+    ``CORPUS_DIR`` are: two processes may share one ``data`` directory - the
+    test suite runs its modules in parallel against the same seed pack - and
+    this is the one file among them that every ``load`` merges and one of them
+    writes. A shared path there is a product appearing in another run's catalog
+    halfway through it.
+
+    A bare filename is resolved inside the data directory, so the override can
+    name a file without repeating where the pack lives; an absolute path is
+    taken as given.
+    """
+    import os
+
+    base = directory or data_dir()
+    override = os.environ.get("CATALOG_EXTENSION", "").strip()
+    if not override:
+        return base / EXTENSION
+    named = Path(override)
+    return named if named.is_absolute() else base / named
+
+
 def _extend(raw: dict, directory: Path) -> dict:
     """Merge accepted lines into the generated catalog.
 
@@ -270,7 +294,7 @@ def _extend(raw: dict, directory: Path) -> dict:
     definition, because those are the things every validation is computed
     against and a second source for them would be a second rulebook.
     """
-    path = directory / EXTENSION
+    path = extension_path(directory)
     if not path.exists():
         return raw
 
@@ -291,7 +315,7 @@ def _extend(raw: dict, directory: Path) -> dict:
 
 def accepted_lines(directory: Path | None = None) -> dict:
     """What the extension currently holds. Empty when there is no extension."""
-    path = (directory or data_dir()) / EXTENSION
+    path = extension_path(directory)
     if not path.exists():
         return {}
     try:
@@ -308,7 +332,7 @@ def write_accepted(payload: dict, directory: Path | None = None) -> Path:
     silently dropped a process-wide cache as a side effect of writing a file
     would be a surprising thing to call twice.
     """
-    path = (directory or data_dir()) / EXTENSION
+    path = extension_path(directory)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True),
                     encoding="utf-8")

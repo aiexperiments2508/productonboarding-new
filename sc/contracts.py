@@ -660,6 +660,98 @@ class GraphStatus(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Asking about a product in words
+#
+# The one surface here that takes an open-ended question. That makes it the
+# easiest place in the whole application to tell somebody something untrue, so
+# the shape below is arranged to make that hard rather than to make answering
+# easy.
+#
+# **Routing is deterministic and the model only phrases.** Which sources a
+# question reaches is decided by ``sc/chat/intents.py`` from a closed set, not
+# by a model deciding what to look up. The model is handed evidence that has
+# already been gathered and asked to put it into a sentence. It cannot reach
+# for a fact that was not retrieved, because it is never given the ability to
+# retrieve one - and when the gateway is down the same evidence is templated
+# instead, which is why this surface still answers with no model at all.
+#
+# **Every answer carries its sources**, and an answer with no sources is a
+# refusal rather than a guess. That is the same posture the readiness verdict
+# takes when its reading checks could not run.
+# ---------------------------------------------------------------------------
+
+
+class ChatIntent(StrEnum):
+    """What a question is asking for.
+
+    A closed set, matched by keyword. An intent nothing matches is
+    ``UNANSWERABLE`` - which is an answer, and a better one than the nearest
+    guess: a merchant who asked about delivery dates and got a confident
+    paragraph about pack sizes has been misled, not helped.
+    """
+
+    OVERVIEW = "OVERVIEW"          # what is this thing
+    FEATURES = "FEATURES"          # its attributes, as recorded
+    READINESS = "READINESS"        # can it launch, and what is open
+    MEDIA = "MEDIA"                # what imagery it has and lacks
+    COMPLIANCE = "COMPLIANCE"      # certificates, rules, markets
+    STOCK = "STOCK"                # depots and quantities
+    SALES = "SALES"                # price, units, revenue
+    MARKETING = "MARKETING"        # campaigns, promotions, audiences
+    CONNECTIONS = "CONNECTIONS"    # what it is joined to, and how
+    STANDARDS = "STANDARDS"        # what the corpus says
+    UNANSWERABLE = "UNANSWERABLE"  # say so, and say what can be asked
+
+
+class ChatSource(BaseModel):
+    """One thing an answer stands on.
+
+    ``kind`` says which surface it came from so the UI can link back to it, and
+    ``detail`` is the fact itself rather than a pointer to one - a source a
+    reader has to go and fetch before they can check the sentence is a source
+    that will not be checked.
+    """
+
+    kind: Literal["record", "readiness", "graph", "insight", "corpus"]
+    label: str
+    detail: str
+    #: Where this came from: an attribute path, a node id, a document id.
+    reference: str | None = None
+    #: The Product 360 section that shows it, where one does.
+    section: str | None = None
+
+
+class ChatAnswer(BaseModel):
+    """A reply, and everything it was built from.
+
+    ``grounded`` is false when the evidence was empty. The reply then says it
+    does not know, and the UI shows it as a refusal rather than as prose -
+    because a confident sentence and an admission of ignorance should not look
+    the same.
+
+    ``spoken`` is the reply with the citation furniture removed. Read aloud,
+    "as recorded by supplier-portal, document DOC-01 v1" is noise; on screen it
+    is the reason to believe the sentence. They are the same answer for two
+    different senses.
+    """
+
+    question: str
+    intent: ChatIntent
+    reply: str
+    spoken: str
+    sources: list[ChatSource] = Field(default_factory=list)
+    grounded: bool = True
+    #: The product the question was answered about, once resolved.
+    resolved: GraphKey | None = None
+    #: Which engine wrote the prose. "template" means the gateway was not
+    #: reachable and the same evidence was rendered deterministically.
+    phrased_by: Literal["model", "template"] = "template"
+    #: Node ids worth highlighting in the graph beside the answer.
+    highlight: list[str] = Field(default_factory=list)
+    as_of: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
 # Bitemporal facts
 # ---------------------------------------------------------------------------
 

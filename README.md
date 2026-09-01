@@ -750,6 +750,84 @@ python scripts/generate_backoffice.py
 
 Same seed, same bytes — `--check` builds it twice and compares.
 
+## Asking in words
+
+Product 360 carries an **Ask** panel above its five sections. It answers
+questions about the product on screen — its features, whether it can launch,
+its imagery, compliance, stock, sales, campaigns, and what it connects to —
+and reads the answer aloud on request.
+
+It is the only surface in this application that takes an open-ended question,
+which makes it the easiest place in it to say something untrue. Three decisions
+arrange it so that is hard rather than so that answering is easy.
+
+**Routing is deterministic; the model only phrases.** `sc/chat/intents.py`
+picks which surfaces a question reaches from a closed keyword table. A model
+choosing what to look up is a model that can choose to look up nothing and
+answer anyway. The table is hand-weighted and then expanded with generated
+inflections — a hand-written spelling always wins, which is what stops
+COMPLIANCE (which weights `market` at 1) quietly acquiring `marketing`.
+
+**Evidence is gathered before anything is phrased.** `sc/chat/evidence.py`
+reads the merged record, the readiness verdict, the knowledge graph and the
+document corpus, and returns facts. `sc/chat/reply.py` is handed those facts
+and asked for a sentence. It has no retrieval tool, so it cannot reach a fact
+that was not gathered — the failure mode where a model answers from its own
+memory is not mitigated here, it is unavailable.
+
+**An answer with no evidence is a refusal.** Not a hedge and not a general
+remark about the category: a refusal that names what could be asked instead.
+The UI renders it in a different treatment from prose, because a confident
+sentence and an admission of ignorance must not look the same.
+
+Two strings come back rather than one. `reply` is what appears on screen, where
+"as recorded by supplier-portal" is the reason to believe the sentence.
+`spoken` is what is read aloud, where the same clause is furniture between the
+listener and the next fact. They state the same facts at different lengths.
+
+### Where the answers come from
+
+| Question | Read from |
+|---|---|
+| its features, what it is made of | the merged record, with the system that supplied each value |
+| can it launch, what is open | `sc.readiness.assess`, including the caveat when the reading checks did not run |
+| what imagery it has | the same media table the `required_media` check binds on |
+| certificates, where it may be sold | the record's `compliance.*` values **and** the graph's Certificate nodes |
+| stock, sales, campaigns, connections | the knowledge graph |
+| what the standards say | the document corpus, cited by chunk |
+
+The graph walk is **two hops from the variant with no detour through the
+product**, and that is a correctness constraint rather than a performance one.
+Widening it to reach a campaign also walks back *down* into the product's
+sibling variants, and their stock and certificates then arrive labelled as this
+one's: on `VAR-01A` it turned three stock records into a hundred and eighty-one
+and one certificate into nineteen. Nothing about the reply looked wrong — it
+was fluent, it cited sources, and it was wrong by sixty-fold. What genuinely
+hangs off the product (a campaign promotes a product, not a variant) is reached
+by one hop from the product node instead, which cannot stray for the same
+reason. `tests/test_chat.py` asserts this against the graph's own adjacency.
+
+### With no gateway
+
+The whole path works without a model. The gateway is asked to phrase and
+nothing else, so when its circuit breaker is open the same evidence is
+templated and the answer says `phrased_by: "template"` — which the panel shows
+rather than hides, because a reader who knows no model was involved reads the
+prose differently.
+
+### Speech
+
+Speech-out is the browser's own `speechSynthesis`. Nothing is uploaded, nothing
+is stored, and the panel works with the speakers muted. `http://localhost` is a
+secure context, so it needs no TLS. Two browser behaviours are worked around in
+`useSpeech.ts` rather than assumed away: voices arrive asynchronously after a
+`voiceschanged` event, and Chrome stops speaking after roughly fifteen seconds
+unless `resume()` is called on a timer.
+
+Microphone input is not in this pass. When it lands it will be local
+`faster-whisper` rather than the Web Speech API, which streams audio to
+Google's servers.
+
 ## Tests
 
 ```bash

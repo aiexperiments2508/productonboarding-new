@@ -335,3 +335,32 @@ export const IconGraph = (p: IconProps) => (
     <path d="M6.2 7.1 10.2 10.5M17.6 8.2 13.7 10.8M15.6 17.4 13.2 13.9M7.2 16.3 10.2 13.6" />
   </Icon>
 );
+
+/** Asking in words. A speech bubble with a question in it, rather than the
+ *  three dots a chat widget usually gets - the panel answers questions, and
+ *  the dots read as "somebody is typing". */
+export const IconAsk = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M20.5 12.4a7.6 7.6 0 0 1-7.6 7.6H8.3l-3.9 2.4a.4.4 0 0 1-.6-.36V12.4a7.6 7.6 0 0 1 15.2 0Z" />
+    <path d="M10.3 9.7a2.6 2.6 0 0 1 4.6 1.6c0 1.7-2.4 2-2.4 3.4" />
+    <path d="M12.5 17.1h.01" />
+  </Icon>
+);
+
+/** Reading an answer aloud. A speaker with two arcs - the arcs are what
+ *  distinguish it from the mute state, which drops them. */
+export const IconSpeaker = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 9.4h3.2L12 5.2v13.6L7.2 14.6H4a.8.8 0 0 1-.8-.8v-3.6a.8.8 0 0 1 .8-.8Z" />
+    <path d="M15.4 9.6a3.6 3.6 0 0 1 0 4.8" />
+    <path d="M18 7.2a7.2 7.2 0 0 1 0 9.6" />
+  </Icon>
+);
+
+/** The same speaker with the arcs struck through: answers are not read out. */
+export const IconSpeakerOff = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 9.4h3.2L12 5.2v13.6L7.2 14.6H4a.8.8 0 0 1-.8-.8v-3.6a.8.8 0 0 1 .8-.8Z" />
+    <path d="m16 10 4 4M20 10l-4 4" />
+  </Icon>
+);

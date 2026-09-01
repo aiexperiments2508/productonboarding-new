@@ -1471,6 +1471,49 @@ export interface KgStatus {
   max_nodes: number;
 }
 
+/* --- asking in words ------------------------------------------------------
+ *
+ * Mirrors `sc/contracts.py`. The shape is arranged around one rule: an answer
+ * carries what it stands on, and an answer standing on nothing says so. The
+ * UI renders `grounded: false` as a refusal rather than as prose, because a
+ * confident sentence and an admission of ignorance must not look the same. */
+
+export type ChatIntent =
+  | "OVERVIEW" | "FEATURES" | "READINESS" | "MEDIA" | "COMPLIANCE"
+  | "STOCK" | "SALES" | "MARKETING" | "CONNECTIONS" | "STANDARDS"
+  | "UNANSWERABLE";
+
+export interface ChatSource {
+  kind: "record" | "readiness" | "graph" | "insight" | "corpus";
+  label: string;
+  /** The fact itself, not a pointer to it. A citation a reader has to go and
+   *  fetch before they can check the sentence is one that will not be
+   *  checked. */
+  detail: string;
+  reference: string | null;
+  /** The Product 360 section that shows it, where one does. */
+  section: string | null;
+}
+
+export interface ChatAnswer {
+  question: string;
+  intent: ChatIntent;
+  reply: string;
+  /** The reply with the citation furniture removed, for speech. Read aloud,
+   *  "as recorded by supplier-portal" is noise; on screen it is the reason to
+   *  believe the sentence. */
+  spoken: string;
+  sources: ChatSource[];
+  grounded: boolean;
+  resolved: KgKey | null;
+  /** "template" means the gateway was not reachable and the same evidence was
+   *  rendered deterministically. Worth showing: it tells a reader whether a
+   *  model was involved at all. */
+  phrased_by: "model" | "template";
+  highlight: string[];
+  as_of: string | null;
+}
+
 export const api = {
   health: () => get<Health>("/api/health"),
 
@@ -1877,6 +1920,15 @@ export const api = {
     post<KgInsightResult>("/api/kg/query", { id, params }),
 
   kgStatus: () => get<KgStatus>("/api/kg/status"),
+
+  /** Ask about a product in words. `key` is a SKU, a variant id or a product
+   *  id - whatever the screen is holding; the answer echoes which it was. */
+  chatAsk: (question: string, key?: string | null, useModel = true) =>
+    post<ChatAnswer>("/api/chat/ask", { question, key, use_model: useModel }),
+
+  chatCapabilities: () =>
+    get<{ capabilities: { intent: ChatIntent; describes: string }[] }>(
+      "/api/chat/capabilities"),
   /** Every correction waiting on a reviewer, not just this browser's own.
    *
    *  The rail badge has always read this. Review & Audit now reads it too, so

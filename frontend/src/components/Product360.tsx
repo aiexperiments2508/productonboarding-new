@@ -10,6 +10,7 @@ import { RegulatedTag } from "./common";
 import { PageHeader } from "../app/shell/PageHeader";
 import { MediaStrip } from "./MediaStrip";
 import { KnowledgeGraphPanel } from "./kg/KnowledgeGraphPanel";
+import { AskPanel } from "./chat/AskPanel";
 import { ProductFilters, ProductRollupStrip } from "./ProductFilters";
 import type { Filters } from "./ProductFilters";
 import { EMPTY_FILTERS } from "./ProductFilters";
@@ -480,6 +481,16 @@ export function Product360() {
                   />
                 </div>
               </div>
+
+              {/* Asking in words. Deliberately above the five sections
+                *  rather than inside one: a question can be about any of
+                *  them, and the answer links down into whichever it turned
+                *  out to concern. */}
+              <AskPanel
+                selected={selected}
+                sku={readiness.record?.sku ?? null}
+                onJump={(section) => jumpTo(section as SectionKey)}
+              />
 
               {/* --- what is wrong with it ------------------------------- */}
               <div ref={sectionRefs.findings} className="scroll-mt-[9.5rem]">

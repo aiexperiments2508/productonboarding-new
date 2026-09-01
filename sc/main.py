@@ -1205,6 +1205,42 @@ def graph_status() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Asking in words
+#
+# The only surface here that takes an open-ended question, and so the easiest
+# place in this application to say something untrue. What stops that is not in
+# this file: `sc.chat` routes by keyword, gathers evidence before anything is
+# phrased, and refuses when it gathered none. These handlers stay what every
+# other handler here is - a translation between HTTP and a call.
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/chat/ask")
+def chat_ask(body: dict) -> dict:
+    """Answer one question about one product, from what is recorded.
+
+    ``key`` is optional: without one only the corpus can be searched, and the
+    answer says so rather than guessing which product was meant.
+    """
+    from sc import chat
+
+    question = (body or {}).get("question", "")
+    if not str(question).strip():
+        raise HTTPException(status_code=400, detail="question is required")
+    answer = chat.ask(str(question), (body or {}).get("key") or None,
+                      use_model=bool((body or {}).get("use_model", True)))
+    return answer.model_dump(mode="json")
+
+
+@app.get("/api/chat/capabilities")
+def chat_capabilities() -> dict:
+    """What can be asked here, so the panel can offer it rather than hint."""
+    from sc import chat
+
+    return {"capabilities": chat.capabilities()}
+
+
+# ---------------------------------------------------------------------------
 # The publication estate
 #
 # The other end of the pipe. These read the blast radius the catalog already

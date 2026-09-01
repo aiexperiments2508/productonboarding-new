@@ -183,7 +183,10 @@ async function renderTrading() {
 
 async function renderCampaigns() {
   const all = await payloadsOfType("campaign-manager", null, 70);
-  const campaigns = all.filter((p) => p.campaign_id)
+  /* `objective`, not `campaign_id`: a PROMOTION carries a campaign_id too, and
+     has no keywords - so filtering on the shared field puts a promotion into
+     the campaign table and the render throws on the first one. */
+  const campaigns = all.filter((p) => p.objective)
     .sort((a, b) => a.starts_on.localeCompare(b.starts_on));
   if (!campaigns.length) return emptyInto("#campaigns", "no deliveries yet");
 

@@ -959,6 +959,161 @@ written to disk; `tests/test_voice.py` asserts that against the module source,
 because "the audio never leaves the machine" is worth very little if it is
 sitting in a temp file afterwards.
 
+## What retrieval answers, and in what order
+
+Two things sit between the fused candidates and the passages a check reads.
+
+### In force, as of when
+
+Front matter has always carried `effective:`, and retrieval never looked at it.
+It does now, and the default is on: a search answers **as of the replay clock**,
+and a document that has not commenced is not returned.
+
+This is the same class of error as citing a policy that has been withdrawn, and
+it is quieter. A rule taking effect in December is a real document with a real
+id — it retrieves cleanly, the excerpt reads correctly, the citation resolves,
+and every anti-fabrication gate in this system passes it. Nothing downstream can
+catch it, because nothing downstream knows what day it is.
+
+```
+GET /api/sop/search?q=...&as_of=2027-01-01     # ask about a different date
+GET /api/sop/search?q=...&in_force_only=false  # everything, commenced or not
+```
+
+`in_force_only=false` is what somebody preparing for a change wants and what an
+assessment must never use. Two failure modes are deliberately *not* exclusions:
+a document with no effective date is always in force — correspondence, catalog
+records and postmortems describe rather than commence — and so is one whose date
+will not parse. A typo in front matter should cost a document its date, not its
+presence; an unfindable regulation is the failure this module exists to prevent.
+
+Citations now carry `version` and `effective`, because "which edition of
+`POL-002` was this decided against" is a question an audit asks and a chunk id
+cannot answer.
+
+### The reranker
+
+Fusion decides what is *plausible*. Reciprocal-rank fusion knows BM25 put a
+passage third and the embedding put it seventh, and has no way to notice that
+the passage is about a different product, answers the opposite of what was
+asked, or is the "Related documents" section of the right document rather than
+the rule itself. A model reading the query beside the passage notices all three.
+
+**Off by default**, and switchable in System Control → Model & retrieval:
+
+```
+POST /api/sop/rerank   {"enabled": true}
+```
+
+It is a trade rather than an improvement — one model call on a path that used to
+cost none — and identifier queries, which are most of them, were already
+answered correctly by BM25. It earns its place on paraphrase, which is where the
+fused ordering is weakest and where somebody is reading the answer rather than
+following a link. Responses are cached by the gateway like every other call, so
+a repeated query is free.
+
+A cross-encoder would do the same job without a gateway. It arrives as
+`sentence-transformers` and a compiled extension, which is the dependency line
+this application holds everywhere else.
+
+Three properties matter more than the ranking quality, and `tests/test_rerank.py`
+drives a stubbed gateway to assert each:
+
+- **It can never invent a passage.** The model may only return ids it was given;
+  anything else is dropped and counted. Every citation gate downstream trusts
+  that a retrieved id was retrieved, and a reranker returning an id it made up
+  would not be reordering the evidence but producing it.
+- **It can never drop one.** Candidates it fails to mention keep their fused
+  position behind those it ranked, so a reply about three of twelve passages
+  cannot silently shorten the result set.
+- **It fails visibly.** A dead gateway, a refusal, an unparseable reply — the
+  fused order stands and the caller is told why. Reranking that silently did not
+  happen looks identical to reranking that happened and agreed, and those are
+  very different facts about an answer somebody is about to act on.
+
+It reads deeper than the caller asked for — `rerank.CANDIDATES` fused passages
+for a `top_k` of six — because the passage worth promoting is usually not
+already in the top three, and truncating first would leave it able only to
+shuffle what fusion had already chosen.
+
+## The policy library
+
+The documents this system is answerable to live in `corpus/` — 29 authored
+markdown files under `regulation/`, `policy/`, `internal/`, `standard/`,
+`channel/`, `incident/` and `market/`. They are committed content, not
+generated data, and three readiness checks read them directly:
+`saleability` retrieves `REGULATION`, `internal_contradiction` retrieves
+`INTERNAL`, and `policy_conformance` retrieves `POLICY`.
+
+**System Control → Policy library** edits them without a checkout. Add a
+regulation, correct a policy, withdraw a superseded standard, upload a `.docx`
+or `.pdf` and have it read into markdown. Every mutation names an actor and
+lands in the audit ledger, the same way the autonomy threshold does.
+
+Four things about it are worth knowing.
+
+- **No path ever arrives from a client.** A caller names a document id; the
+  server finds the file by reading front matter, and composes the path itself
+  when creating one. There is no traversal to filter because there is no
+  caller-supplied path to traverse — a stronger guarantee than any amount of
+  `..` stripping, and one that does not have to be right about Windows drive
+  letters to hold.
+
+- **Removal is retirement first.** `status: RETIRED` in front matter stops a
+  document producing chunks and leaves the file where it is, because a decision
+  taken while it was in force has to stay readable against it. Destroying it is
+  a second, separately armed act that refuses to run until the first has
+  happened, and it writes the whole text into the ledger before unlinking.
+
+- **Withdrawing a document does not fail loudly.** `readiness.saleability`
+  returns `[], True` when nothing is retrieved, and so do the other two — so
+  retiring the last `REGULATION` makes every product *pass* the check that
+  exists to stop it, and reports the assessment as complete. A fail-open that
+  reads as a clean run is the worst shape a compliance failure can take, so
+  what would notice a document leaving is shown before it leaves: the ids the
+  Python tree names literally (`POL-002` is hard-coded in `sc/graph/evidence.py`)
+  and whether this is the last active document of a load-bearing type.
+
+- **Saving rebuilds the lexical index, not the embeddings.** `build(embed=False)`
+  needs no gateway and takes milliseconds, so an edited document answers an
+  identifier search immediately; paraphrase search waits for an explicit
+  re-embed. That is only safe because `index.build` now stamps a fingerprint of
+  the chunk ids *and their text* into `runtime_config`, and `index.load` refuses
+  a matrix that does not match it. The length check it replaces missed the case
+  that matters — an edit that rewords a document without changing how many
+  chunks it produces would have loaded the old vectors against the new text and
+  returned citations that were specific, confident and wrong.
+
+Citations are followable from anywhere they appear. `DocPeek` still opens on the
+45-word excerpt retrieval scored, and now offers the whole document, scrolled to
+and highlighting the passage that was cited — falling back to the file on disk
+for a document the index no longer holds, which is exactly when a reader most
+needs it.
+
+### Uploads
+
+Markdown and `.txt` need nothing. `.docx` needs nothing either: it is a zip of
+XML, so `zipfile` and `xml.etree` are enough, and `python-docx` stays out for
+the reason `requirements-datapack.txt` gives — it needs `lxml`, a compiled C
+extension. Heading styles map to `#` levels, because `chunk._sections` splits on
+headings and a document arriving as one block is cited as one block.
+
+PDF is the one format that needs a dependency:
+
+```bash
+pip install -r requirements-corpus.txt
+```
+
+`pypdf` is pure Python, so it keeps the dependency rule. Without it the upload
+panel says so in a sentence and every other format still works. Page markers are
+inserted because a PDF carries no headings at all, and without them every
+citation into one would point at the document rather than at a place in it.
+
+**Extraction is advisory.** What comes out lands in the editor for a person to
+read and correct; only what they press save on becomes a document. Table-heavy
+regulation PDFs extract badly and no care in the parser fixes that — which is
+why the review step is not optional.
+
 ## Tests
 
 ```bash

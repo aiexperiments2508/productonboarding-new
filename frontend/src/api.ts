@@ -28,6 +28,22 @@ const post = <T,>(p: string, body?: unknown) =>
   req<T>(p, { method: "POST", body: JSON.stringify(body ?? {}) });
 const del = <T,>(p: string) => req<T>(p, { method: "DELETE" });
 
+/** A file as base64, for the upload endpoints.
+ *
+ * Chunked, and that is not premature. `btoa(String.fromCharCode(...bytes))`
+ * spreads every byte into an argument list, which throws RangeError somewhere
+ * past a hundred thousand of them - so the naive version works on every small
+ * file anybody tests with and fails on the first real regulation. */
+export async function toBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const STEP = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += STEP) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + STEP));
+  }
+  return btoa(binary);
+}
+
 /* --- provenance --------------------------------------------------------- */
 
 export type ProvenanceKind =
@@ -502,6 +518,87 @@ export interface SimScenario {
 export interface Citation {
   chunk_id: string; doc_id: string; doc_type: string; title: string;
   heading: string; source: string; score: number; excerpt: string;
+  /** Which edition of the document this passage came from, and when it
+   *  commenced. "What was this decided against" is a question an audit asks
+   *  and a chunk id alone cannot answer. */
+  version?: string;
+  effective?: string;
+  /** What a reranker made of the passage, 0-10, when one ran. Kept beside
+   *  `score` rather than replacing it - they answer different questions. */
+  rerank_score?: number | null;
+}
+
+/* --- the reference corpus ------------------------------------------------ */
+
+/** One authored document, as it is on disk plus what the index holds of it.
+ *  `chunks: 0` on an ACTIVE document means it produced none - too short, or
+ *  no headings - and it is therefore invisible to retrieval. */
+export interface CorpusDocument {
+  doc_id: string; type: string; title: string; owner: string;
+  version: string; effective: string;
+  status: "ACTIVE" | "RETIRED";
+  entities: string[]; tags: string[];
+  source_file: string;
+  path: string; bytes: number; words: number; modified_at: string;
+  chunks: number; indexed: boolean;
+}
+
+/** Something that would notice a document leaving. `NAMED` is the id appearing
+ *  literally in the Python tree; `LAST` is retiring the final active document
+ *  of a type three readiness checks read - they pass everything when their
+ *  shelf is empty, which reads as a clean run. */
+export interface CorpusReference {
+  kind: "NAMED" | "LAST";
+  where: string;
+  detail: string;
+}
+
+export interface CorpusDocumentDetail extends CorpusDocument {
+  body: string;
+  text: string;
+  extra: Record<string, unknown>;
+  chunk_ids: string[];
+  references: CorpusReference[];
+}
+
+export interface CorpusOverview {
+  documents: CorpusDocument[];
+  types: string[];
+  next_ids: Record<string, string>;
+  load_bearing: Record<string, string>;
+  root: string;
+  extract: Record<string, boolean>;
+  index: IndexStatus;
+}
+
+export interface CorpusMutation {
+  doc_id: string;
+  created?: boolean;
+  path?: string;
+  deleted?: string;
+  status?: string;
+  previous?: string;
+  acknowledged?: CorpusReference[];
+  index: Partial<IndexStatus> & { embed_error?: string | null };
+}
+
+/** What a parser made of an upload. Advisory: it lands in the editor for a
+ *  person to correct, and only what they save becomes a document. */
+export interface ExtractResult {
+  text: string;
+  frontmatter: Record<string, string | string[]>;
+  title: string;
+  note: string;
+  kind: "text" | "docx" | "pdf";
+}
+
+/** One document as the index holds it, for the full-document viewer. */
+export interface SopDocument {
+  doc_id: string; title: string; doc_type: string;
+  metadata: Record<string, unknown>;
+  chunks: { id: string; doc_id: string; doc_type: string; title: string;
+            text: string; ordinal: number;
+            metadata: Record<string, unknown> }[];
 }
 
 /** One row of the reviewer's diff: source -> old value -> new value -> what it
@@ -736,6 +833,21 @@ export interface Health {
 
 export interface IndexStatus {
   chunks: number; documents: number; vectors: boolean; dimensions: number;
+  /** A matrix is on disk and was refused because it no longer matches the
+   *  chunks. Distinct from `vectors: false`, which can also mean the corpus
+   *  was never embedded - the first needs a re-embed, the second needs a
+   *  gateway, and the panel has to say which. */
+  vectors_stale?: boolean;
+  /** The matrix in use carries a fingerprint matching these chunks. False for
+   *  one accepted on trust, from a build predating the check. */
+  vectors_verified?: boolean;
+  /** Whether fused candidates are reread and reordered by a model. A trade,
+   *  not an improvement: a call per search, bought against ordering on
+   *  paraphrase. */
+  rerank_enabled?: boolean;
+  rerank_candidates?: number;
+  /** The date retrieval is answering about - the replay clock, not today. */
+  as_of?: string;
   built_at: string | null; embed_model: string | null;
   by_type: Record<string, number>;
 }
@@ -2342,17 +2454,75 @@ export const api = {
       "/api/llm/usage"),
 
   sopStatus: () => get<IndexStatus>("/api/sop"),
-  sopSearch: (q: string, opts?: { top_k?: number; doc_types?: string }) => {
+  sopSearch: (
+    q: string,
+    opts?: { top_k?: number; doc_types?: string; as_of?: string;
+             in_force_only?: boolean; rerank?: boolean },
+  ) => {
     const p = new URLSearchParams({ q });
     if (opts?.top_k) p.set("top_k", String(opts.top_k));
     if (opts?.doc_types) p.set("doc_types", opts.doc_types);
-    return get<{ query: string; results: Citation[]; index: IndexStatus }>(
+    if (opts?.as_of) p.set("as_of", opts.as_of);
+    if (opts?.in_force_only === false) p.set("in_force_only", "false");
+    if (opts?.rerank !== undefined) p.set("rerank", String(opts.rerank));
+    return get<{ query: string; results: Citation[]; index: IndexStatus;
+                 as_of: string | null; rerank_note: string }>(
       `/api/sop/search?${p}`);
   },
+
+  /** Turn the reranker on or off. */
+  setRerank: (enabled: boolean) =>
+    post<IndexStatus>("/api/sop/rerank", { enabled }),
   reindex: (embed = true) =>
     post<{ chunks: number; documents: number; embedded: boolean;
            dimensions: number; embed_error?: string | null }>(
       "/api/sop/reindex", { embed }),
+
+  /* --- the reference corpus --------------------------------------------- */
+
+  /** One document as the index holds it, every chunk in order. The route has
+   *  existed since the beginning with nothing calling it; the full-document
+   *  viewer is what it was for. */
+  sopDocument: (docId: string) =>
+    get<SopDocument>(`/api/sop/${encodeURIComponent(docId)}`),
+
+  corpus: () => get<CorpusOverview>("/api/corpus"),
+  corpusDocument: (docId: string) =>
+    get<CorpusDocumentDetail>(`/api/corpus/${encodeURIComponent(docId)}`),
+
+  /** Create, or - with `replace` - put a new version of a document back.
+   *  `replace` is explicit because writing over a document that happened to
+   *  share an id is not something to do by accident. */
+  saveCorpusDocument: (body: {
+    doc_id: string; type: string; title: string; body: string; actor: string;
+    owner?: string; version?: string; effective?: string;
+    entities?: string[]; tags?: string[]; replace?: boolean;
+    source_base64?: string; source_filename?: string;
+    /** Front-matter keys this form has no box for - an incident's `occurred`
+     *  and `severity`. Sent back verbatim, because a field vanishing out of a
+     *  compliance record on its first edit is how a tool loses its users. */
+    extra?: Record<string, unknown>;
+  }) => post<CorpusMutation>("/api/corpus", body),
+
+  retireCorpusDocument: (
+    docId: string,
+    body: { actor: string; reason?: string; acknowledge_references?: boolean },
+  ) => post<CorpusMutation>(
+    `/api/corpus/${encodeURIComponent(docId)}/retire`, body),
+
+  restoreCorpusDocument: (docId: string, body: { actor: string; reason?: string }) =>
+    post<CorpusMutation>(`/api/corpus/${encodeURIComponent(docId)}/restore`, body),
+
+  deleteCorpusDocument: (
+    docId: string,
+    body: { actor: string; confirm_id: string; reason?: string;
+            acknowledge_references?: boolean },
+  ) => post<CorpusMutation>(
+    `/api/corpus/${encodeURIComponent(docId)}/delete`, body),
+
+  /** Read an uploaded file into markdown. Writes nothing. */
+  extractCorpusDocument: (body: { filename: string; content_base64: string }) =>
+    post<ExtractResult>("/api/corpus/extract", body),
 };
 
 /* --- run streaming ------------------------------------------------------ */

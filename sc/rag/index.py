@@ -18,7 +18,10 @@ call, so the same alias, key handling and cost accounting apply.
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import threading
+from datetime import date
 
 import os
 from datetime import datetime
@@ -31,9 +34,19 @@ from sc.contracts import DocChunk
 from sc.llm import gateway
 from sc.rag import chunk as chunker
 
+#: Serialises rebuilds. Two concurrent builds race on ``np.save`` while
+#: ``doc_chunks`` ends up holding the other one's rows - which is precisely the
+#: misalignment the fingerprint below exists to detect, arriving by a route the
+#: fingerprint cannot prevent. FastAPI runs ``def`` routes in a threadpool, so
+#: two reindex requests in flight is an ordinary Tuesday, not a stress test.
+_BUILD_LOCK = threading.Lock()
+
 EMBED_BATCH = 32
 INDEX_VERSION_KEY = "rag_index_built_at"
 INDEX_MODEL_KEY = "rag_index_model"
+#: Identity of the chunk list the matrix on disk was built from. Written only
+#: when a matrix is written, and checked on every load.
+INDEX_FINGERPRINT_KEY = "rag_index_fingerprint"
 
 
 def corpus_root() -> Path:
@@ -51,6 +64,28 @@ def matrix_path() -> Path:
     """
     database = db.db_path()
     return database.with_suffix(".embeddings.npy")
+
+
+def fingerprint(chunks: list[DocChunk]) -> str:
+    """Identity of a chunk list, for pairing it with an embedding matrix.
+
+    Covers the text, not only the ids, and that distinction is the whole point.
+    A chunk id is ``{doc_id}#{ordinal}``, so correcting a sentence inside a
+    document leaves every id in the corpus exactly as it was - and an id-only
+    hash would wave the old matrix through to sit against text it was never
+    built from. Row N would still be *a* vector for chunk N, just the wrong
+    one, and the citation that follows is specific, confident and wrong.
+
+    Reading the text costs a few milliseconds over a corpus this size, once
+    per process, behind an ``lru_cache``. The failure it rules out is silent.
+    """
+    digest = hashlib.sha256()
+    for c in chunks:
+        digest.update(c.id.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(c.text.encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +126,11 @@ def build(include_comms: bool = True, embed: bool = True) -> dict:
     to be ashamed of - BM25 alone answers identifier queries well, so the
     system still retrieves usefully when the gateway is unreachable.
     """
+    with _BUILD_LOCK:
+        return _build(include_comms, embed)
+
+
+def _build(include_comms: bool, embed: bool) -> dict:
     chunks = collect_chunks(include_comms)
     if not chunks:
         return {"error": "no documents found", "root": str(corpus_root())}
@@ -117,6 +157,7 @@ def build(include_comms: bool = True, embed: bool = True) -> dict:
         matrix_path().parent.mkdir(parents=True, exist_ok=True)
         np.save(matrix_path(), vectors)
         db.set_config(INDEX_MODEL_KEY, gateway.embed_model())
+        db.set_config(INDEX_FINGERPRINT_KEY, fingerprint(chunks))
     db.set_config(INDEX_VERSION_KEY, datetime.now().isoformat())
     load.cache_clear()
 
@@ -159,16 +200,49 @@ def _embed_all(texts: list[str]) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
+def effective_date(chunk: DocChunk) -> date | None:
+    """When this passage's document commences, if it says.
+
+    ``None`` covers both "no date" and "a date that will not parse", and the
+    caller treats them the same way - as always in force. A typo in front
+    matter should cost a document its commencement date, not its presence.
+    """
+    raw = str(chunk.metadata.get("effective", "")).strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
 class Index:
     """Chunks, their embedding matrix, and a lexical index over the same text."""
 
-    def __init__(self, chunks: list[DocChunk], vectors: np.ndarray | None) -> None:
+    def __init__(self, chunks: list[DocChunk], vectors: np.ndarray | None,
+                 vectors_stale: bool = False,
+                 vectors_verified: bool = False) -> None:
         from sc.rag.bm25 import BM25
 
         self.chunks = chunks
         self.vectors = vectors
+        #: A matrix exists on disk and was refused. Distinct from "never
+        #: embedded": the first is a rebuild away from correct, the second
+        #: needs the gateway. The UI has to say which.
+        self.vectors_stale = vectors_stale
+        #: The matrix in use carries a fingerprint matching these chunks.
+        #: False for one accepted on absence - in use, but on trust.
+        self.vectors_verified = vectors_verified
         self.bm25 = BM25([c.text for c in chunks])
         self.by_id = {c.id: i for i, c in enumerate(chunks)}
+        #: Commencement date per row, or None for a passage that has no date
+        #: and is therefore always in force.
+        #:
+        #: Precomputed rather than read per query. `retrieve._filter` is a
+        #: linear scan over every chunk, so doing the dict lookup, the strip
+        #: and the parse inside it cost 0.6ms of a 1.0ms lexical search -
+        #: measured, and most of the search. Here it is one list index.
+        self.effective = [effective_date(c) for c in chunks]
 
     @property
     def has_vectors(self) -> bool:
@@ -193,18 +267,36 @@ def load() -> Index:
     ]
 
     vectors = None
+    stale = False
+    verified = False
     path = matrix_path()
     if chunks and path.exists():
         try:
             candidate = np.load(path)
+            stamped = db.get_config(INDEX_FINGERPRINT_KEY)
+            current = fingerprint(chunks)
             # A stale matrix from a previous corpus would misalign chunk ids
-            # with vectors and return confidently wrong citations.
-            if len(candidate) == len(chunks):
+            # with vectors and return confidently wrong citations. The length
+            # is a cheap pre-filter; the fingerprint is what catches an edit
+            # that left the chunk count alone.
+            #
+            # Absence is treated as an upgrade rather than a mismatch. A matrix
+            # built before this check existed passed the length test that was
+            # the whole guard at the time, so accepting it is exactly as safe
+            # as yesterday - whereas refusing it would silently switch off
+            # dense retrieval on every installation that had not reindexed,
+            # which is a worse failure than the one being fixed and a much
+            # quieter one. It is reported as unverified instead.
+            if len(candidate) == len(chunks) and stamped in (None, current):
                 vectors = candidate
+                verified = stamped == current
+            else:
+                stale = True
         except Exception:
             vectors = None
+            stale = True
 
-    return Index(chunks, vectors)
+    return Index(chunks, vectors, vectors_stale=stale, vectors_verified=verified)
 
 
 def status() -> dict:
@@ -214,6 +306,8 @@ def status() -> dict:
         "documents": len({c.doc_id for c in index.chunks}),
         "vectors": bool(index.has_vectors),
         "dimensions": int(index.vectors.shape[1]) if index.has_vectors else 0,
+        "vectors_stale": bool(index.vectors_stale),
+        "vectors_verified": bool(index.vectors_verified),
         "built_at": db.get_config(INDEX_VERSION_KEY),
         "embed_model": db.get_config(INDEX_MODEL_KEY),
         "by_type": _counts(index.chunks),

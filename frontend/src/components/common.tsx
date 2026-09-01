@@ -5,6 +5,7 @@ import type {
 import { fmt } from "../api";
 import { useCountUp } from "../hooks/useCountUp";
 import { IconAlert, IconDoc } from "../icons";
+import { useOpenDocument } from "../app/shell/DocumentViewer";
 import { Badge, Code, Stat, Tooltip, cn } from "../ui";
 import type { BadgeTone } from "../ui";
 
@@ -567,6 +568,7 @@ export function SourceCite({ source, onOpen, className }: {
   onOpen?: () => void;
   className?: string;
 }) {
+  const openDocument = useOpenDocument();
   if (!source?.doc_id) {
     return (
       <Tooltip content="This change names no source document. Nothing may publish on it.">
@@ -583,10 +585,20 @@ export function SourceCite({ source, onOpen, className }: {
       <span className="font-mono">{label}</span>
     </>
   );
+  // `chunk_id` is set only when the source IS the corpus (sc/contracts.py:80).
+  // Most of these chips name a *supplier* document - DOC-03, DOC-06 - which
+  // lives on the event tape and has no file in the library. Linking those
+  // would put a dead control on the busiest screens in the app, so the
+  // discriminator the contract already carries is what decides.
+  const followable = !onOpen && !!source.chunk_id;
+  const act = onOpen
+    ?? (followable
+        ? () => openDocument(source.doc_id, source.chunk_id ?? undefined)
+        : undefined);
   const chip = cn(
     "inline-flex items-center gap-1 whitespace-nowrap rounded-xs border",
     "border-subtle bg-sunken px-1.5 py-px text-xs text-muted",
-    onOpen && "cursor-pointer hover:bg-hover hover:text-fg",
+    act && "cursor-pointer hover:bg-hover hover:text-fg",
     className
   );
   return (
@@ -601,8 +613,8 @@ export function SourceCite({ source, onOpen, className }: {
         </span>
       }
     >
-      {onOpen ? (
-        <button type="button" onClick={onOpen} className={chip}>{body}</button>
+      {act ? (
+        <button type="button" onClick={act} className={chip}>{body}</button>
       ) : (
         <span className={chip}>{body}</span>
       )}

@@ -16,6 +16,7 @@ import { ProvenanceLegend } from "./Approvals";
 import { EvidenceAllowlist } from "./EvidenceLog";
 import { A2APanel } from "./A2APanel";
 import { AutonomyPanel } from "./AutonomyPanel";
+import { PolicyLibraryPanel } from "./corpus/PolicyLibraryPanel";
 import { CapabilityBoard } from "./CapabilityBoard";
 import { EstatePanel } from "./EstatePanel";
 import { EventFeed } from "./EventFeed";
@@ -44,7 +45,7 @@ import { MCPConsole } from "./MCPConsole";
 
 const SPEEDS = [1, 5, 10, 50];
 
-type TabId = "replay" | "estate" | "model" | "policy" | "health";
+type TabId = "replay" | "estate" | "model" | "policy" | "library" | "health";
 
 export function SystemControl({
   health, replay, events, catalog, onReplay, busy, onRefresh,
@@ -116,6 +117,7 @@ export function SystemControl({
           <Tab value="estate">Estate &amp; connectors</Tab>
           <Tab value="model">Model &amp; retrieval</Tab>
           <Tab value="policy">Onboarding policy</Tab>
+          <Tab value="library">Policy library</Tab>
           <Tab value="health">Health &amp; provenance</Tab>
         </TabList>
 
@@ -449,6 +451,51 @@ export function SystemControl({
                   missing matrix degrades quality rather than breaking search.
                   Press <Code>⌘K</Code> to search it directly.
                 </p>
+
+                <Divider />
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={index.rerank_enabled ? "ok" : "neutral"}>
+                    reranker {index.rerank_enabled ? "on" : "off"}
+                  </Badge>
+                  <Button
+                    size="xs"
+                    loading={working === "rerank"}
+                    onClick={() =>
+                      act("rerank", async () => {
+                        const r = await api.setRerank(!index.rerank_enabled);
+                        return r.rerank_enabled
+                          ? `reranking the top ${r.rerank_candidates} of every `
+                            + "search"
+                          : "reranking off — fusion decides the order";
+                      })
+                    }
+                  >
+                    {index.rerank_enabled ? "turn it off" : "turn it on"}
+                  </Button>
+                  {index.as_of && (
+                    <span className="ml-auto text-sm text-faint">
+                      answering as of {index.as_of}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm leading-relaxed text-muted">
+                  Fusion decides what is <em>plausible</em>; a reranker reads
+                  the query beside each passage and decides what is{" "}
+                  <em>relevant</em> — it is what notices that a hit is the
+                  “Related documents” section of the right document rather than
+                  the rule itself. It is off by default because it is a trade:
+                  one model call per search, bought against ordering on
+                  paraphrase. Identifier queries were already answered
+                  correctly by BM25. It can never invent or drop a passage, and
+                  a gateway that is down leaves the fused order untouched.
+                </p>
+                <p className="text-sm leading-relaxed text-muted">
+                  Retrieval also answers <em>as of</em> the replay clock rather
+                  than today: a rule commencing in December is not the answer
+                  to what may be published now, and a search that returned it
+                  would be wrong in a way no citation check could catch.
+                </p>
               </div>
             )}
           </Panel>
@@ -472,6 +519,10 @@ export function SystemControl({
 
         <TabPanel value="policy" scroll>
           <AutonomyPanel />
+        </TabPanel>
+
+        <TabPanel value="library" scroll>
+          <PolicyLibraryPanel />
         </TabPanel>
 
         <TabPanel value="health" scroll>

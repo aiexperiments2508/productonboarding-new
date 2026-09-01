@@ -19,11 +19,16 @@ normalised against each other.
 
 from __future__ import annotations
 
+import logging
+from datetime import date, datetime
+
 import numpy as np
 
 from sc.contracts import DocChunk, RetrievedChunk
 from sc.llm import gateway
 from sc.rag import index as index_mod
+
+log = logging.getLogger(__name__)
 
 # RRF damping. 60 is the value from the original TREC work; it is deliberately
 # large so that the difference between rank 1 and rank 2 is modest and a single
@@ -49,6 +54,52 @@ REFERENCE_TYPES = ["STANDARD", "CHANNEL", "POLICY", "POSTMORTEM",
                    "REGULATION", "INTERNAL", "MARKET", "RECORD"]
 
 
+def _as_of(value=None) -> date:
+    """The date a search is asked about.
+
+    Defaults to the replay clock, because every other as-of read in this system
+    does and a retrieval answering about a different instant than the catalog it
+    is being compared against is a subtle way to be wrong.
+
+    Falls back to the wall clock rather than to "no date at all" if the tape is
+    unreadable. Both are guesses; only one of them silently reinstates rules
+    that have not commenced.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value:
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError:
+            log.debug("unparseable as_of %r; falling back to the clock", value)
+
+    try:
+        from sc.replay import tape
+
+        return tape.sim_now().date()
+    except Exception:  # noqa: BLE001 - retrieval must not need the tape
+        return datetime.now().date()
+
+
+def in_force(chunk: DocChunk, as_of: date) -> bool:
+    """Has this passage's document commenced by ``as_of``?
+
+    A document with no effective date is always in force. Correspondence, a
+    catalog record and a postmortem are statements about something that
+    happened rather than rules that commence, and most of the corpus that does
+    carry a date is already past it.
+
+    A date that will not parse is treated as in force too. A typo in front
+    matter costing a regulation its commencement date should not silently
+    remove it from every search - an unfindable regulation is the failure this
+    module exists to prevent, and it is worse than a misdated one.
+    """
+    commenced = index_mod.effective_date(chunk)
+    return commenced is None or commenced <= as_of
+
+
 def search(
     query: str,
     top_k: int = 6,
@@ -60,6 +111,11 @@ def search(
     lexical: bool = True,
     include_comms: bool = False,
     include_unscoped: bool = False,
+    as_of=None,
+    in_force_only: bool = True,
+    rerank=None,
+    run_id: str = "",
+    notes: list[str] | None = None,
 ) -> list[RetrievedChunk]:
     """Retrieve chunks, filtered then fused.
 
@@ -73,6 +129,20 @@ def search(
     normalisation - left in the pool they crowd out the playbook that actually
     answers the query. "Search the mailbox" is a deliberate act, so
     ``include_comms`` is opt-in.
+
+    Documents that have not commenced are excluded, at ``as_of`` or at the
+    replay clock. A rule taking effect in December is not the answer to what
+    may be published today, and retrieving it as though it were is the same
+    class of error as citing a policy that has been withdrawn - the citation
+    resolves, the excerpt reads correctly, and the answer is wrong. Turn it off
+    with ``in_force_only=False`` to see what is coming.
+
+    ``rerank`` defaults to the configured setting. It costs a model call and
+    changes only the ordering, so a caller on a hot path can decline it and a
+    caller that has none can insist. Pass ``notes`` to hear what it did:
+    reranking that silently did not happen looks identical to reranking that
+    happened and agreed, and a reader deciding how much to trust an ordering
+    needs to be able to tell those apart.
     """
     index = index_mod.load()
     if not len(index):
@@ -82,7 +152,8 @@ def search(
         doc_types = REFERENCE_TYPES + (["COMMS"] if include_comms else [])
 
     allowed = _filter(index, doc_types, entities, tags, exclude_docs,
-                      include_unscoped)
+                      include_unscoped,
+                      as_of=_as_of(as_of) if in_force_only else None)
     if not allowed:
         return []
 
@@ -104,10 +175,24 @@ def search(
         return []
 
     fused = _rrf(rankings)
-    out: list[RetrievedChunk] = []
-    for position, (row, score) in enumerate(fused[:top_k]):
-        out.append(RetrievedChunk(chunk=index.chunks[row], score=round(score, 6)))
-    return out
+    from sc.rag import rerank as rerank_mod
+
+    wanted = rerank_mod.enabled() if rerank is None else bool(rerank)
+    # Reranking reads candidates, so it needs more of them than the caller
+    # asked for - the passage it promotes to first is often one the fused
+    # ordering had at eighth, and truncating to top_k first would throw it away
+    # before anything looked at it.
+    depth = max(top_k, rerank_mod.CANDIDATES) if wanted else top_k
+
+    out: list[RetrievedChunk] = [
+        RetrievedChunk(chunk=index.chunks[row], score=round(score, 6))
+        for row, score in fused[:depth]
+    ]
+    if wanted:
+        out, note = rerank_mod.rerank(query, out, top_k, run_id=run_id)
+        if note and notes is not None:
+            notes.append(note)
+    return out[:top_k]
 
 
 def _semantic(index, query: str, allowed: set[int]) -> list[int]:
@@ -165,7 +250,8 @@ def for_product(query: str, entity_id: str, top_k: int = 6,
 
 
 def _filter(index, doc_types, entities, tags, exclude_docs,
-            include_unscoped: bool = False) -> set[int]:
+            include_unscoped: bool = False,
+            as_of: date | None = None) -> set[int]:
     """Metadata filtering as a set of allowed row indices.
 
     With a few hundred chunks this is a linear scan and costs nothing, which is
@@ -202,6 +288,13 @@ def _filter(index, doc_types, entities, tags, exclude_docs,
             listed = {str(t).lower() for t in c.metadata.get("tags", [])}
             if not (listed & wanted_tags):
                 continue
+        if as_of is not None:
+            # index.effective[i] rather than in_force(c, as_of): this runs once
+            # per chunk per query, and the attribute lookup it replaces was
+            # most of the cost of a lexical search.
+            commenced = index.effective[i]
+            if commenced is not None and commenced > as_of:
+                continue
         allowed.add(i)
     return allowed
 
@@ -218,6 +311,10 @@ def cite(results: list[RetrievedChunk]) -> list[dict]:
     A citation must be followable. Each carries the chunk id, the document, the
     heading and the source path, so a reviewer can open the exact section rather
     than the document and hunt.
+
+    It also has to be *current*. The version and the commencement date travel
+    with it because "which edition of POL-002 was this decided against" is a
+    question an audit asks and a chunk id alone cannot answer.
     """
     return [
         {
@@ -227,7 +324,10 @@ def cite(results: list[RetrievedChunk]) -> list[dict]:
             "title": r.chunk.title,
             "heading": r.chunk.metadata.get("heading", ""),
             "source": r.chunk.metadata.get("source", ""),
+            "version": r.chunk.metadata.get("version", ""),
+            "effective": r.chunk.metadata.get("effective", ""),
             "score": r.score,
+            "rerank_score": r.rerank_score,
             "excerpt": _excerpt(r.chunk.text),
         }
         for r in results

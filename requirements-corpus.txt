@@ -1,0 +1,16 @@
+# Optional: reading uploaded documents into the corpus.
+#
+# The policy library accepts markdown and .txt with nothing installed, and
+# .docx with nothing installed either - a .docx is a zip of XML, so zipfile
+# and xml.etree are enough. python-docx is deliberately absent for the same
+# reason requirements-datapack.txt gives: it needs lxml, a compiled C
+# extension, and this application is meant to install on a Python version
+# that may have no wheel for it.
+#
+# PDF is the one format that needs something. pypdf is pure Python - no
+# compiled extension, no Rust - so it holds that line. Without it the upload
+# panel says so in a sentence and every other format still works.
+#
+#   pip install -r requirements-corpus.txt
+
+pypdf>=5,<7

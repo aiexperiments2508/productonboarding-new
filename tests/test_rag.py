@@ -474,3 +474,121 @@ def test_narrowing_filters_before_ranking():
     general = retrieve.for_product("mandatory particulars", "VAR-02A", top_k=8,
                                    doc_types=["REGULATION"])
     assert general, "category-level regulation was filtered out by scoping"
+
+
+# ---------------------------------------------------------------------------
+# Currency: what is in force, and when
+# ---------------------------------------------------------------------------
+
+
+def test_a_document_that_has_not_commenced_is_not_retrieved():
+    """The failure this prevents looks exactly like success.
+
+    A rule taking effect in December is a real document, retrieves cleanly, and
+    reads correctly - and citing it as the reason something may not be
+    published today is wrong in a way that no citation gate can catch, because
+    the citation resolves.
+    """
+    from datetime import date
+
+    index = index_mod.load()
+    dated = [c for c in index.chunks if c.metadata.get("effective")]
+    assert dated, "the corpus should carry effective dates"
+
+    earliest = min(date.fromisoformat(str(c.metadata["effective"])[:10])
+                   for c in dated)
+
+    # A day before the oldest commencement, nothing dated is in force.
+    before = retrieve.search("mandatory particulars", top_k=20,
+                             semantic=False,
+                             as_of=earliest.replace(year=earliest.year - 1))
+    assert not [r for r in before if r.chunk.metadata.get("effective")]
+
+    # Long after, all of it is.
+    after = retrieve.search("mandatory particulars", top_k=20, semantic=False,
+                            as_of="2030-01-01")
+    assert [r for r in after if r.chunk.metadata.get("effective")]
+
+
+def test_turning_the_filter_off_brings_everything_back():
+    """Somebody preparing for a change needs to read what is coming.
+
+    An assessment must never use this, which is why it is not the default.
+    """
+    from datetime import date
+
+    index = index_mod.load()
+    earliest = min(date.fromisoformat(str(c.metadata["effective"])[:10])
+                   for c in index.chunks if c.metadata.get("effective"))
+    long_ago = earliest.replace(year=earliest.year - 1)
+
+    filtered = retrieve.search("mandatory particulars", top_k=20,
+                               semantic=False, as_of=long_ago)
+    everything = retrieve.search("mandatory particulars", top_k=20,
+                                 semantic=False, as_of=long_ago,
+                                 in_force_only=False)
+    assert len(everything) > len(filtered)
+
+
+def test_an_undated_passage_is_always_in_force():
+    """Correspondence, records and postmortems describe rather than commence."""
+    from datetime import date
+
+    from sc.contracts import DocChunk
+
+    undated = DocChunk(id="X#00", doc_id="X", doc_type="RECORD", title="X",
+                       text="x", ordinal=0, metadata={})
+    assert retrieve.in_force(undated, date(1999, 1, 1))
+
+
+def test_an_unparseable_effective_date_does_not_hide_a_document():
+    """A typo in front matter should cost a document its date, not its presence.
+
+    An unfindable regulation is the failure this whole module exists to
+    prevent, and it is strictly worse than a misdated one.
+    """
+    from datetime import date
+
+    from sc.contracts import DocChunk
+
+    broken = DocChunk(id="X#00", doc_id="X", doc_type="REGULATION", title="X",
+                      text="x", ordinal=0,
+                      metadata={"effective": "next Tuesday"})
+    assert retrieve.in_force(broken, date(1999, 1, 1))
+
+
+def test_the_default_as_of_is_the_replay_clock():
+    """Every other as-of read in this system runs on it.
+
+    A retrieval answering about a different instant than the catalog it is
+    being compared against is a quiet way to be wrong.
+    """
+    from sc.replay import tape
+
+    assert retrieve._as_of() == tape.sim_now().date()
+
+
+def test_a_citation_says_which_version_it_stands_on():
+    """"Which edition was this decided against" is a question an audit asks."""
+    cited = retrieve.cite(retrieve.search("source precedence", top_k=3,
+                                          semantic=False))
+    assert cited
+    dated = [c for c in cited if c["doc_id"].startswith(("POL", "REG", "STD"))]
+    assert dated, [c["doc_id"] for c in cited]
+    assert any(c["version"] for c in dated)
+    assert any(c["effective"] for c in dated)
+
+
+def test_the_in_force_filter_did_not_displace_the_old_answers():
+    """Every authored document is in force at the replay clock today.
+
+    So switching the filter on must change nothing. The day this fails, either
+    a document was dated into the future or the clock moved behind the corpus -
+    both worth knowing about deliberately rather than through a shifted answer.
+    """
+    for query in ("freeze window", "allergen", "VAR-01B", "precedence"):
+        assert (
+            [r.chunk.id for r in retrieve.search(query, semantic=False)]
+            == [r.chunk.id for r in retrieve.search(query, semantic=False,
+                                                    in_force_only=False)]
+        ), query

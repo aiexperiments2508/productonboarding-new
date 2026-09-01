@@ -640,20 +640,32 @@ def control_state() -> dict:
 @app.get("/api/sop/search")
 def sop_search(q: str, top_k: int = 6, doc_types: str | None = None,
                entities: str | None = None, tags: str | None = None,
-               semantic: bool = True, lexical: bool = True) -> dict:
+               semantic: bool = True, lexical: bool = True,
+               as_of: str | None = None, in_force_only: bool = True,
+               rerank: bool | None = None) -> dict:
     """Hybrid retrieval over the standards, channel-spec, policy and postmortem
     corpus.
 
     Both retrievers run by default; the flags exist so the UI can show what
     each contributes, which is the clearest way to explain why the hybrid is
     there at all.
+
+    ``in_force_only`` is on by default: a rule that commences in December is
+    not the answer to what may be published today. ``as_of`` asks the same
+    question about a different date, and ``in_force_only=false`` asks it about
+    every date at once - which is what somebody preparing for a change wants
+    and what an assessment must never use.
     """
+    notes: list[str] = []
     results = retrieve.search(
         q, top_k=top_k,
         doc_types=_csv(doc_types), entities=_csv(entities), tags=_csv(tags),
-        semantic=semantic, lexical=lexical)
+        semantic=semantic, lexical=lexical,
+        as_of=as_of, in_force_only=in_force_only, rerank=rerank, notes=notes)
     return {"query": q, "results": retrieve.cite(results),
-            "index": rag_index.status()}
+            "as_of": str(retrieve._as_of(as_of)) if in_force_only else None,
+            "rerank_note": notes[0] if notes else "",
+            "index": _sop_status()}
 
 
 @app.get("/api/sop/{doc_id}")
@@ -667,9 +679,36 @@ def sop_document(doc_id: str) -> dict:
             "chunks": [c.model_dump(mode="json") for c in chunks]}
 
 
+def _sop_status() -> dict:
+    from sc.rag import rerank as rerank_mod
+
+    return {**rag_index.status(),
+            "rerank_enabled": rerank_mod.enabled(),
+            "rerank_candidates": rerank_mod.CANDIDATES,
+            "as_of": str(retrieve._as_of())}
+
+
 @app.get("/api/sop")
 def sop_index_status() -> dict:
-    return rag_index.status()
+    return _sop_status()
+
+
+@app.post("/api/sop/rerank")
+def sop_set_rerank(body: dict) -> dict:
+    """Turn the reranker on or off.
+
+    A setting rather than a constant because it is a trade rather than an
+    improvement: it costs a model call per search and buys ordering on
+    paraphrase, and identifier queries - which are most of them - were already
+    answered correctly by BM25 alone. Whoever is running the machine is better
+    placed to make that trade than whoever wrote it.
+    """
+    from sc.rag import rerank as rerank_mod
+
+    enabled = bool((body or {}).get("enabled"))
+    db.set_config(rerank_mod.ENABLED_KEY, "true" if enabled else "false")
+    bus.publish("llm_config", {"rerank_enabled": enabled})
+    return _sop_status()
 
 
 @app.post("/api/sop/reindex")
@@ -686,6 +725,213 @@ def sop_reindex(body: dict | None = None) -> dict:
 
 def _csv(value: str | None) -> list[str] | None:
     return [v.strip() for v in value.split(",") if v.strip()] if value else None
+
+
+# ---------------------------------------------------------------------------
+# The reference corpus - authoring the documents retrieval reads
+#
+# Declared here rather than under /api/sop because `GET /api/sop/{doc_id}` is
+# registered above and FastAPI matches in declaration order: a sibling literal
+# path added under that prefix would be swallowed by the parameter and answer
+# 404 for reasons nobody would find quickly. Within this block the same rule
+# applies downward - literal paths first, parameterised ones after.
+# ---------------------------------------------------------------------------
+
+
+def _corpus_actor(body: dict | None) -> str:
+    """The name a corpus change is recorded against.
+
+    Required for the same reason `set_onboarding_threshold` requires one.
+    There is no identity provider anywhere in this system, so the name is taken
+    at its word and written to the ledger - which is what makes "who withdrew
+    the regulation this product was assessed against" answerable later.
+    """
+    actor = str((body or {}).get("actor") or "").strip()
+    if not actor:
+        raise HTTPException(
+            status_code=400,
+            detail=("editing what the factory is answerable to is a governance "
+                    "act and has to be attributable to somebody"))
+    return actor
+
+
+def _corpus_call(fn, *args, **kwargs):
+    """Run a library call, mapping its refusals onto the right status.
+
+    The three are genuinely different and collapsing them would cost the caller
+    real information: 400 says the request was malformed, 404 says no such
+    document, and 409 says the request was fine and the state of the corpus
+    refused it - the last carrying the list of what would notice, so repeating
+    it with an acknowledgement is an informed act rather than a retry.
+    """
+    from sc.rag import library
+
+    try:
+        return fn(*args, **kwargs)
+    except library.ReferencedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "blocked": exc.blocked}) from exc
+    except library.LibraryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/corpus")
+def corpus_index() -> dict:
+    """Every document on disk, with what the index currently holds of each.
+
+    Reads the filesystem rather than the index, so a retired document - which
+    contributes no chunks - is still listed, marked, rather than disappearing
+    from the one screen that can bring it back.
+    """
+    from sc.rag import extract as extract_mod
+    from sc.rag import library
+
+    documents = library.list_documents()
+    return {
+        "documents": documents,
+        "types": list(library.EDITABLE_TYPES),
+        "next_ids": {t: library.next_id(t, documents)
+                     for t in library.EDITABLE_TYPES},
+        "load_bearing": library.LOAD_BEARING_TYPES,
+        "root": str(rag_index.corpus_root()),
+        "extract": extract_mod.available(),
+        # `_sop_status`, not `rag_index.status`: the library renders effective
+        # dates that retrieval now acts on, so it has to know which date it is
+        # acting as of. Without it every document reads as in force.
+        "index": _sop_status(),
+    }
+
+
+@app.post("/api/corpus")
+def corpus_write(body: dict) -> dict:
+    """Create a document, or replace one in place."""
+    from sc.rag import library
+
+    actor = _corpus_actor(body)
+    source_file = str(body.get("source_file") or "")
+    if body.get("source_base64"):
+        source_file = _corpus_call(
+            library.store_original,
+            str(body.get("doc_id") or ""),
+            str(body.get("source_filename") or ""),
+            _corpus_bytes(body.get("source_base64")))
+
+    return _corpus_call(
+        library.write_document,
+        doc_id=str(body.get("doc_id") or ""),
+        doc_type=str(body.get("type") or body.get("doc_type") or ""),
+        title=str(body.get("title") or ""),
+        body=str(body.get("body") or ""),
+        actor=actor,
+        owner=str(body.get("owner") or ""),
+        version=str(body.get("version") or ""),
+        effective=str(body.get("effective") or ""),
+        entities=body.get("entities"),
+        tags=body.get("tags"),
+        status=str(body.get("status") or library.ACTIVE),
+        source_file=source_file,
+        extra=body.get("extra"),
+        replace=bool(body.get("replace")),
+    )
+
+
+def _corpus_bytes(payload) -> bytes:
+    import base64 as b64
+
+    from sc.rag import library
+
+    try:
+        raw = b64.b64decode(str(payload or ""), validate=True)
+    except Exception as exc:  # noqa: BLE001 - a bad upload is a message
+        raise HTTPException(
+            status_code=400,
+            detail="that upload did not decode as base64") from exc
+    if len(raw) > library.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"that file is larger than the "
+                    f"{library.MAX_UPLOAD_BYTES // (1024 * 1024)}MB a single "
+                    "upload may be"))
+    return raw
+
+
+@app.post("/api/corpus/extract")
+def corpus_extract(body: dict) -> dict:
+    """Read an uploaded file into markdown for the editor. Writes nothing.
+
+    Deliberately a separate step from saving. What a parser makes of a PDF is
+    a guess, and a guess that becomes cited regulation without anybody reading
+    it is the failure this whole feature would otherwise introduce. The editor
+    shows the result; a person presses save.
+    """
+    from sc.rag import extract as extract_mod
+
+    raw = _corpus_bytes((body or {}).get("content_base64"))
+    try:
+        return extract_mod.extract(str((body or {}).get("filename") or ""), raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/corpus/{doc_id}")
+def corpus_document(doc_id: str) -> dict:
+    """One document, its body, and everything that would notice it leaving."""
+    from sc.rag import library
+
+    return _corpus_call(library.read_document, doc_id)
+
+
+@app.post("/api/corpus/{doc_id}/retire")
+def corpus_retire(doc_id: str, body: dict) -> dict:
+    """Withdraw a document from retrieval. The file stays."""
+    from sc.rag import library
+
+    actor = _corpus_actor(body)
+    result = _corpus_call(
+        library.retire_document, doc_id, actor,
+        reason=str(body.get("reason") or ""),
+        acknowledge_references=bool(body.get("acknowledge_references")))
+    bus.publish("reindex", {"result": result.get("index") or {}})
+    return result
+
+
+@app.post("/api/corpus/{doc_id}/restore")
+def corpus_restore(doc_id: str, body: dict) -> dict:
+    from sc.rag import library
+
+    actor = _corpus_actor(body)
+    result = _corpus_call(library.restore_document, doc_id, actor,
+                          reason=str(body.get("reason") or ""))
+    bus.publish("reindex", {"result": result.get("index") or {}})
+    return result
+
+
+@app.post("/api/corpus/{doc_id}/delete")
+def corpus_delete(doc_id: str, body: dict) -> dict:
+    """Remove the file. Refuses until the document has been retired.
+
+    POST rather than DELETE because this needs an actor, a reason and a typed
+    confirmation in the body, and a DELETE with a body is both awkward in the
+    client and poorly handled by things in between.
+    """
+    from sc.rag import library
+
+    actor = _corpus_actor(body)
+    confirm = str(body.get("confirm_id") or "").strip().upper()
+    if confirm != str(doc_id).strip().upper():
+        raise HTTPException(
+            status_code=400,
+            detail=(f"type {doc_id} to confirm - destroying a document is not "
+                    "something to do with one click"))
+    result = _corpus_call(
+        library.delete_document, doc_id, actor,
+        reason=str(body.get("reason") or ""),
+        acknowledge_references=bool(body.get("acknowledge_references")))
+    bus.publish("reindex", {"result": result.get("index") or {}})
+    return result
 
 
 # ---------------------------------------------------------------------------

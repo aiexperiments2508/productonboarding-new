@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ChatAnswer, type ChatSource } from "../../api";
-import { IconAsk, IconMic, IconMicLive, IconSpeaker, IconSpeakerOff }
+import { IconAsk, IconDoc, IconMic, IconMicLive, IconSpeaker, IconSpeakerOff }
   from "../../icons";
+import { useOpenDocument } from "../../app/shell/DocumentViewer";
 import { Badge, Button, Panel, cn } from "../../ui";
 import { useMicrophone } from "./useMicrophone";
 import { useSpeech } from "./useSpeech";
@@ -53,6 +54,7 @@ function SourceList({ sources, onJump }: {
   sources: ChatSource[];
   onJump?: (section: string) => void;
 }) {
+  const openDocument = useOpenDocument();
   if (sources.length === 0) return null;
   return (
     <ul className="mt-2 space-y-1 border-l-2 border-subtle pl-2.5">
@@ -62,6 +64,22 @@ function SourceList({ sources, onJump }: {
           <span className="text-faint">{source.kind}</span>
           {" · "}
           <span>{source.detail}</span>
+          {source.kind === "corpus" && source.reference && (
+            // `reference` is the chunk id - `POL-002#03`. It was computed,
+            // sent, and thrown away here, which left the one source kind that
+            // has a document behind it as the only one you could not open.
+            <button
+              type="button"
+              onClick={() => openDocument(
+                source.reference!.split("#")[0], source.reference!)}
+              className={cn("ml-1.5 inline-flex items-center gap-1 rounded-xs",
+                            "px-1 text-accent-text transition-colors",
+                            "hover:bg-hover")}
+            >
+              <IconDoc size={10} />
+              {source.reference.split("#")[0]}
+            </button>
+          )}
           {source.section && onJump && (
             <button
               type="button"

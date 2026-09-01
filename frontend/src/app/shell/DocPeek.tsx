@@ -2,6 +2,7 @@ import { Dialog } from "radix-ui";
 import type { Citation } from "../../api";
 import { IconClose, IconDoc } from "../../icons";
 import { Badge, Button, Code, cn } from "../../ui";
+import { useOpenDocument } from "./DocumentViewer";
 
 /* Reference chunk viewer.
  *
@@ -22,6 +23,12 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   POLICY: "policy",
   POSTMORTEM: "postmortem",
   COMMS: "message",
+  // The four that arrived with launch readiness and never got a phrase here,
+  // so they rendered as a lowercased enum next to five that read as English.
+  REGULATION: "regulation",
+  INTERNAL: "internal documentation",
+  MARKET: "market context",
+  RECORD: "held values",
 };
 
 export const docTypeLabel = (raw: string): string =>
@@ -33,6 +40,12 @@ export function DocPeek({
   citation: Citation | null;
   onClose: () => void;
 }) {
+  const openDocument = useOpenDocument();
+  // RECORD passages are synthesised from the live catalog and COMMS are .eml
+  // files under data/ - neither is a document in the library, so neither has
+  // a whole to open.
+  const followable = !!citation
+    && !["RECORD", "COMMS"].includes(citation.doc_type);
   return (
     <Dialog.Root open={!!citation} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
@@ -61,9 +74,12 @@ export function DocPeek({
                   <Dialog.Description className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-faint">
                     <Badge tone="neutral">{docTypeLabel(citation.doc_type)}</Badge>
                     <Code>{citation.doc_id}</Code>
+                    {citation.version && <span>v{citation.version}</span>}
                     <span className="truncate">{citation.title}</span>
                     <span className="ml-auto font-mono">
-                      score {citation.score.toFixed(3)}
+                      {typeof citation.rerank_score === "number"
+                        ? `relevance ${citation.rerank_score.toFixed(1)}/10`
+                        : `score ${citation.score.toFixed(3)}`}
                     </span>
                   </Dialog.Description>
                 </div>
@@ -84,9 +100,31 @@ export function DocPeek({
                 </p>
               </div>
 
-              <div className="border-t border-subtle px-3.5 py-2 text-xs text-faint">
-                Retrieved from <Code>{citation.source}</Code> — chunk{" "}
-                <Code>{citation.chunk_id}</Code>
+              <div className={cn(
+                "flex flex-wrap items-center gap-x-2 gap-y-1 border-t",
+                "border-subtle px-3.5 py-2 text-xs text-faint"
+              )}>
+                <span>
+                  Retrieved from <Code>{citation.source}</Code> — chunk{" "}
+                  <Code>{citation.chunk_id}</Code>
+                  {citation.effective && <> — in force from {citation.effective}</>}
+                </span>
+                {followable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      openDocument(citation.doc_id, citation.chunk_id);
+                    }}
+                    className={cn(
+                      "ml-auto inline-flex items-center gap-1 rounded-xs px-1 py-0.5",
+                      "text-xs text-accent-text transition-colors hover:bg-hover"
+                    )}
+                  >
+                    <IconDoc size={11} />
+                    Read the whole document
+                  </button>
+                )}
               </div>
             </>
           )}

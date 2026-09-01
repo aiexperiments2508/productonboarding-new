@@ -124,8 +124,19 @@ def _split_long(text: str) -> list[str]:
     return parts or [text]
 
 
-def chunk_document(path: Path) -> list[DocChunk]:
-    raw = path.read_text(encoding="utf-8")
+def chunk_document(path: Path, raw: str | None = None) -> list[DocChunk]:
+    """This file, as chunks. Whatever the file is.
+
+    Deliberately has no opinion about retirement: the caller decides which
+    documents belong in an index, and this answers only "what would this one
+    contribute". ``chunk_corpus`` is where a retired document is passed over,
+    which keeps "produces chunks" a property of the text rather than of a
+    status that changes underneath the tests asserting it.
+
+    ``raw`` lets a caller that has already read the file hand the text over
+    rather than have it read twice.
+    """
+    raw = path.read_text(encoding="utf-8") if raw is None else raw
     meta, body = parse_frontmatter(raw)
 
     doc_id = str(meta.get("id") or path.stem)
@@ -183,14 +194,40 @@ def _make(doc_id, doc_type, title, heading, text, ordinal, meta,
             "occurred": meta.get("occurred", ""),
             "severity": meta.get("severity", ""),
             "effective": meta.get("effective", ""),
+            # Carried so a citation can say *which* version of a document it
+            # is standing on. `SourceCite` has always rendered a version and
+            # has been taking it from the signal that cited the document
+            # rather than from the document.
+            "version": meta.get("version", ""),
         },
     )
 
 
-def chunk_corpus(root: Path) -> list[DocChunk]:
+#: Directories under the corpus root holding artefacts rather than authored
+#: documents. ``_source`` keeps the original file a document was extracted
+#: from; a markdown rendition left there would otherwise be indexed twice.
+EXCLUDED_DIRS: frozenset[str] = frozenset({"_source"})
+
+
+def chunk_corpus(root: Path, include_retired: bool = False) -> list[DocChunk]:
+    """Every authored document under the root, retired ones passed over.
+
+    A retired rule is not a deleted rule. It stays on disk, stays in git, and
+    stays readable at the path every citation already written against it names.
+    What it stops being is *evidence*: retrieving a superseded policy to
+    justify a decision made today is worse than retrieving nothing, because it
+    comes back with a document id and an excerpt and looks like an answer.
+    """
     chunks: list[DocChunk] = []
     for path in sorted(root.rglob("*.md")):
-        chunks.extend(chunk_document(path))
+        if EXCLUDED_DIRS & set(path.relative_to(root).parts[:-1]):
+            continue
+        raw = path.read_text(encoding="utf-8")
+        meta, _ = parse_frontmatter(raw)
+        if (not include_retired
+                and str(meta.get("status", "")).strip().upper() == "RETIRED"):
+            continue
+        chunks.extend(chunk_document(path, raw=raw))
     return chunks
 
 

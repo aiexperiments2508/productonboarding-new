@@ -1361,7 +1361,14 @@ class DocChunk(BaseModel):
 
 class RetrievedChunk(BaseModel):
     chunk: DocChunk
+    #: Fused rank score. Reciprocal-rank fusion, so it is a small number whose
+    #: absolute value means nothing - only the ordering does.
     score: float
+    #: What a reranker made of this passage, 0-10, when one ran. Kept beside
+    #: the fused score rather than replacing it: they answer different
+    #: questions, and overwriting one with the other would hide which of them
+    #: put this passage where it is.
+    rerank_score: float | None = None
 
 
 # ---------------------------------------------------------------------------

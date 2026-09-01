@@ -17,6 +17,7 @@ import { ErrorBoundary, ToastProvider, TooltipProvider, useToast } from "../ui";
 import { CommandBar } from "./shell/CommandBar";
 import { CommandPalette } from "./shell/CommandPalette";
 import { DocPeek } from "./shell/DocPeek";
+import { DocumentViewerProvider } from "./shell/DocumentViewer";
 import { RunStage } from "./shell/RunStage";
 import { Sidebar } from "./shell/Sidebar";
 import { StatusStrip } from "./shell/StatusStrip";
@@ -44,7 +45,9 @@ export function App() {
   return (
     <TooltipProvider>
       <ToastProvider>
-        <Shell />
+        <DocumentViewerProvider>
+          <Shell />
+        </DocumentViewerProvider>
       </ToastProvider>
     </TooltipProvider>
   );

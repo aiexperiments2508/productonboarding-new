@@ -17,7 +17,7 @@ from pathlib import Path
 
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -1238,6 +1238,42 @@ def chat_capabilities() -> dict:
     from sc import chat
 
     return {"capabilities": chat.capabilities()}
+
+
+@app.get("/api/chat/voice")
+def chat_voice() -> dict:
+    """Whether the microphone can be offered, and on what terms.
+
+    Polled before the button renders. It deliberately does not load the model:
+    a status check that took a second and downloaded 75 MB the first time
+    anybody asked would be one nobody could afford to call.
+    """
+    from sc import voice
+
+    return voice.status()
+
+
+@app.post("/api/chat/transcribe")
+async def chat_transcribe(request: Request) -> dict:
+    """One recording, as text. The audio is never written down or sent on.
+
+    The body is the raw recording rather than a multipart form: the browser
+    has a Blob and this wants bytes, and a form part in between would be two
+    encodings to agree about for no gain.
+
+    Transcription is CPU-bound and takes about two thirds of a second, so it
+    runs in the threadpool. Doing it inline would block the event loop, and
+    the one thing sharing that loop is the event stream every open tab holds.
+    """
+    from fastapi.concurrency import run_in_threadpool
+
+    from sc import voice
+
+    audio = await request.body()
+    try:
+        return await run_in_threadpool(voice.transcribe, audio)
+    except voice.VoiceUnavailable as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

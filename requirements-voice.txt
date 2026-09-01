@@ -1,0 +1,47 @@
+# Local speech-to-text for the Ask panel's microphone.
+#
+#     pip install -r requirements-voice.txt
+#
+# Optional, like the gateway, the data pack and the graph driver. The Ask panel
+# works without it - typing is the primary path and always was. What this buys
+# is dictating the question instead of typing it, on a machine that never sends
+# the audio anywhere.
+#
+# --- This file breaks the rule the other extras keep ------------------------
+#
+# `requirements-datapack.txt` states the test for taking a dependency at all: a
+# pure-Python dependency that does something we cannot meaningfully test is
+# worth taking; a compiled one is not. faster-whisper fails that test four
+# times over - ctranslate2 (C++), av (C), tokenizers (Rust) and onnxruntime
+# (C++) are all compiled wheels.
+#
+# It is taken anyway, and the reason is worth writing down rather than
+# discovering later. The alternative is the browser's own SpeechRecognition
+# API, which in Chrome uploads the audio to Google's servers. For a system
+# whose entire argument is that it can say where every fact came from, routing
+# a user's voice through a third party to save an install is the wrong trade.
+# The rule exists to stop us taking a compiled wheel for something we could
+# hand-roll - a styles table, an XML writer. Speech recognition is not that.
+#
+# The blast radius is held to this file and one module. `sc/voice/whisper.py`
+# imports faster_whisper *inside a function*, exactly as `sc/kg/driver.py`
+# imports neo4j, so a checkout without this installed still imports, still
+# starts, still serves every route, and answers `GET /api/chat/voice` with
+# available=false. The microphone button then does not render.
+#
+# --- One network fetch, once ------------------------------------------------
+#
+# The audio never leaves the machine. The *model* is downloaded from Hugging
+# Face the first time it is used - about 75 MB for `base.en` - and cached under
+# ~/.cache/huggingface thereafter. Set WHISPER_MODEL to `tiny.en` for a 39 MB
+# download, or point WHISPER_MODEL at a directory to run from a model you
+# placed there yourself and skip the fetch entirely.
+faster-whisper>=1.0,<2
+
+# ctranslate2 is faster-whisper's inference engine. It allows >=4.0,<5, and the
+# newest is deliberately not taken: 4.8.2 loads the model and dies with an
+# access violation (0xC0000005) on an AMD EPYC 7763 - no Python traceback,
+# because the crash is in native code. 4.4.0 loads the same model in 1.2s and
+# transcribes correctly. A version that segfaults on the machine this was built
+# on is not a version to leave floating.
+ctranslate2==4.4.0

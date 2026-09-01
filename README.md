@@ -824,9 +824,53 @@ secure context, so it needs no TLS. Two browser behaviours are worked around in
 `voiceschanged` event, and Chrome stops speaking after roughly fifteen seconds
 unless `resume()` is called on a timer.
 
-Microphone input is not in this pass. When it lands it will be local
-`faster-whisper` rather than the Web Speech API, which streams audio to
-Google's servers.
+### The microphone
+
+Speech *in* is `faster-whisper`, running in the platform's own process. The
+browser's `SpeechRecognition` API would have been four lines and no dependency,
+and in Chrome it uploads the recording to Google. For a system whose entire
+argument is that it can say where every fact came from, that was the wrong
+trade.
+
+```bash
+pip install -r requirements-voice.txt
+```
+
+Optional, and off until installed: `GET /api/chat/voice` answers
+`available: false` and the microphone button does not render. `sc/voice/whisper.py`
+imports `faster_whisper` inside a function, exactly as `sc/kg/driver.py` imports
+the Neo4j driver, so a checkout without it still imports, starts and serves.
+
+Three things about it are worth knowing before installing:
+
+- **It breaks the dependency rule the other extras keep.** `requirements-datapack.txt`
+  sets the test — a pure-Python dependency that does something we cannot
+  meaningfully test is worth taking; a compiled one is not — and this fails it
+  four times (ctranslate2, av, tokenizers, onnxruntime). It is taken anyway, and
+  `requirements-voice.txt` argues why rather than leaving it to be discovered.
+  202 MB installed.
+- **ctranslate2 is pinned to 4.4.0.** 4.8.2 loads the model and dies with an
+  access violation on an AMD EPYC 7763 — no Python traceback, because the crash
+  is in native code. 4.4.0 loads the same model in 1.2s.
+- **One network fetch, once.** The audio never leaves the machine; the *model*
+  is pulled from Hugging Face on first use (~75 MB) and cached. Point
+  `WHISPER_MODEL` at a directory to skip even that.
+
+Whisper hallucinates on silence — three seconds of digital quiet transcribes as
+"You", reliably — so a recording is gated twice before its text is used: by
+signal level before the model is loaded at all, and by the model's own
+`no_speech_prob` afterwards. Measured here, speech sits at RMS 0.076 against
+silence at 0.0, and `no_speech_prob` 0.001 against 0.713, so neither gate is a
+close call. Voice-activity detection would normally do this job; it needs
+onnxruntime, whose DLL fails to initialise on this machine, and unlike VAD
+these two can be explained to somebody asking why their recording came back
+empty.
+
+The recording is posted as a raw body rather than a multipart form — the browser
+has a Blob and the endpoint wants bytes — and is decoded in memory. Nothing is
+written to disk; `tests/test_voice.py` asserts that against the module source,
+because "the audio never leaves the machine" is worth very little if it is
+sitting in a temp file afterwards.
 
 ## Tests
 

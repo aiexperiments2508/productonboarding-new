@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ChatAnswer, type ChatSource } from "../../api";
-import { IconAsk, IconSpeaker, IconSpeakerOff } from "../../icons";
+import { IconAsk, IconMic, IconMicLive, IconSpeaker, IconSpeakerOff }
+  from "../../icons";
 import { Badge, Button, Panel, cn } from "../../ui";
+import { useMicrophone } from "./useMicrophone";
 import { useSpeech } from "./useSpeech";
 
 /* Asking about a product in words.
@@ -88,6 +90,11 @@ export function AskPanel({ selected, sku, onJump }: {
   const [busy, setBusy] = useState(false);
   const [readAloud, setReadAloud] = useState(false);
   const speech = useSpeech();
+  const mic = useMicrophone();
+  // Whether the platform can transcribe at all. The extra is optional and
+  // 202 MB, so the button is not offered on a checkout without it rather than
+  // offered and then failing.
+  const [canDictate, setCanDictate] = useState(false);
   const nextId = useRef(1);
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -125,6 +132,28 @@ export function AskPanel({ selected, sku, onJump }: {
       setBusy(false);
     }
   }, [busy, readAloud, selected, sku, speech]);
+
+  useEffect(() => {
+    let live = true;
+    api.chatVoice()
+      .then((v) => { if (live) setCanDictate(v.available); })
+      // A checkout without the extra answers available:false; a checkout on an
+      // older build 404s. Both mean the same thing to this button.
+      .catch(() => { if (live) setCanDictate(false); });
+    return () => { live = false; };
+  }, []);
+
+  /** Press to record, press again to stop. Held-to-talk was the other option
+   *  and is worse here: a question takes several seconds to say, and holding a
+   *  mouse button down for six seconds while thinking is uncomfortable. */
+  const dictate = useCallback(async () => {
+    if (mic.state === "recording") {
+      const heard = await mic.stop();
+      if (heard) await ask(heard);
+      return;
+    }
+    await mic.start();
+  }, [ask, mic]);
 
   const toggleAloud = useCallback(() => {
     setReadAloud((on) => {
@@ -226,11 +255,52 @@ export function AskPanel({ selected, sku, onJump }: {
             "disabled:cursor-not-allowed disabled:opacity-60"
           )}
         />
+        {canDictate && (
+          <Button
+            type="button"
+            size="sm"
+            tone={mic.state === "recording" ? "danger" : "default"}
+            iconOnly
+            // Through `icon`, not as a child: Button renders
+            // `{!iconOnly && children}`, so an icon-only button passed its
+            // glyph as a child renders an empty square. TypeScript accepts it
+            // and the build is clean - only looking at it finds this.
+            icon={mic.state === "recording" ? <IconMicLive size={15} />
+                                            : <IconMic size={15} />}
+            onClick={dictate}
+            disabled={!selected || busy || mic.state === "transcribing"
+                      || mic.state === "starting"}
+            aria-label={mic.state === "recording"
+              ? "Stop recording and ask"
+              : "Ask by speaking"}
+            aria-pressed={mic.state === "recording"}
+            title={mic.state === "recording"
+              ? "Recording. Click to stop and ask."
+              : "Speak your question. The audio is transcribed on this "
+                + "machine and never uploaded."}
+          />
+        )}
         <Button type="submit" size="sm" tone="primary"
                 disabled={!selected || busy || question.trim() === ""}>
           Ask
         </Button>
       </form>
+
+      {/* State in words as well as in the icon. Waiting to be spoken to,
+        * waiting for the transcript, and being refused the microphone are
+        * three quite different things, and one spinner cannot tell them
+        * apart - a blocked permission needs saying, not animating. */}
+      {(mic.state === "recording" || mic.state === "transcribing"
+        || mic.error) && (
+        <p className={cn("mt-1.5 text-xs",
+                         mic.error ? "text-danger" : "text-muted")}>
+          {mic.state === "recording"
+            ? "Listening. Click the microphone again when you have finished."
+            : mic.state === "transcribing"
+              ? "Transcribing on this machine..."
+              : mic.error}
+        </p>
+      )}
     </Panel>
   );
 }

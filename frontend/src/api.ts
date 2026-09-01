@@ -1514,6 +1514,19 @@ export interface ChatAnswer {
   as_of: string | null;
 }
 
+export interface ChatVoiceStatus {
+  available: boolean;
+  installed: boolean;
+  loaded: boolean;
+  model: string;
+  device: string;
+  compute_type: string;
+  vad: boolean;
+  max_bytes: number;
+  error: string | null;
+  note: string;
+}
+
 export const api = {
   health: () => get<Health>("/api/health"),
 
@@ -1929,6 +1942,13 @@ export const api = {
   chatCapabilities: () =>
     get<{ capabilities: { intent: ChatIntent; describes: string }[] }>(
       "/api/chat/capabilities"),
+
+  /** Whether speech-to-text can be offered. `available` is false on a
+   *  checkout without `requirements-voice.txt` installed, which is the normal
+   *  case rather than an error - the microphone button simply does not
+   *  render. Posting the audio itself is not here: it is the one call that is
+   *  not JSON in and JSON out, and it lives in `useMicrophone.ts`. */
+  chatVoice: () => get<ChatVoiceStatus>("/api/chat/voice"),
   /** Every correction waiting on a reviewer, not just this browser's own.
    *
    *  The rail badge has always read this. Review & Audit now reads it too, so

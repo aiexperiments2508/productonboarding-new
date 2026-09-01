@@ -364,3 +364,23 @@ export const IconSpeakerOff = (p: IconProps) => (
     <path d="m16 10 4 4M20 10l-4 4" />
   </Icon>
 );
+
+/** Dictating a question. A capsule on a stand - the shape everybody reads as
+ *  "microphone" at 16px, where a detailed grille reads as noise. */
+export const IconMic = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="9.2" y="2.8" width="5.6" height="10.4" rx="2.8" />
+    <path d="M5.6 11.2a6.4 6.4 0 0 0 12.8 0" />
+    <path d="M12 17.6v3.6" />
+  </Icon>
+);
+
+/** Recording. The same capsule, filled, so the state is legible without
+ *  relying on colour alone. */
+export const IconMicLive = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="9.2" y="2.8" width="5.6" height="10.4" rx="2.8" fill="currentColor" />
+    <path d="M5.6 11.2a6.4 6.4 0 0 0 12.8 0" />
+    <path d="M12 17.6v3.6" />
+  </Icon>
+);

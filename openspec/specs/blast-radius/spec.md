@@ -13,6 +13,21 @@ The map of products, variants, listings and channels SHALL be derived from the
 catalog on read, with a relation on every edge and every edge endpoint present
 as a node, so the map cannot drift from the catalog it claims to draw.
 
+The map SHALL also carry the external systems currently connected, joined to
+what they feed, so that "where did this come from" is answerable one hop
+further out than the supplier. A system that is connected but has delivered
+nothing SHALL still appear; an estate that only shows what has already spoken
+cannot show a silent system.
+
+No node's position SHALL be read from stored data. A tier whose membership
+changes while the application is running cannot be laid out from coordinates
+written at generation time, and a stored position is a second account of a
+structure the catalog already settles.
+
+The map SHALL follow connections as they change: connecting a system SHALL add
+it and its edges, and disconnecting one SHALL mark it degraded rather than
+removing it and the facts it delivered.
+
 #### Scenario: Each tier is joined with a derived edge
 
 - **WHEN** the map is requested
@@ -28,6 +43,32 @@ as a node, so the map cannot drift from the catalog it claims to draw.
 - **THEN** the correction summary is empty in every field
 - **AND** `tests/test_propagation.py::test_a_quiet_catalog_reports_no_corrections`
   asserts the empty shape
+
+#### Scenario: Connected systems are on the map, including the silent ones
+
+- **WHEN** the map is requested with the estate connected and one system having
+  delivered nothing
+- **THEN** every connected system is a node, each is joined to what it feeds,
+  and the silent one is present
+- **AND** `tests/test_connections.py::test_connected_systems_are_on_the_map_including_silent_ones`
+  asserts each
+
+#### Scenario: No node carries a stored position
+
+- **WHEN** the catalog and the map are inspected for node coordinates
+- **THEN** the catalog stores none and the map derives every position from the
+  tier and the live membership of that tier
+- **AND** `tests/test_connections.py::test_no_node_position_is_stored`
+  asserts both
+
+#### Scenario: Disconnecting a system degrades it and keeps what it delivered
+
+- **WHEN** a system that has delivered facts is disconnected and the map is
+  requested again
+- **THEN** the system is still a node and is marked degraded, its edges remain,
+  and the facts it delivered are unchanged
+- **AND** `tests/test_connections.py::test_disconnecting_degrades_without_retracting`
+  asserts each
 
 ### Requirement: Corrections in force are shown with the document behind them
 
@@ -362,3 +403,70 @@ rather than raise.
 - **THEN** an error is returned
 - **AND** `tests/test_propagation.py::test_an_unknown_listing_is_an_error_not_an_exception`
   asserts it
+
+### Requirement: The walk answers in the identifiers people act on
+
+A trace SHALL additionally resolve to the SKUs it reaches, each carrying the
+listings and channels that SKU is live on.
+
+A blast radius expressed only in internal identifiers is one only this system
+can read. The buyer asked which products are affected, the supplier asked what
+to reissue and the marketplace account manager asked what to pull all work in
+SKUs, and a finding they cannot address is a finding that does not travel.
+
+A SKU SHALL be reported once however many listings carry it, and the listings
+and channels under it SHALL be ordered, so two reads of one trace agree.
+
+#### Scenario: A trace names the SKUs it reaches
+
+- **WHEN** a correction is traced
+- **THEN** every affected variant appears once with its SKU, the listings it is
+  live on and the channels those listings feed
+- **AND** `tests/test_publication.py::test_the_blast_radius_answers_in_skus`
+  asserts each
+
+#### Scenario: A correction to one variant names the sibling it reaches
+
+- **WHEN** a correction scoped to one variant is traced, and another variant's
+  content quotes the corrected value
+- **THEN** both SKUs are reported
+- **AND** `tests/test_publication.py::test_a_correction_to_one_variant_names_the_siblings_it_reaches`
+  asserts the second, which is the case the whole propagation design exists for
+
+### Requirement: The systems that must be told are grouped with their work
+
+A trace SHALL group the listings it reaches by the publication system that owns
+each one, carrying the SKUs affected on that system.
+
+"Eleven listings" is a number and "these four SKUs on these three systems" is a
+work list, and the second is what somebody acts on.
+
+The publication systems SHALL be derived from the channels the catalog declares
+rather than configured separately. A publication list that could disagree with
+the channel list is a second account of where content goes, and the first thing
+it would disagree about is the channel somebody has just added.
+
+#### Scenario: Publication systems follow the channels
+
+- **WHEN** the publication systems are read
+- **THEN** there is exactly one per channel the catalog declares, each with a
+  distinct identifier and its own endpoint
+- **AND** `tests/test_publication.py::test_publication_systems_are_derived_from_the_channels`
+  asserts each
+
+#### Scenario: Each system carries the SKUs it has to reissue
+
+- **WHEN** a trace is grouped by publication system
+- **THEN** each system appears once, carrying the listings it owns and the SKUs
+  those listings carry, both ordered
+- **AND** `tests/test_publication.py::test_the_systems_to_tell_are_grouped_with_their_skus`
+  asserts each
+
+#### Scenario: A system that cannot recall what it published says so
+
+- **WHEN** the publication systems are read
+- **THEN** a system is marked unrecallable exactly where its channel declares a
+  freeze window, because the window exists because the artefact cannot be pulled
+  back and the two are the same fact
+- **AND** `tests/test_publication.py::test_a_channel_that_cannot_be_recalled_says_so`
+  asserts the correspondence

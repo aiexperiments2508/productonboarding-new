@@ -270,3 +270,262 @@ count alongside the number of actions reversed.
 - **THEN** the second rollback retracts no facts
 - **AND** `tests/test_orchestration.py::test_a_repeated_rollback_retracts_nothing_twice`
   asserts the empty retraction
+
+### Requirement: A dispatch can be planned without being made
+
+What a resolution would be sent to, and which of those systems would refuse it,
+SHALL be answerable without publishing anything.
+
+A reviewer approving a correction should see that the printed catalogue is
+inside its freeze window before deciding, rather than discovering it from a
+report afterwards. Planning SHALL write nothing: a surface that published as a
+side effect of being looked at would be the worst possible way to learn this.
+
+#### Scenario: Planning writes nothing
+
+- **WHEN** a dispatch is planned
+- **THEN** no action is committed
+- **AND** `tests/test_publication.py::test_planning_a_dispatch_sends_nothing`
+  asserts the count is unchanged
+
+#### Scenario: A channel that cannot recall is deferred, not attempted
+
+- **WHEN** a dispatch is planned for a correction reaching a channel inside a
+  freeze window whose artefact cannot be recalled
+- **THEN** that system is deferred and the deferral names the window
+- **AND** `tests/test_publication.py::test_a_frozen_channel_is_deferred_rather_than_attempted`
+  asserts both
+
+### Requirement: Publishing and rollback report per system
+
+A dispatch SHALL report an outcome for each publication system it reaches -
+sent, deferred, or refused - each carrying its reason where it is not sent.
+
+"Failed" is not an answer a caller can act on: it does not distinguish nothing
+having gone out from almost everything having gone out, and the difference
+decides what somebody does next.
+
+The counts a dispatch reports SHALL be derived from the rows it returns, so the
+summary cannot disagree with the detail beneath it.
+
+#### Scenario: The counts agree with the rows
+
+- **WHEN** a dispatch reports
+- **THEN** the sent, deferred and refused counts equal the rows carrying each
+  outcome
+- **AND** `tests/test_publication.py::test_the_dispatch_report_counts_agree_with_its_rows`
+  asserts each
+
+#### Scenario: A channel never sent to is not reported as reverted
+
+- **WHEN** a resolution is rolled back and one of the systems it reached was
+  deferred rather than sent to
+- **THEN** that system reports that it was never sent rather than reporting a
+  reversal
+- **AND** `tests/test_publication.py::test_a_channel_never_sent_to_is_not_reported_as_reverted`
+  asserts the distinction, because reporting a reversal there would be a false
+  statement about a printed page
+
+### Requirement: A refusal is a property of the resolution, not of a channel
+
+Where publication is refused, every system SHALL be reported refused, carrying
+the single reason the approval boundary gave.
+
+The gates - a recorded approval, evidence that has not moved, no open safety
+violation - are properties of the resolution. Publishing to four channels a
+resolution nobody approved would be four problems rather than none, and a
+per-channel refusal would invite exactly that reading.
+
+The reason SHALL be the one the boundary returned rather than one re-derived
+here. Two accounts of why a publish was refused is one account too many.
+
+#### Scenario: With no approval on record, every system refuses
+
+- **WHEN** a dispatch is attempted for a resolution with no approval recorded
+- **THEN** nothing is sent, every system is reported refused, and the response
+  names the reason
+- **AND** `tests/test_publication.py::test_a_dispatch_without_an_approval_refuses_every_system`
+  asserts each
+
+#### Scenario: One refusal is reported once
+
+- **WHEN** a dispatch is refused across several systems
+- **THEN** every system carries the same reason, and it is the response's own
+- **AND** `tests/test_publication.py::test_a_refused_dispatch_reports_one_reason_not_six`
+  asserts both
+
+### Requirement: Republishing over a safety redaction needs its own release decision
+
+Where a listing holds a safety redaction, publishing to it SHALL be refused
+until a release decision has been recorded - a fourth refusal beside those the
+publish path already applies.
+
+A release decision SHALL be recorded in its own table and SHALL NOT be written
+to the approvals table. If it lived there it would satisfy the first gate by
+itself, and "we agreed the old value was wrong" would silently become "we agreed
+the new value is right" - which is the one substitution the whole approval
+architecture exists to prevent.
+
+A release approval alone SHALL NOT publish an unapproved resolution, and a
+rejected release SHALL NOT open the gate. A redaction of an ordinary field SHALL
+NOT hold a publish at all, and an open safety violation SHALL still be reported
+ahead of the release gate, so a reviewer sees the substantive problem rather
+than only the procedural one.
+
+Every release SHALL be recorded against the person who took it.
+
+#### Scenario: The release decision is kept apart from the approval
+
+- **WHEN** a release decision is recorded
+- **THEN** the approvals table is unchanged
+- **AND** `tests/test_redaction.py::test_a_release_decision_is_not_written_to_the_approvals_table`
+  asserts it
+
+#### Scenario: The publish is refused, then goes through
+
+- **WHEN** a publish is attempted against a listing holding a safety redaction,
+  and again once the release is recorded
+- **THEN** the first is refused and the second proceeds
+- **AND** `tests/test_redaction.py::test_publishing_to_a_listing_holding_a_safety_redaction_is_refused`
+  and `::test_the_same_publish_goes_through_once_the_release_is_recorded` assert
+  both
+
+#### Scenario: Neither gate substitutes for the other
+
+- **WHEN** only a release is recorded, and separately when a release is rejected
+- **THEN** the unapproved resolution does not publish, and the rejection does not
+  open the gate
+- **AND** `tests/test_redaction.py::test_a_release_approval_alone_does_not_publish_an_unapproved_resolution`
+  and `::test_a_rejected_release_does_not_open_the_gate` assert both
+
+#### Scenario: An ordinary redaction holds nothing, and the real violation is still reported
+
+- **WHEN** an ordinary field is redacted, and separately when an allergen
+  violation is open behind a release gate
+- **THEN** the first holds no publish and the second is still reported
+- **AND** `tests/test_redaction.py::test_a_redaction_of_an_ordinary_field_does_not_hold_a_publish`
+  and `::test_an_open_allergen_violation_is_still_reported_before_the_release_gate`
+  assert both
+
+#### Scenario: A release names who took it
+
+- **WHEN** a release decision is recorded
+- **THEN** it carries the person who took it
+- **AND** `tests/test_redaction.py::test_a_release_is_recorded_against_the_person_who_took_it`
+  asserts it
+
+### Requirement: A publisher declares which of its tools mutate
+
+Each publication system's endpoint SHALL declare which of its tools can write,
+and SHALL serve exactly the tools it declares. The declared verb list SHALL
+cover every tool that can write.
+
+The count of tools is not the property worth asserting - it goes stale the
+moment the surface grows. What matters is that the server serves what it
+declares and that the mutating set is declared rather than guessed at from the
+verbs, so an operator who wants to show somebody a blast radius does not have to
+hand over the ability to act on it.
+
+#### Scenario: A publisher serves exactly what it declares
+
+- **WHEN** each publisher's tools are listed against its declaration
+- **THEN** they match, and the mutating set is among them
+- **AND** `tests/test_publication.py::test_every_publisher_declares_which_of_its_tools_mutate`
+  asserts it
+
+#### Scenario: The verb list covers every writing tool
+
+- **WHEN** the declared verbs are compared with the tools that can write
+- **THEN** the verbs cover them
+- **AND** `tests/test_publication.py::test_the_declared_verbs_cover_every_tool_that_can_write`
+  asserts it
+
+### Requirement: A prohibited sale is its own publish-time refusal, independent of confidence
+
+Where a market authority has prohibited the sale of a product, publishing SHALL
+be refused by a constraint of its own in the safety gate. That refusal SHALL NOT
+depend on the confidence of any inference.
+
+This is the reason the constraint exists rather than being left to the machinery
+already present. **The safety gate only ever fires on a low-confidence
+inference.** A withdrawal notice is recorded *confidently* - it is a document
+from a market authority saying so - which means the existing gate has no
+objection to it. The product would be escalated for review, the review would
+agree the notice is real, and the publish would proceed.
+
+The refusal SHALL apply to every listing the product reaches, not only the one
+that raised it, and SHALL NOT be treated as something regenerating copy can
+resolve. A product may not be sold; rewriting the sentence about it does not
+change that.
+
+A product still permitted SHALL NOT be gated.
+
+#### Scenario: The sale gate is part of the publish refusal
+
+- **WHEN** a publish is attempted for a product whose sale is prohibited
+- **THEN** it is refused by the sale constraint
+- **AND** `tests/test_validator.py::test_the_sale_gate_is_part_of_the_publish_refusal`
+  asserts it
+
+#### Scenario: A withdrawal blocks every listing the product reaches
+
+- **WHEN** a withdrawn product's listings are validated
+- **THEN** every one of them is blocked
+- **AND** `tests/test_validator.py::test_a_withdrawal_blocks_every_listing_the_product_reaches`
+  asserts it
+
+#### Scenario: Copy cannot fix a withdrawal
+
+- **WHEN** the remediation for a withdrawal is derived
+- **THEN** regenerating copy is not among the options
+- **AND** `tests/test_validator.py::test_a_withdrawal_is_not_something_copy_can_fix`
+  asserts it
+
+#### Scenario: A permitted product is not gated
+
+- **WHEN** a product with no prohibition against it is validated
+- **THEN** the sale constraint does not fire
+- **AND** `tests/test_validator.py::test_a_product_still_permitted_is_not_gated`
+  asserts it
+
+### Requirement: A channel may ask what it is carrying, and only what it is carrying
+
+The publication surface SHALL offer a read answering what lines a channel is
+carrying, scoped to the asking system. It SHALL NOT name a line belonging to
+another channel.
+
+The existing listing lookup deliberately refuses to confirm a line the asking
+channel does not carry, which is what stops one channel discovering another's
+assortment by exhaustive guessing. Telling a channel what is on its own shelf is
+a different act, and the scoping is what keeps it different.
+
+The answer SHALL be in the catalogue's own order rather than sorted by
+identifier. Sorting by identifier orders a shop by brand prefix, which is
+alphabetical rather than meaningful.
+
+A downstream application SHALL obtain what a channel carries by asking. It SHALL
+NOT hold its own copy of the catalogue - a list written down outside the
+platform is wrong the next time a product is renamed, and it fails silently,
+because "not carrying these lines" is a truthful answer about lines that no
+longer exist.
+
+#### Scenario: A channel can be asked what it is carrying
+
+- **WHEN** a channel asks for its shelf
+- **THEN** it is answered with the lines it carries
+- **AND** `tests/test_publication.py::test_a_channel_can_be_asked_what_it_is_carrying`
+  asserts it
+
+#### Scenario: A shelf never names another channel's line
+
+- **WHEN** a channel asks for its shelf
+- **THEN** no line belonging to another channel appears in the answer
+- **AND** `tests/test_publication.py::test_a_shelf_never_names_another_channels_line`
+  asserts it
+
+#### Scenario: The shelf leads with what the catalogue leads with
+
+- **WHEN** a shelf is returned
+- **THEN** its order is the catalogue's, not the identifier ordering
+- **AND** `tests/test_publication.py::test_a_shelf_leads_with_the_lines_the_catalog_leads_with`
+  asserts it

@@ -48,6 +48,18 @@ what the gateway would actually serve. The listing SHALL say whether it came fro
 the gateway or from the fallback, and SHALL carry the reason it fell back, so a
 stale list is never presented as current.
 
+**No model identifier SHALL appear in application code at all** - not as a
+default, not as a last-resort fallback, and not as a tier hint's example. Two
+such lists survived in the client for exactly this purpose and both had gone
+stale against the shipped configuration, so an outage produced a picker whose
+every entry the gateway would have refused. A wrong answer offered confidently
+is worse than none.
+
+Where neither the gateway nor the configuration names a model, the system SHALL
+say that no model is available rather than returning an invented alias. A caller
+handed a name will use it, and the refusal then surfaces from inside a run
+instead of at the point where the cause is obvious.
+
 #### Scenario: With no gateway reachable the list is the shipped aliases
 
 - **WHEN** the model list is refreshed against an unreachable gateway
@@ -56,6 +68,22 @@ stale list is never presented as current.
   least one embedding model
 - **AND** `tests/test_models.py::test_fallback_is_parsed_from_the_shipped_config`
   asserts each, against the file rather than against a hard-coded alias
+
+#### Scenario: No model identifier is written in the application
+
+- **WHEN** the application's own modules are searched for a model identifier
+- **THEN** none appears outside the shipped gateway configuration and the
+  environment
+- **AND** `tests/test_models.py::test_no_model_is_named_in_application_code`
+  asserts the absence
+
+#### Scenario: With nothing served and nothing configured, the answer is none
+
+- **WHEN** a tier is resolved with no gateway reachable and no configuration
+  present
+- **THEN** the caller is told no model is available, and no alias is returned
+- **AND** `tests/test_models.py::test_no_model_available_is_said_rather_than_invented`
+  asserts both
 
 ### Requirement: A tier the gateway does not serve degrades rather than failing
 
@@ -190,6 +218,23 @@ error it can catch and fall back from, carrying a message an operator can act on
 and a successful probe SHALL clear the suppression so starting the gateway
 mid-session recovers without a restart.
 
+**Every invocation through that egress SHALL append to the spend ledger**,
+embedding calls included, and the append SHALL NOT be able to raise into the
+call it is recording. Capturing accounting in one place is only true if the
+place records every call; embedding spend that is not written down is a reindex
+that costs real money and reports nothing.
+
+**A breached spend cap SHALL raise the same gateway error an unreachable
+gateway raises.** Every model step already has a deterministic fallback for
+that error and the whole suite exercises those fallbacks, so a cap degrades the
+system exactly as far as losing the network does - narrower answers, reported as
+narrower - rather than introducing a failure mode nothing has a fallback for.
+
+The cap MAY overshoot by up to one batch of concurrent calls, because
+concurrent readers clear the check together before any of them records a token.
+Closing that would mean serialising calls deliberately made concurrent, to
+harden a control whose design is to be soft.
+
 #### Scenario: A run against a closed port completes and says the gateway was unreachable
 
 - **WHEN** a full correction run is executed with the gateway pinned to a closed
@@ -208,3 +253,18 @@ mid-session recovers without a restart.
   halfway down a node
 - **AND** this is verified by inspection of the parse guard; no test covers it
   directly
+
+#### Scenario: A breached cap degrades the run rather than failing it
+
+- **WHEN** a spend cap is breached and a model step runs
+- **THEN** the step receives the same error it receives from an unreachable
+  gateway and takes its existing fallback
+- **AND** `tests/test_tower.py::test_a_breached_cap_refuses_the_way_an_unreachable_gateway_does`
+  asserts it
+
+#### Scenario: Embedding spend is recorded like any other call
+
+- **WHEN** an embedding request leaves the egress
+- **THEN** a ledger row is written for it
+- **AND** `tests/test_tower.py::test_spend_is_attributable_to_a_feed_and_a_surface`
+  asserts the attribution the row carries

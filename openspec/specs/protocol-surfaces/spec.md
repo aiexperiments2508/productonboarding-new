@@ -16,6 +16,17 @@ that toolset actually exposes, and every declared tool SHALL resolve to its own
 toolset when its owner is looked up. A tool nothing declares SHALL resolve to
 unknown rather than to a guess.
 
+A toolset MAY be discovered from a connected external system rather than
+declared in the application. A discovered toolset SHALL be owned by the system
+that declared it and SHALL be listed beside the built-in ones rather than merged
+into them.
+
+A discovered tool SHALL NOT shadow a built-in tool of the same name. Where the
+names collide the built-in SHALL win, the collision SHALL be reported, and the
+discovered tool SHALL remain reachable only under its own system. A connected
+system quietly redefining the tool that commits a plan is precisely the failure
+the partition exists to prevent.
+
 #### Scenario: No tool is on two toolsets
 
 - **WHEN** every toolset's tools are collected
@@ -38,12 +49,41 @@ unknown rather than to a guess.
 - **AND** `tests/test_protocols.py::test_owner_lookup_covers_every_declared_tool`
   asserts both
 
+#### Scenario: A discovered toolset is listed beside the built-in ones
+
+- **WHEN** a system is connected and the combined listing is read
+- **THEN** the built-in toolsets are present and unchanged, the discovered one
+  appears beside them naming its system as owner, and each is labelled with
+  where it came from
+- **AND** `tests/test_connections.py::test_a_discovered_toolset_is_listed_beside_the_built_in_ones`
+  asserts each
+
+#### Scenario: A discovered tool does not shadow a built-in one
+
+- **WHEN** a connected system declares a tool whose name a built-in toolset
+  already uses
+- **THEN** the built-in remains the owner of that name, the collision is
+  reported on the connection, and the discovered tool is reachable only through
+  its own system
+- **AND** `tests/test_connections.py::test_a_discovered_tool_does_not_shadow_a_built_in_one`
+  asserts each
+
 ### Requirement: The mutating surface is one named server
 
 Exactly one toolset SHALL be able to change what a channel sees, so an operator
 can hand out the read-only surfaces and withhold that one. The one permitted
 exception is the event plane's tape control, which moves the clock and never the
 catalog. No read-only toolset SHALL expose publication or rollback.
+
+**A toolset that only reports derived figures SHALL declare no mutating tool.**
+Where every number a surface serves is recomputed on read from a module that
+owns the decision behind it, there is nothing a tool could sensibly write to,
+and a writable dashboard would be a second account of the truth.
+
+**A control that changes what the system does unattended SHALL NOT be an
+agent-callable tool.** A spend cap belongs with the approval gate and the
+publish command rather than beside the reads: it stays on a surface that demands
+the name of whoever set it and writes that name to the audit ledger.
 
 #### Scenario: Only the publishing toolset writes
 
@@ -88,6 +128,16 @@ Both the tool transport and peer delegation SHALL be off by default and SHALL be
 read per call rather than captured once, so the switch can be changed without a
 restart. A tool with no route SHALL still run in-process rather than failing.
 
+The transport a toolset is reached over SHALL be a property of its connection
+rather than a property of the application, so that a spawned module and a
+remote endpoint can be in use at the same time. Adding a transport SHALL NOT
+change what any tool returns.
+
+A connected system that stops answering SHALL degrade rather than fail: the
+connection SHALL be marked degraded, any lookup routed to it SHALL fall back to
+the in-process implementation where one exists, and the run SHALL continue. No
+external system SHALL be load-bearing for a correction run.
+
 #### Scenario: The tool transport is off unless asked for
 
 - **WHEN** the switch is absent, then set on, then set off
@@ -108,6 +158,23 @@ restart. A tool with no route SHALL still run in-process rather than failing.
 - **THEN** it runs in-process with the arguments it was given and returns its
   result
 - **AND** `tests/test_protocols.py::test_an_unrouted_tool_still_runs` asserts both
+
+#### Scenario: Two transports are in use at once without disagreeing
+
+- **WHEN** one toolset is reached over a spawned module and another over an HTTP
+  endpoint, and the same lookup is made through each
+- **THEN** both answer, each call is recorded with the transport it actually
+  used, and the answers match what the in-process implementations return
+- **AND** `tests/test_connections.py::test_two_transports_are_in_use_at_once_without_disagreeing`
+  asserts each
+
+#### Scenario: A system that stops answering degrades the connection, not the run
+
+- **WHEN** a connected system becomes unreachable and a lookup it owns is made
+- **THEN** the connection is marked degraded, the lookup returns the in-process
+  answer, the fallback is recorded, and the run completes
+- **AND** `tests/test_connections.py::test_an_unreachable_system_degrades_rather_than_failing`
+  asserts each
 
 ### Requirement: The peers are split at real seams, and the approval gate is not one
 
@@ -224,3 +291,176 @@ table rather than asked to recall it.
   reported, and the value it could not place travels with the row
 - **AND** `tests/test_protocols.py::test_the_copywriter_refuses_an_ambiguous_literal`
   asserts each
+
+### Requirement: A connected application reaches the platform only over the protocol
+
+The applications in `apps/` SHALL reach the platform over MCP and by no other
+route. This SHALL hold for the pages they serve as well as for the processes
+themselves: a page SHALL NOT fetch the platform directly.
+
+A file the platform generates for a supplier SHALL therefore cross the protocol
+as content and be relayed by the application from its own origin. A page
+linking directly to the platform would move the supplier's identity into the
+browser, where it becomes whatever a tab claims.
+
+#### Scenario: The applications exist as their own processes
+
+- **WHEN** the applications are enumerated
+- **THEN** each is present as its own server
+- **AND** `tests/test_app_boundary.py::test_the_applications_are_actually_there`
+  asserts it
+
+#### Scenario: None of them imports the platform or calls the REST API
+
+- **WHEN** each application's imports and outbound calls are walked
+- **THEN** none reaches the platform package or its HTTP API
+- **AND** `tests/test_app_boundary.py::test_no_connected_application_imports_the_platform`
+  and `::test_no_connected_application_calls_the_platforms_rest_api` assert both
+
+#### Scenario: Their pages stay inside their own server
+
+- **WHEN** the applications' web pages are examined for what they fetch
+- **THEN** none reaches past its own server
+- **AND** `tests/test_app_boundary.py::test_the_web_pages_do_not_reach_past_their_own_server`
+  asserts it
+
+#### Scenario: A template download crosses MCP
+
+- **WHEN** the vendor portal offers a supplier a template
+- **THEN** the portal fetches it through an intake tool and serves the bytes
+  from its own origin, and no page fetches an absolute URL
+- **AND** `tests/test_app_boundary.py` asserts the whole boundary, including
+  the new routes
+
+### Requirement: An intake endpoint exposes exactly what its system accepts
+
+Each vendor intake endpoint SHALL expose the tools derived from the event types
+its manifest entry declares it accepts, and no others. Narrowing a system in
+the manifest SHALL remove the corresponding tools with no code change.
+
+A tool that requires more than one accepted event type SHALL be exposed only
+where the system accepts all of them. A product feed carries attribute rows and
+photographs in one archive, so an endpoint that cannot take both has no
+real-world equivalent of one and SHALL NOT offer it.
+
+Reading what the retailer asks for SHALL be available on every intake endpoint,
+whatever it accepts: knowing the requirements is not a privilege that depends
+on how a supplier is permitted to send them.
+
+#### Scenario: Only accepting systems have an intake, and its tools are derived
+
+- **WHEN** the intake endpoints are enumerated
+- **THEN** each belongs to a system the manifest marks as accepting, its tools
+  follow from what that system accepts, and it declares which of them can act
+- **AND** `tests/test_intake.py::test_only_the_systems_the_manifest_marks_as_accepting_have_an_intake`,
+  `::test_every_intake_tool_is_derived_from_what_its_system_accepts`,
+  `::test_an_intake_endpoint_ends_in_a_slash` and
+  `::test_the_intake_declares_which_of_its_tools_can_act` assert each
+
+#### Scenario: The bulk door appears only where both are accepted
+
+- **WHEN** the tool list for each vendor-facing system is derived
+- **THEN** the system accepting attribute rows, documents and imagery exposes
+  the product-feed tool, and the systems accepting only a subset do not
+- **AND** `tests/test_bundle_intake.py::test_only_a_system_that_takes_rows_and_images_gets_the_bulk_door`
+  asserts it
+
+#### Scenario: Every endpoint can read the template
+
+- **WHEN** the tool list for each vendor-facing system is derived
+- **THEN** every one of them exposes the template read
+- **AND** `tests/test_bundle_intake.py::test_every_endpoint_can_read_the_template`
+  asserts it
+
+### Requirement: The intake surface cannot reach the fact store
+
+The intake surface SHALL NOT be able to reach the fact store. Its only write
+SHALL be an appended event.
+
+That is the enforcement behind "a supplier cannot write a value": not a
+permission check, which is a thing that can be passed or forgotten at a new call
+site, but the absence of a code path.
+
+No intake tool SHALL shadow a built-in toolset's tool name, and an intake
+endpoint SHALL NOT be registered as an outbound connection - it is a door into
+this platform, not a system this platform talks to.
+
+#### Scenario: The intake cannot reach the fact store
+
+- **WHEN** the intake surface's reachable writes are examined
+- **THEN** the fact store is not among them and an appended event is the only
+  write
+- **AND** `tests/test_protocols.py::test_the_intake_surface_cannot_reach_the_fact_store`
+  and `::test_the_only_write_the_intake_makes_is_an_appended_event` assert both
+
+#### Scenario: An intake shadows nothing and is not an outbound connection
+
+- **WHEN** the intake tools and the connection registry are examined
+- **THEN** no intake tool shadows a built-in name and no intake is registered
+  as an outbound connection
+- **AND** `tests/test_protocols.py::test_no_intake_tool_shadows_a_built_in_toolset_name`
+  and `::test_intake_endpoints_are_not_registered_as_outbound_connections`
+  assert both
+
+### Requirement: A shared endpoint owns its session for the session's whole life
+
+The endpoint a connected application reaches the platform through SHALL own its
+transport session in a task of its own, for the life of the session. It SHALL
+NOT open the session inside a request and leave it belonging to that request.
+
+The transport runs its reader in the task that opened it. A session opened
+inside a request therefore stops being read the moment that request finishes,
+and the next caller gets a session whose replies nobody is reading - it waits
+for ever and holds the endpoint while waiting, so every later call queues behind
+a call that will never finish. Nothing raises; the page shows a spinner.
+
+Concurrent callers SHALL all be answered. A call SHALL be shielded from its
+caller's cancellation, so a browser that navigated away or a request that timed
+out takes nothing down with it. A call that does not answer within a bounded
+time SHALL be abandoned and its session reopened, so an endpoint wedged by some
+other cause recovers without the process being restarted.
+
+#### Scenario: Two calls at once do not wedge the endpoint
+
+- **WHEN** two calls to one endpoint overlap
+- **THEN** both are answered and the endpoint remains usable
+- **AND** `tests/test_app_boundary.py::test_two_calls_at_once_do_not_wedge_an_endpoint`
+  asserts it
+
+#### Scenario: A caller that gives up leaves the endpoint usable
+
+- **WHEN** a caller is cancelled mid-call
+- **THEN** the session survives and the next call is answered
+- **AND** `tests/test_app_boundary.py::test_a_caller_that_gives_up_does_not_take_the_session_with_it`
+  asserts it
+
+These two tests pin what is assertable in-process. They do **not** reproduce the
+original deadlock, which needs the real transport's task affinity and therefore
+a live platform, and they say so - a test named for a bug it cannot reproduce
+reads as coverage that is not there.
+
+### Requirement: A capability this platform implements is not an estate system
+
+A toolset the platform serves for its own capabilities SHALL be published as a
+toolset, and SHALL NOT appear among the external systems the platform connects
+to.
+
+The estate is the set of systems this platform *talks to*, and it is declared by
+a manifest that nothing outside may name. A capability the platform
+*implements* is the other side of that boundary, and the agent-card surface
+exists to keep the two apart.
+
+#### Scenario: The control tower is a read-only toolset
+
+- **WHEN** the control tower's toolset is examined
+- **THEN** it declares no mutating tool, and the spend cap is not among its
+  tools
+- **AND** `tests/test_tower.py::test_the_control_tower_toolset_declares_no_mutating_tool`
+  asserts it
+
+#### Scenario: A toolset does not widen the estate
+
+- **WHEN** the systems named outside the manifest are collected
+- **THEN** the control tower is not among them
+- **AND** `tests/test_estate.py::test_no_system_is_named_outside_the_manifest`
+  asserts it

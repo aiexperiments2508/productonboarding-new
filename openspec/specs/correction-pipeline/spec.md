@@ -421,6 +421,30 @@ later correction on the same subject SHALL supersede an earlier one without
 implying the field is now right on the page. A resolution SHALL retire only
 corrections about the same subject.
 
+**A document falling out of force is a different thing from a notice being
+withdrawn, and the two SHALL be distinguished by what still stands on it.**
+
+Retracting a revision is usually the opposite of bad news - a provisional
+document pulled after the question it raised was settled - and that reading is
+carried on the event itself and retires what it clears. A retraction that leaves
+values *unsupported* is the opposite, and SHALL open a correction rather than
+retire one.
+
+A correction SHALL be raised only where a value in force **pins** the retracted
+document version: a value that revision asserted and nothing has since replaced.
+A value that merely inherits the version, or one recorded from an earlier
+revision, is still supported and SHALL NOT be reported. Keying on the document
+rather than the version would report every value a document ever asserted as
+unsupported the moment any later revision were retracted, which is the opposite
+of what a retraction means.
+
+One correction SHALL be raised per subject rather than per attribute, because a
+revision retracted under six of a variant's attributes is one piece of news
+about that variant.
+
+A correction raised this way SHALL NOT act as a resolver, so it cannot retire
+the corrections it stands beside.
+
 #### Scenario: A withdrawn notice is not an open correction
 
 - **WHEN** a run reads a tape carrying a provisional notice and the withdrawal
@@ -452,12 +476,32 @@ corrections about the same subject.
 - **AND** `tests/test_graph.py::test_a_revision_supersedes_but_does_not_resolve`
   asserts it
 
+#### Scenario: Retracting a revision nothing stands on opens nothing
+
+- **WHEN** a document version is retracted and no value in force pins it
+- **THEN** no correction is raised about it
+- **AND** `tests/test_graph.py::test_withdrawing_a_revision_nothing_stands_on_opens_nothing`
+  asserts it
+
+#### Scenario: Retracting a revision values stand on opens one correction
+
+- **WHEN** a document version is retracted while values in force pin it across
+  several attributes of one subject
+- **THEN** one correction is raised for that subject, naming the attributes left
+  unsupported, and it retires nothing
+
 ### Requirement: A run reports what it spent and how long each step took
 
 Model spend SHALL be recorded per stage rather than as one accumulator, so that
 concurrent writers do not erase one another, and a stage that reached no model
 SHALL report no spend at all. Every trace line SHALL carry the time taken to
 reach it, so that "which step is slow" is answerable from the run's own artefact.
+
+Where a stage makes several model calls concurrently, their spend SHALL merge
+within that stage to the same totals the calls would have produced one after
+another, and a gateway outage that every one of them meets SHALL be reported
+once rather than once per call. An accumulator that is correct under one worker
+and wrong under six is not a smaller bug for being harder to see.
 
 #### Scenario: A stage records what its model calls cost
 
@@ -474,6 +518,24 @@ reach it, so that "which step is slow" is answerable from the run's own artefact
   stage, and both stages survive the merge
 - **AND** `tests/test_graph.py::test_spend_is_keyed_by_node_so_one_writer_does_not_erase_another`
   asserts each
+
+#### Scenario: Spend inside one stage survives its calls being made at once
+
+- **WHEN** a stage's model calls are made concurrently and their spend is folded
+  back into the stage's record
+- **THEN** the calls, tokens, cost and cache hits total what the same calls made
+  in sequence would have totalled, and no call is lost or counted twice
+- **AND** `tests/test_graph.py::test_spend_within_a_stage_survives_concurrent_workers`
+  asserts each
+
+#### Scenario: One outage is reported once, however many calls met it
+
+- **WHEN** a stage's concurrent model calls all fail against an unreachable
+  gateway
+- **THEN** the stage reports the outage as a single error line and every field
+  it could not reach a model for falls back deterministically
+- **AND** `tests/test_graph.py::test_a_gateway_outage_is_reported_once_however_many_workers_meet_it`
+  asserts both
 
 #### Scenario: Every trace line says how long it took
 
@@ -509,3 +571,111 @@ would have the run extract superseded values as though they were the correction.
 - **THEN** each returns empty rather than raising, and the run continues
 - **AND** `tests/test_graph.py::test_reading_from_disk_never_breaks_a_run` asserts
   all four
+
+### Requirement: Independent model work within a stage may be done at once
+
+Where a stage makes several model calls that do not read one another's results,
+it MAY make them concurrently. Doing so SHALL NOT change what the stage
+produces: the actions, the trace line, the recorded values and the validation
+trace hash SHALL be identical to those the same stage produces making the same
+calls one after another.
+
+Results SHALL be assembled in the order of the work rather than the order the
+replies arrived. Ordering by completion is not a tie-break that is usually
+right, it is a different answer on a fast network.
+
+The number of calls in flight SHALL be bounded, and the bound SHALL be reducible
+to one. A concurrent implementation whose serial case is unreachable cannot be
+compared against the thing it replaced.
+
+#### Scenario: Rewriting fields at once produces what rewriting them in turn did
+
+- **WHEN** the same correction is regenerated with one worker and with several
+- **THEN** the proposed actions, their order, the rewritten text, the citations
+  and the trace hash of the validated result are identical
+- **AND** `tests/test_graph.py::test_parallel_regeneration_matches_the_sequential_result`
+  asserts the equality
+
+#### Scenario: The reply that arrives first does not become the first result
+
+- **WHEN** a stage's concurrent calls return in an order other than the order
+  they were issued in
+- **THEN** the assembled result follows the order of the targets, not the order
+  of the replies
+- **AND** `tests/test_graph.py::test_results_follow_the_targets_not_the_replies`
+  asserts the ordering
+
+### Requirement: A stage that threads a value through its work keeps that work in order
+
+Where a stage's steps read a value the previous step wrote, those steps SHALL
+run in sequence. Reading a document against a recorded instant that a later
+document's writes have already advanced is the difference between recording a
+correction and recording it twice.
+
+Such a stage MAY still make its model calls concurrently, because a reading of
+a document depends on the catalog and the document alone. The concurrency SHALL
+be confined to the part that reads, and the part that writes SHALL proceed in
+the order the events arrived on the tape.
+
+#### Scenario: Documents are persisted in tape order however their readings raced
+
+- **WHEN** several supplier documents are read concurrently and then persisted
+- **THEN** they are persisted in tape order, each against the recorded instant
+  the previous one advanced to, and a covering email restating the
+  specification it accompanies still records nothing new
+- **AND** `tests/test_graph.py::test_extraction_persists_in_tape_order_however_its_readings_raced`
+  asserts both
+
+### Requirement: The open-correction queue covers trouble that leaves no fact behind
+
+The corrections in force SHALL include a value that lost a precedence contest, a
+required value a document asserted empty, and a document no longer in force that
+values are still standing on - as well as the moved values and refused feeds
+already derived.
+
+Each of these is a kind of trouble the estate detects and the record does not
+hold as a changed value in force, so a queue derived from values alone cannot
+see any of them.
+
+**A value that lost a precedence contest SHALL be recomputed rather than
+stored.** Ingestion refuses to record a row ranking below the document in force,
+and it is right to - recording the loser would let a lower-ranked source quietly
+beat a higher-ranked one. Both halves of the contest survive anyway: the losing
+value in the event payload, and the winning value as the fact in force. The
+contest SHALL be recomputed against what is in force *now*, so a row the record
+later adopted, or whose document later outranked the one that beat it, stops
+being reported.
+
+**A required value asserted empty SHALL be classified as missing information by
+the same predicate ingestion applies**, not by attribute path. Two copies of
+that predicate would be two definitions of a gap, and the queue would disagree
+with the record that filled it.
+
+All three SHALL be derived on read and SHALL NOT be stored. Nothing then has to
+be retired: a conflict the record came round to, a gap later filled and a
+document later reinstated stop being reported because the record stopped saying
+them, which is the only resolution rule that cannot drift out of step with the
+facts.
+
+#### Scenario: A feed row that lost a precedence contest opens a case
+
+- **WHEN** a row is refused for ranking below the document in force
+- **THEN** an open correction reports the disagreement, naming the losing value
+  and the value that stands
+- **AND** `tests/test_graph.py::test_a_feed_row_that_lost_a_precedence_contest_opens_a_case`
+  asserts it
+
+#### Scenario: A conflict the record came round to retires itself
+
+- **WHEN** the record subsequently holds the value the refused row carried
+- **THEN** the correction stops being reported, with nothing having retracted it
+- **AND** `tests/test_graph.py::test_a_conflict_the_record_came_round_to_stops_being_open`
+  asserts it
+
+#### Scenario: A required value submitted empty is a gap, not a change
+
+- **WHEN** a document asserts a required attribute with no value in it
+- **THEN** the open correction reports missing information rather than a
+  correction to what the field used to say
+- **AND** `tests/test_graph.py::test_a_required_value_submitted_empty_opens_a_case_as_a_gap`
+  asserts it

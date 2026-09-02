@@ -61,6 +61,17 @@ The cases open at the replay clock SHALL be listable, worst first, with the
 instant they were read at. A run SHALL accept the case to be decided; omitting it
 SHALL NOT mean "look at everything" - the run still takes one coherent case.
 
+**The list SHALL be re-derived on every read.** Nothing about a case is stored,
+so a case the record has resolved disappears without anything having to retract
+it, and a case a run *opened* - by reading a document nobody had examined - is
+visible on the next read rather than waiting to be noticed.
+
+That property is what makes the list safe to work through in a loop: a caller
+may start a run against each open case in turn, re-reading the list between
+runs, and each run stops at its own approval gate. Reaching an approval gate is
+a success for such a sweep and not a reason to stop, because the queue of
+decisions is the point.
+
 #### Scenario: The case list is the pipeline's own grouping
 
 - **WHEN** the open cases are requested
@@ -76,6 +87,14 @@ SHALL NOT mean "look at everything" - the run still takes one coherent case.
 - **THEN** the run decides that case and reports the others still open
 - **AND** `tests/test_graph.py::test_a_scoped_run_decides_one_product_and_reports_the_rest`
   asserts the behaviour the route passes through
+
+#### Scenario: A case the record resolved leaves the list without being retracted
+
+- **WHEN** the record comes to hold the value a refused row carried, and the
+  list is read again
+- **THEN** that case is gone, and nothing retracted it
+- **AND** `tests/test_graph.py::test_a_conflict_the_record_came_round_to_stops_being_open`
+  asserts the derivation the route reports
 
 ### Requirement: A run and a revision are streamed as the pipeline's own progress
 
@@ -157,6 +176,27 @@ actual checkpoint rather than served from a status column alone, and SHALL carry
 the material the reviewer is being shown. A run whose stored status says it is
 waiting but whose checkpoint says otherwise SHALL NOT appear.
 
+**The pending list is the queue, and every surface that reports on it SHALL read
+that one list.** A count and a listing SHALL NOT be derived from separate
+sources.
+
+An approval gate that only its own author can see is not a gate. Where the queue
+is held per-server and a review surface is scoped to one session's own thread
+identifier, the two are each correct about their own source and disagree in
+public - a badge reporting work waiting beside a screen reporting none, with the
+waiting work being a decision nobody else can take. Reading one list makes that
+disagreement unrepresentable rather than merely corrected.
+
+A pending entry SHALL carry the grounds for choosing it over another: its
+severity, whether review is mandatory, when it was raised, how many fields the
+decision moves, and the product it concerns. A reviewer with several waiting
+decisions otherwise triages by opening each one, which is a checkpoint load per
+row to answer a question the list already holds.
+
+Selecting an entry SHALL adopt that run wholly, so that a subsequent revision or
+a reload follows the selected case rather than whichever run this client last
+started.
+
 #### Scenario: Only runs actually suspended appear
 
 - **WHEN** the pending list is requested
@@ -164,6 +204,14 @@ waiting but whose checkpoint says otherwise SHALL NOT appear.
   checkpoint, and carries the material presented at the gate
 - **AND** the checkpoint reading it confirms against is asserted by
   `tests/test_graph.py::test_a_run_survives_the_process_being_lost`
+
+#### Scenario: A second person can open and decide a case they did not raise
+
+- **WHEN** a run suspended by one client is listed and selected by another
+- **THEN** the case opens with its material and its decision is available
+- **AND** the resume path this rests on is asserted by
+  `tests/test_graph.py::test_a_run_survives_the_process_being_lost`; the client
+  behaviour is verified by use, there being no frontend test in this repository
 
 ### Requirement: A revision is its own route and refuses where there is nothing to revise
 
@@ -190,11 +238,31 @@ SHALL be refused as a conflict rather than silently starting something new.
 
 ### Requirement: The replay clock is driven through one command route
 
-Starting, pausing, stepping, changing speed, jumping and resetting the event tape
-SHALL all be one command, and every event the command releases SHALL be ingested
-and broadcast before the response is returned. A jump with no destination SHALL
-go to the correction the demonstration turns on. A reset SHALL clear the
-per-consumer cursors as well as the tape.
+Starting, pausing, stepping, changing speed, jumping, rewinding and clearing the
+event tape SHALL all be one command, and every event the command releases SHALL
+be ingested and broadcast before the response is returned. A jump with no
+destination SHALL go to the correction the demonstration turns on.
+
+**Rewinding the recording and retracting a supplier's submission SHALL be
+different commands.** A rewind SHALL unrelease the recorded flight and SHALL
+leave the live lane untouched, because moving the clock is not a reason to
+withdraw something a supplier sent. Clearing SHALL be the deliberate act: it
+SHALL remove the events that arrived through a supplier portal, the arrivals
+that carried them, the submission records over them, and the proposals nobody
+had answered.
+
+Both commands SHALL clear the per-consumer cursors, and the live consumer's
+cursor SHALL NOT be optional on a clear. Live sequence numbers restart at their
+base once the rows are gone, so a cursor left at the old high-water mark would
+silently discard every subsequent submission as already-seen - ingestion would
+stop and report success, which is the exact failure a per-lane cursor exists to
+prevent.
+
+A clear SHALL leave the facts those submissions recorded, SHALL leave decisions
+a person has taken and values already written unattended, and the surface
+offering the command SHALL state that it does. Clearing the tape and retracting
+a fact are different acts; the second needs supersession, and a control that
+quietly did both would be a control nobody could reason about.
 
 #### Scenario: A jump releases, ingests and reports
 
@@ -202,14 +270,55 @@ per-consumer cursors as well as the tape.
 - **THEN** the released events are ingested, the resulting corrections are
   broadcast individually, and the response reports the replay state, how many
   events were released, and the correction sequence
-- **AND** this is verified by inspection of the route body; the ingestion it calls
-  is asserted by `tests/test_ingest.py`
+- **AND** this is verified by inspection of the route body; the ingestion it
+  calls is asserted by `tests/test_ingest.py`
 
 #### Scenario: A jump with no destination goes to the correction
 
 - **WHEN** a jump is requested with no destination
 - **THEN** the tape advances to the sequence at which the correction is injected
 - **AND** this is verified by inspection of the route body
+
+#### Scenario: Clearing removes the portal traffic and rewinds the tape
+
+- **WHEN** the tape is cleared after a supplier has pushed a submission through
+  a portal
+- **THEN** the recording is rewound and the portal events, their arrivals and
+  their submission records are gone
+- **AND** `tests/test_live_lane.py::test_clearing_removes_the_portal_traffic_and_rewinds_the_tape`
+  asserts it
+
+#### Scenario: A clear leaves the facts the submission recorded
+
+- **WHEN** the tape is cleared after a submission has recorded facts
+- **THEN** those facts are still in force
+- **AND** `tests/test_live_lane.py::test_clearing_leaves_the_facts_a_submission_recorded`
+  asserts it
+
+#### Scenario: A submission after a clear is still ingested
+
+- **WHEN** a supplier submits again after a clear
+- **THEN** the submission is ingested rather than discarded as already-seen
+- **AND** `tests/test_live_lane.py::test_a_submission_after_a_clear_is_still_ingested`
+  asserts it
+
+#### Scenario: A clear does not let a later submission lose to a surviving fact
+
+- **WHEN** a submission arrives after a clear against an attribute a surviving
+  fact still holds
+- **THEN** the later submission wins the as-of read rather than tying and losing
+  by identifier
+- **AND** `tests/test_live_lane.py::test_a_clear_does_not_let_a_later_submission_tie_with_a_surviving_fact`
+  asserts it
+
+#### Scenario: Open questions go and answered ones stay
+
+- **WHEN** the tape is cleared with both an undecided and a decided proposal
+  outstanding
+- **THEN** the undecided proposal is removed and the decided one is kept, so a
+  reviewer's own past decisions survive a rewind
+- **AND** `tests/test_live_lane.py::test_clearing_takes_the_open_questions_and_leaves_the_answered_ones`
+  asserts it
 
 ### Requirement: The record is readable on both time axes
 
@@ -337,3 +446,111 @@ this route and the catalog tool disagree about the same table.
 - **THEN** the response is a 404 carrying the reason
 - **AND** the underlying error is asserted by
   `tests/test_propagation.py::test_an_unknown_product_is_an_error_not_an_exception`
+
+### Requirement: Connections are listed, added and removed through the API
+
+The connected systems SHALL be readable as a list carrying, for each, its
+identifier, its owner, the transport it is reached over, its state, when it was
+last heard from, and the tools it declared. A system SHALL be connectable by
+address alone, and disconnectable by identifier.
+
+Connecting SHALL perform a real handshake and record what the system answered,
+rather than trusting the address. A system that cannot be reached SHALL be
+recorded as degraded with the reason, and SHALL NOT prevent the call from
+returning.
+
+#### Scenario: One address is one connection record, whatever it answered
+
+- **WHEN** a system is connected by address, and then connected again at the
+  same address
+- **THEN** the connection is recorded with its transport and state, and the
+  listing holds one record for that address carrying the later answer
+- **AND** `tests/test_connections.py::test_connecting_the_same_address_twice_updates_one_record`
+  and `::test_disconnecting_then_reconnecting_leaves_one_connection` assert both
+
+#### Scenario: The tools a system declared are listed against it
+
+- **WHEN** a connected system has declared what it can do
+- **THEN** its toolset appears in the listing beside the built-in ones, labelled
+  as connected and carrying the tools it declared
+- **AND** `tests/test_connections.py::test_a_discovered_toolset_is_listed_beside_the_built_in_ones`
+  asserts each
+
+The handshake against an address that answers is not covered by a test. The
+connection suite runs with nothing listening anywhere, deliberately - the happy
+path needs a server and the failure path needs to not need one - so what the
+suite exercises is the degraded path below.
+
+#### Scenario: An address that cannot be reached is recorded, not raised
+
+- **WHEN** a system is connected at an address nothing answers
+- **THEN** the call returns, the connection is recorded as degraded with the
+  reason, and no exception reaches the caller
+- **AND** `tests/test_connections.py::test_an_unreachable_address_is_recorded_not_raised`
+  asserts each
+
+#### Scenario: Disconnecting removes the connection and keeps the record
+
+- **WHEN** a connected system is disconnected by identifier
+- **THEN** it leaves the connected listing, the facts it delivered remain
+  readable, and reconnecting it restores it without duplicating anything
+- **AND** `tests/test_connections.py::test_disconnecting_then_reconnecting_leaves_one_connection`
+  asserts each
+
+### Requirement: Topology changes are readable as a stream
+
+A change to the estate - a system connecting, disconnecting, degrading or
+recovering - SHALL be emitted on a stream, so that a reader watching the map
+sees it without asking again. Each message SHALL name the system and what
+happened to it.
+
+The stream SHALL be a view of the connection records rather than a second
+account of them, so a reader that missed a message and re-reads the list
+arrives at the same picture.
+
+#### Scenario: Connecting and disconnecting each emit one message
+
+- **WHEN** a system is connected and then disconnected while the stream is open
+- **THEN** one message names it as connected and one names it as disconnected,
+  in that order
+- **AND** this is verified by inspection of the two route bodies, each of which
+  publishes once; no test covers the message count directly
+
+#### Scenario: The stream and the list agree
+
+- **WHEN** the estate is changed several times and the list is read afterwards
+- **THEN** the list matches the state the stream's messages describe
+- **AND** `tests/test_connections.py::test_the_topology_stream_and_the_listing_agree`
+  asserts the equality
+
+### Requirement: Products are searchable, readable and assessable through the API
+
+A search route SHALL accept a SKU, an internal identifier or words from a name
+and return matching variants. A record route SHALL return one product's merged
+record. An assessment route SHALL return its findings and verdict. A preview
+route SHALL return the staging page for a ready record and refuse otherwise.
+
+Every one of these SHALL be produced by the same functions the rest of the
+system calls, rather than by a second implementation. Two implementations of one
+read become two accounts of the same product the first time either is edited.
+
+#### Scenario: The API's product reads are the same reads
+
+- **WHEN** the product routes are inspected against the functions they call
+- **THEN** each delegates rather than re-deriving its answer
+- **AND** `tests/test_product360.py::test_the_api_product_reads_are_the_pipelines_own`
+  asserts the delegation
+
+#### Scenario: A search with no match answers empty rather than failing
+
+- **WHEN** a search route is called with a term nothing matches
+- **THEN** it returns an empty result set with status 200
+- **AND** `tests/test_product360.py::test_a_search_with_no_match_is_empty_not_an_error`
+  asserts both
+
+#### Scenario: A preview of an unready product is refused with its reasons
+
+- **WHEN** the preview route is called for a product that is not ready
+- **THEN** it refuses and the response carries the verdict and the findings
+- **AND** `tests/test_preview.py::test_the_preview_route_refuses_an_unready_product`
+  asserts both

@@ -11,19 +11,24 @@ context: |
   the retrieval matrix, LiteLLM as the single model gateway. React 18 + Vite +
   Tailwind v4 frontend, no chart library. pytest.
 
-  V2 extends this into a plug-and-play estate. Ten or more external systems
-  feed the retailer, each reached over MCP; they connect and disconnect while
-  the app is running, and the dependency map follows. Beside the correction
-  loop there is now a product surface: search a SKU, judge whether its
-  information is fit to launch, and preview the page it would become.
+  The specification is written in stages, and every stage is a change under
+  `changes/`. Beyond the correction loop the system covers a plug-and-play
+  estate - fifteen external systems reached over MCP, connecting and
+  disconnecting while the app runs, with the dependency map following - and a
+  product surface: search a SKU, judge whether its information is fit to
+  launch, and preview the page it would become. Beside those sit the bulk door
+  (a supplier data pack, a bundle and the report on it), the gate that decides
+  whether a product may be onboarded at all and the queue of proposed values
+  behind it, an editable corpus of the documents the factory is answerable to,
+  and a control tower that joins what the rest already derives.
 
   The governing architectural rule: **mostly deterministic, bounded AI.** A
   model reads corrected values out of unstructured supplier prose, argues
   base-versus-variant scope, flags semantically stale copy, rewrites affected
-  copy, and writes the reviewer's narrative. It never originates a number, a
-  verdict, or a publish decision. Everything that decides what publishes -
-  identity, lineage, taxonomy, channel rules, effective dating, propagation,
-  approval gates, audit - is ordinary software.
+  copy, reorders retrieved passages, and writes the reviewer's narrative. It
+  never originates a number, a verdict, or a publish decision. Everything that
+  decides what publishes - identity, lineage, taxonomy, channel rules,
+  effective dating, propagation, approval gates, audit - is ordinary software.
 
   Load-bearing invariants:
   - Every model step has a deterministic fallback and catches GatewayError. The
@@ -51,28 +56,44 @@ context: |
   - A verdict is arithmetic. Launch readiness, like publication, is decided by
     counting open findings against rules; a model may find and cite a problem,
     and may write the covering note, but never sets the outcome.
+  - Compliance is asked before completeness. Whether a product may lawfully and
+    policy-compliantly be sold is settled before anything is retrieved,
+    proposed or spent on filling its gaps.
+  - A confidence is composed, never reported. The score that decides whether a
+    value is written unattended is arithmetic over things already on file; a
+    model's self-report is one discounted input among them. Two structural
+    refusals - a safety-class attribute, and a value fewer than two sources
+    agree with - sit in front of the threshold and do not move with it.
+  - Retrieval answers only for what is in force. A document that has been
+    retired produces no chunks, and one whose commencement date has not been
+    reached is not returned.
+  - What is derived is never stored. Stages, verdicts, lanes, flow states, KPIs
+    and the open-correction queue are all recomputed on read, so a case that
+    the record has resolved retires itself and nothing has to remember to
+    retract it. The one deliberate exception is a proposal a person is asked to
+    approve: they approve the exact value they were shown.
 
-  Naming caution when writing specs: the codebase deliberately kept several
-  names from the supply-chain project it was refactored from - SimResult and
-  simulate() for what is a validation pass and not a simulation, Incident for
-  what the UI calls a correction case, sc/tools/network.py for a catalog read.
-  Write requirements against observable behaviour, never against these names,
-  or the spec inherits the mismatch.
+  Naming caution when writing specs: the code deliberately keeps several names
+  from the supply-chain domain the model was first drawn against - SimResult
+  and simulate() for what is a validation pass and not a simulation, Incident
+  for what the UI calls a correction case, sc/tools/network.py for a catalog
+  read. Write requirements against observable behaviour, never against these
+  names, or the spec inherits the mismatch.
 
 rules:
   spec:
     - Write a requirement only where the behaviour is real and checkable today.
       A spec that overstates is worse than none, because the first reader to
       test one finds it.
-    - Where a test already asserts the behaviour, name that test in the
-      scenario. Requirements that cannot be pointed at a test are suspect.
-    - Never write "the system SHALL invoke a model at exactly N points" - the
-      count has been wrong in this repo's own docs before. Prefer requirements
-      about what a model may not originate.
+    - Where a test asserts the behaviour, name that test in the scenario.
+      Requirements that cannot be pointed at a test are suspect.
+    - Never write "the system SHALL invoke a model at exactly N points" - a
+      count like that goes stale the first time a check is added. Prefer
+      requirements about what a model may not originate.
   proposal:
-    - Say what was actually true before the change, including the bug or gap
-      that motivated it. These proposals are reconstructed from work already
-      done; write what happened, not an idealised version.
+    - Say what is true before the change, including the bug or the gap that
+      motivates it. Describe the system as it actually stands, not an idealised
+      version of it, and name the defects the change is expected to close.
   tasks:
     - Check a task only if it is genuinely complete. An unchecked task on a
       live change is more useful than a tidy one that lies.
